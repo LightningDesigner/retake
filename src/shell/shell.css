@@ -108,3 +108,5 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 .note-meta .el { flex: 1 1 auto; min-width: 0; }
 .lines .marker { fill: var(--accent); cursor: pointer; }
 .lines .marker-pole { stroke: var(--accent); stroke-width: 1.2; }
+/* The flag stands on its own: no capsule, just the hover fill. */
+.group.bare { background: transparent; border-color: transparent; }
