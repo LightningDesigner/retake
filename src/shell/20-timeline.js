@@ -1,90 +1,100 @@
-// The timeline: one bright line for the timeline you're on, and every other
-// branch growing off it where it split, in the spirit of the TVA's branch
-// screens. Only the playhead moves time: drag it (no click-to-seek). Dragging
-// back pauses recording, leaves a stop at the last recorded moment and shows
-// the past live as you go; letting go builds that moment for real.
+// The timeline: one row per timeline (branch), labelled on the left. A branch's
+// bar starts where it split off its parent, joined by a short curve. Only the
+// playhead moves time: drag it (no click-to-seek). Dragging back pauses
+// recording, leaves a ring at the last recorded moment and shows the past live
+// as you go; letting go builds that moment for real.
 
-const PAD = 10
+const PAD = 8
+const ROW = 18 // row pitch
+const BAR = 10 // bar height
+const TOP = 16 // room for the time chip
+const labelsEl = $(".labels")
+const timeChip = $(".time")
 let dragT = null
 let liveNow = null
 let pendingT = null
 let svgKey = ""
+let labelsKey = ""
+let shownSpan = null // eased span, so the scale glides instead of jumping
 
-function span(s) {
+// The view spans the recording, with a little headroom at the right so the
+// playhead has somewhere to run while recording.
+function targetSpan(s) {
   const ends = branches.map((b) => (b.id === activeId ? Math.max(b.end, s.end) : b.end))
-  const from = s.start
-  return { from, to: Math.max(from + 4000, ...ends) }
+  const end = Math.max(...ends)
+  const len = Math.max(end - s.start, 600)
+  return { from: s.start, to: s.start + len * (s.recording ? 1.08 : 1) }
 }
+function easeSpan(s) {
+  const t = targetSpan(s)
+  if (!shownSpan || shownSpan.from !== t.from || dragT != null) shownSpan = t
+  else shownSpan = { from: t.from, to: shownSpan.to + (t.to - shownSpan.to) * 0.18 }
+  return shownSpan
+}
+const span = () => shownSpan || { from: 0, to: 1 }
 const geom = () => {
   const r = svg.getBoundingClientRect()
   return { w: r.width, h: r.height, left: r.left }
 }
-function xOf(t, s, g) {
-  const { from, to } = span(s)
+function xOf(t, g) {
+  const { from, to } = span()
   return PAD + ((Math.min(Math.max(t, from), to) - from) / (to - from)) * (g.w - 2 * PAD)
 }
 function timeAt(clientX) {
-  const s = last
   const g = geom()
-  const { from, to } = span(s)
+  const { from, to } = span()
   return from + Math.min(1, Math.max(0, (clientX - g.left - PAD) / (g.w - 2 * PAD))) * (to - from)
 }
-
-// Timeline 1 runs through the middle; each branch gets its own row,
-// alternating above and below.
-function laneY(b, g) {
-  const i = branches.indexOf(b)
-  if (i <= 0) return g.h / 2
-  const rows = Math.ceil((branches.length - 1) / 2)
-  const gap = Math.min(9, (g.h / 2 - 3) / rows)
-  return g.h / 2 + (i % 2 ? -1 : 1) * Math.ceil(i / 2) * gap
-}
-
-function branchPath(b, s, g, until) {
-  const y = laneY(b, g)
-  const end = xOf(until, s, g)
-  const parent = branches.find((p) => p.id === b.parentId)
-  if (!parent) return `M${xOf(s.start, s, g)} ${y} L${Math.max(end, xOf(s.start, s, g) + 0.1)} ${y}`
-  const x0 = xOf(b.forkAt, s, g)
-  const y0 = laneY(parent, g)
-  const bend = Math.min(26, Math.max(10, Math.abs(y - y0) * 2.4))
-  return `M${x0} ${y0} C${x0 + bend * 0.6} ${y0} ${x0 + bend * 0.4} ${y} ${x0 + bend} ${y} L${Math.max(end, x0 + bend)} ${y}`
-}
+const rowY = (i) => TOP + i * ROW
+const rowOf = (b) => branches.indexOf(b)
 
 function renderTimeline(s, shownT) {
   const g = geom()
   if (!g.w) return
-  let out = ""
+  renderLabels(s)
   if (!s.started) {
-    out += `<text class="empty" x="${PAD}" y="${g.h / 2 + 4}">Press record to start the timeline</text>`
-    return setSvg(out)
+    timeChip.textContent = ""
+    return setSvg(`<rect class="row" x="${PAD}" y="${rowY(0)}" width="${g.w - 2 * PAD}" height="${BAR}" rx="${BAR / 2}"/>
+      <text class="empty" x="${PAD + 4}" y="${rowY(0) + BAR + 14}">Press record to start</text>`)
   }
+  easeSpan(s)
   const active = activeBranch()
   const activeEnd = Math.max(active.end, s.end)
-  const xNow = xOf(shownT, s, g)
-  // Other branches first, then the one you're on over them.
-  for (const b of branches) {
-    if (b.id === activeId) continue
-    const grow = performance.now() - b.born < 900 ? ' grow" pathLength="1' : ""
-    const d = branchPath(b, s, g, b.end)
-    out += `<path class="branch${grow}" d="${d}"/><path class="hit" data-branch="${b.id}" d="${d}"><title>${esc(b.name)}</title></path>`
-  }
-  const grow = performance.now() - active.born < 900 && active.parentId ? ' grow" pathLength="1' : ""
-  out += `<clipPath id="wb-past"><rect x="0" y="0" width="${xNow}" height="${g.h}"/></clipPath>`
-  out += `<path class="branch active ahead" d="${branchPath(active, s, g, activeEnd)}"/>`
-  out += `<path class="branch active${grow}" clip-path="url(#wb-past)" d="${branchPath(active, s, g, activeEnd)}"/>`
-  // Notes sit on their branch like little tags.
+  const xNow = xOf(shownT, g)
+  let out = ""
+  branches.forEach((b, i) => {
+    const y = rowY(i)
+    const isActive = b.id === activeId
+    const end = isActive ? activeEnd : b.end
+    const x0 = xOf(b.parentId ? b.forkAt : s.start, g)
+    const x1 = Math.max(xOf(end, g), x0 + BAR)
+    const young = performance.now() - b.born < 700
+    out += `<rect class="row" x="${x0}" y="${y}" width="${x1 - x0}" height="${BAR}" rx="${BAR / 2}"/>`
+    if (isActive) {
+      out += `<rect class="bar-ahead" x="${x0}" y="${y}" width="${x1 - x0}" height="${BAR}" rx="${BAR / 2}"/>`
+      out += `<rect class="bar-past active${young ? " grow" : ""}" x="${x0}" y="${y}" width="${Math.max(BAR, xNow - x0)}" height="${BAR}" rx="${BAR / 2}"/>`
+    } else {
+      out += `<rect class="bar-past${young ? " grow" : ""}" data-branch="${b.id}" x="${x0}" y="${y}" width="${x1 - x0}" height="${BAR}" rx="${BAR / 2}" style="cursor:pointer"><title>${esc(b.name)}</title></rect>`
+    }
+    const parent = branches.find((p) => p.id === b.parentId)
+    if (parent) {
+      const py = rowY(rowOf(parent)) + BAR / 2
+      const cy = y + BAR / 2
+      out += `<path class="fork${isActive ? " active" : ""}" d="M${x0} ${py} C${x0} ${(py + cy) / 2} ${x0} ${cy} ${x0 + 6} ${cy}"/>`
+    }
+  })
   for (const n of notes) {
     const b = branches.find((x) => x.id === n.branchId)
-    if (!b) continue
-    out += `<rect class="notebox" data-note="${n.id}" x="${xOf(n.t, s, g) - 3}" y="${laneY(b, g) - 3}" width="6" height="6"><title>${esc(n.text)}</title></rect>`
+    if (b) out += `<circle class="note-dot" data-note="${n.id}" cx="${xOf(n.t, g)}" cy="${rowY(rowOf(b)) - 3}" r="3"><title>${esc(n.text)}</title></circle>`
   }
-  const yA = laneY(active, g)
-  const xEnd = xOf(activeEnd, s, g)
-  if (xEnd - xNow > 4) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="3.5"><title>Last recorded</title></circle>`
-  out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="0" y2="${g.h}"/>`
-  out += `<circle class="knob-hit" cx="${xNow}" cy="${yA}" r="12"/><circle class="knob" cx="${xNow}" cy="${yA}" r="5.5"/>`
+  const yA = rowY(rowOf(active)) + BAR / 2
+  const xEnd = xOf(activeEnd, g)
+  if (xEnd - xNow > 6) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="4"><title>Last recorded</title></circle>`
+  out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="${TOP - 3}" y2="${rowY(branches.length - 1) + BAR + 3}"/>`
+  out += `<circle class="knob-hit" cx="${xNow}" cy="${yA}" r="12"/><circle class="knob" cx="${xNow}" cy="${yA}" r="6"/>`
   setSvg(out)
+  timeChip.textContent = fmt(shownT - s.start)
+  timeChip.style.left = xNow + "px"
 }
 
 function setSvg(markup) {
@@ -92,6 +102,21 @@ function setSvg(markup) {
   svgKey = markup
   svg.innerHTML = markup
 }
+
+function renderLabels(s) {
+  const key = branches.map((b) => b.id + b.name).join() + activeId + s.started
+  if (key === labelsKey) return
+  labelsKey = key
+  const rows = branches.map(
+    (b, i) =>
+      `<button data-branch="${b.id}" class="${b.id === activeId ? "active" : ""}" style="top:${rowY(i) - 4}px" title="${esc(b.name)}">${esc(b.name)}</button>`,
+  )
+  if (s.started) rows.push(`<button class="add" data-a="new-branch" style="top:${rowY(branches.length) - 4}px">+ New timeline</button>`)
+  labelsEl.innerHTML = rows.join("")
+}
+
+// Rows set the dock's height: a new timeline gets its own row.
+const neededHeight = () => Math.max(84, rowY(branches.length + 1) + 12)
 
 // ---- dragging the playhead -------------------------------------------------------
 
@@ -120,8 +145,7 @@ track.addEventListener("pointerdown", (e) => {
     switchTo(Number(branchEl.dataset.branch), timeAt(e.clientX))
     return
   }
-  if (e.target.closest("[data-note]")) return
-  if (!s.started) return
+  if (e.target.closest("[data-note]") || !s.started) return
   const knob = svg.querySelector(".knob")
   const kr = knob && knob.getBoundingClientRect()
   if (!kr || Math.abs(e.clientX - (kr.left + kr.width / 2)) > 12) return
@@ -135,8 +159,8 @@ track.addEventListener("pointerdown", (e) => {
 track.addEventListener("pointermove", (e) => {
   if (dragT == null) return
   const s = last
-  const end = Math.max(activeBranch().end, s.end)
-  dragT = Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, activeBranch().forkAt)), end)
+  const b = activeBranch()
+  dragT = Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end))
   if (pendingT == null) requestAnimationFrame(applyDrag)
   pendingT = dragT
 })
@@ -156,6 +180,19 @@ function endDrag() {
 }
 track.addEventListener("pointerup", endDrag)
 track.addEventListener("pointercancel", endDrag)
+
+// A new timeline, starting at the moment on show. Notes made now belong to it.
+function newTimeline() {
+  const s = state()
+  if (!PT || !s || !s.started) return
+  if (s.previewing) {
+    PT.seek(s.previewAt)
+    setTimeout(newTimeline, 150)
+    return
+  }
+  PT.pause()
+  PT.forkHere()
+}
 
 // Acting on a scoped preview builds that moment for real.
 window.__waybackShell.wake = () => {

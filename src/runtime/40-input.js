@@ -67,7 +67,7 @@ function onInput(e) {
   if (!e.isTrusted || dispatching || !rec) return
   // Holding ⌘ is the dock's "pick an element" gesture, never app input.
   if (shell && e.key === "Meta") return shell.meta(e.type === "keydown")
-  if (shell && e.type === "pointermove") shell.pointer(e.clientX, e.clientY)
+  if (shell && e.type === "pointermove") shell.pointer(e.clientX, e.clientY, e.metaKey)
   // Comment mode: the dock is picking an element. The app sees nothing.
   if (shell && shell.inspecting) {
     shell.inspect(e)

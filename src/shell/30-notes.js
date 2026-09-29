@@ -29,9 +29,17 @@ shell.inspect = (e) => {
       setScope(el)
       setPicking(null)
     } else openComposer(el)
-  } else if (e.type === "keydown" && e.key === "Escape") setPicking(null)
+  } else if (e.type === "keydown" && e.key === "Escape") {
+    setPicking(null)
+    setScope(null)
+  }
 }
-shell.pointer = (x, y) => (lastPointer = { x, y })
+// ⌘ is read from every pointer move too, so a missed keyup (a ⌘-shortcut that
+// took focus away, like a screenshot) can't leave the tool stuck on.
+shell.pointer = (x, y, meta) => {
+  lastPointer = { x, y }
+  if (meta !== undefined && meta !== metaHeld) shell.meta(meta)
+}
 shell.meta = (down) => {
   if (metaHeld === down) return
   metaHeld = down
@@ -56,11 +64,9 @@ function syncPicking() {
   } catch {}
 }
 
+// Selecting the same component again (or pressing Esc) clears it.
 function setScope(el) {
-  scopeEl = el
-  const chip = $(".scope")
-  chip.hidden = !el
-  if (el) chip.innerHTML = `<span>${esc(describe(el).label)}</span><button data-a="clear-scope" aria-label="Clear selection">×</button>`
+  scopeEl = el && el === scopeEl ? null : el
   if (PT && last && last.previewing) PT.preview(last.previewAt, scopeEl)
 }
 
@@ -120,15 +126,17 @@ function describe(el) {
 function prompt(n) {
   const b = branches.find((x) => x.id === n.branchId)
   const start = last ? last.start : 0
+  const parent = b && branches.find((x) => x.id === b.parentId)
   const lines = [
-    `## Prototype note (${fmt(n.t - start)}, ${b ? b.name : "timeline"})`,
+    `## Prototype note (${fmt(n.t - start)}, on timeline "${b ? b.name : "Main"}")`,
+    parent ? `Timeline "${b.name}" branched from "${parent.name}" at ${fmt(b.forkAt - start)}. Make the change for this timeline.` : null,
     `Page: ${n.el.page}`,
     `Element: ${n.el.label}${n.el.text ? ` "${n.el.text}"` : ""}`,
     `Selector: ${n.el.selector}`,
   ]
   if (n.el.components.length) lines.push(`React: ${n.el.components.join(" < ")}`)
   lines.push(`Size: ${n.el.rect.w}×${n.el.rect.h} at (${n.el.rect.x}, ${n.el.rect.y})`, "", n.text)
-  return lines.join("\n")
+  return lines.filter((l) => l != null).join("\n")
 }
 
 async function copy(text, btn) {
@@ -254,7 +262,6 @@ const boxAt = (el, box) => {
 function renderExtras(s) {
   $('[data-a="comment"]').classList.toggle("on", mode() === "comment")
   $('[data-a="select"]').classList.toggle("on", mode() === "select")
-  $('[data-a="notes"] b').textContent = String(notes.length)
 
   const target = mode() && hovered && hovered.isConnected ? hovered : null
   hl.style.display = target ? "block" : "none"

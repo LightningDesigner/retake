@@ -37,7 +37,7 @@ let branches = []
 let activeId = 0
 let branchSeq = 0
 const newBranch = (forkAt, parentId = null) => {
-  const b = { id: ++branchSeq, name: `Timeline ${branchSeq}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
+  const b = { id: ++branchSeq, name: branchSeq === 1 ? "Main" : `Timeline ${branchSeq}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
   branches.push(b)
   return b
 }
@@ -182,7 +182,7 @@ const state = () => {
 function render() {
   checkBuilding()
   const s = state()
-  dock.style.height = height + "px"
+  dock.style.height = Math.max(height, neededHeight()) + "px"
   if (!s) return
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
@@ -191,16 +191,14 @@ function render() {
   recBtn.setAttribute("aria-label", s.recording ? "Pause recording" : "Record")
   recBtn.title = s.recording ? "Pause recording (⌥P)" : "Record (⌥P)"
   const shownT = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
-  const time = $(".time")
-  time.textContent = s.started ? fmt(shownT - s.start) : "00:00.00"
-  time.classList.toggle("idle", !s.started)
   renderTimeline(s, shownT)
   renderExtras(s)
 }
-;(function loop() {
+// First frame after every module has loaded.
+requestAnimationFrame(function loop() {
   render()
   requestAnimationFrame(loop)
-})()
+})
 
 const refocus = () => frame && frame.contentWindow && frame.contentWindow.focus()
 
@@ -225,11 +223,14 @@ document.addEventListener("click", (e) => {
   if (a === "reset") reset()
   if (a === "select") setPicking(picking === "select" ? null : "select")
   if (a === "comment") setPicking(picking === "comment" ? null : "comment")
-  if (a === "notes") toggleNotesPanel()
-  if (a === "clear-scope") setScope(null)
+  if (a === "new-branch") newTimeline()
   if (handleNoteClick(b)) return
-  if (b.dataset.branch && Number(b.dataset.branch) !== activeId) switchTo(Number(b.dataset.branch), timeAt(e.clientX))
-  if (a !== "notes") refocus()
+  // Timeline labels: step into that timeline at the moment on show.
+  if (b.closest(".labels") && b.dataset.branch && Number(b.dataset.branch) !== activeId) {
+    const s = state()
+    switchTo(Number(b.dataset.branch), s ? (s.previewing ? s.previewAt : s.now) : 0)
+  }
+  refocus()
 })
 
 // Resize by dragging the top edge, like docked DevTools.
