@@ -90,12 +90,8 @@ function onInput(e) {
     if (previewing && FORKING.has(e.type) && shell && shell.wake) shell.wake()
     return
   }
-  // Acting is recording: from a paused or past moment it picks recording back
-  // up, and from the past it starts a new branch.
-  if (FORKING.has(e.type) && rec.start != null) {
-    fork()
-    if (!clock.playing) play()
-  }
+  // Acting in the past starts a new branch. Only Record starts recording.
+  if (FORKING.has(e.type) && rec.start != null) fork()
   if (hasFuture()) {
     // The real mouse wandering over the page mustn't disturb the replay.
     if (HOVER.has(e.type)) e.stopImmediatePropagation()

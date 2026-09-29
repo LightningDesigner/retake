@@ -223,7 +223,7 @@ document.addEventListener("click", (e) => {
   if (a === "pause" && PT) PT.pause()
   if (a === "flag") addFlag()
   // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
-  if (b.dataset.tool) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
+  if (b.dataset.tool && !b.disabled) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
   if (handleNoteClick(b)) return
   refocus()
 })

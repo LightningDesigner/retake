@@ -95,10 +95,20 @@ function renderTimeline(s, shownT) {
   const young = active.parentId && performance.now() - active.born < 800 ? ' grow" pathLength="1' : ""
   out += `<path class="ribbon ahead${young}" stroke-width="${BAR}" d="${d}"/>`
   out += `<path class="ribbon past${young}" stroke-width="${BAR}" clip-path="url(#wb-past)" d="${d}"/>`
-  for (const n of notes) {
-    const b = branches.find((x) => x.id === n.branchId)
-    if (b) out += `<circle class="note-dot" data-note="${n.id}" cx="${xOf(n.t, g)}" cy="${rowY(b) - BAR / 2 - 4}" r="3"><title>${esc(n.text)}</title></circle>`
-  }
+  // Every comment, from every timeline, as a small speech bubble sitting on
+  // the ribbon that covers its moment (a note made before its timeline split
+  // off sits on the parent's ribbon, where that moment is drawn).
+  notes.forEach((n, i) => {
+    let b = branches.find((x) => x.id === n.branchId)
+    while (b && b.parentId && n.t < b.forkAt) b = branches.find((x) => x.id === b.parentId)
+    if (!b) return
+    const x = xOf(n.t, g)
+    const y = rowY(b) - BAR / 2 - 3
+    out += `<g class="note-mark${n.branchId === activeId ? " here" : ""}" data-note="${n.id}" transform="translate(${x} ${y})">
+      <path d="M-6 -13 h12 a2.5 2.5 0 0 1 2.5 2.5 v5 a2.5 2.5 0 0 1 -2.5 2.5 h-3.5 l-2.5 3 l-2.5 -3 h-3.5 a2.5 2.5 0 0 1 -2.5 -2.5 v-5 a2.5 2.5 0 0 1 2.5 -2.5z"/>
+      <text x="0" y="-5.6" text-anchor="middle">${i + 1}</text>
+      <title>${esc(n.text)}</title></g>`
+  })
   for (const m of markers) {
     const b = branches.find((x) => x.id === m.branchId)
     if (!b) continue

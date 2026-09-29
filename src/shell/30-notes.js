@@ -17,7 +17,9 @@ const hl = $("#wb-hl")
 const scopeBox = $("#wb-scope")
 const card = $("#wb-note")
 const panel = $("#wb-notes")
-const mode = () => (metaHeld ? "comment" : picking)
+// Select and Comment only work on a still moment: paused, or dragged back.
+const isStill = () => !!(last && last.started && !last.recording)
+const mode = () => (!isStill() ? null : metaHeld ? "comment" : picking)
 
 const shell = window.__waybackShell
 shell.inspecting = false
@@ -176,10 +178,7 @@ function meta(t, el, branchId = activeId) {
 
 function openComposer(el) {
   const s = last
-  if (!PT || !s) return
-  if (!s.started) PT.record()
-  // A note belongs to one moment: freeze time while writing it.
-  PT.pause()
+  if (!PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
   draft = { el: describe(el), t }
   openNote = null
@@ -267,6 +266,12 @@ const boxAt = (el, box) => {
 }
 
 function renderExtras(s) {
+  // Leaving a still moment (recording) drops back to the Hand.
+  if (picking && !isStill()) setPicking(null)
+  for (const t of document.querySelectorAll('[data-tool="select"], [data-tool="comment"]')) {
+    t.disabled = !isStill()
+    t.classList.toggle("disabled", !isStill())
+  }
   const tool = mode() || "hand"
   for (const t of document.querySelectorAll("[data-tool]")) {
     t.classList.toggle("on", t.dataset.tool === tool)

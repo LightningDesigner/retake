@@ -112,3 +112,11 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 .group.bare { background: transparent; border-color: transparent; }
 .lines .spike { stroke: rgba(255,255,255,.55); stroke-width: 1.5; stroke-linecap: round; }
 .lines .band { fill: var(--accent); opacity: .55; }
+/* Comments on the timeline: numbered speech bubbles, amber like the pins. */
+.lines .note-mark { cursor: pointer; }
+.lines .note-mark path { fill: var(--accent); opacity: .55; transition: opacity .15s; }
+.lines .note-mark.here path { opacity: 1; }
+.lines .note-mark:hover path { opacity: 1; }
+.lines .note-mark text { font: 700 7.5px/1 system-ui, sans-serif; fill: rgba(0,0,0,.88); pointer-events: none; }
+.tool.disabled { opacity: .3; cursor: default; }
+@media (hover: hover) { .tool.disabled:hover { background: transparent; color: var(--text-2); } }
