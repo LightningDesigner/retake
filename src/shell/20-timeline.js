@@ -29,6 +29,8 @@ function targetSpan(s) {
 function easeSpan(s) {
   const t = targetSpan(s)
   if (!shownSpan || shownSpan.from !== t.from || dragT != null) shownSpan = t
+  // Settle exactly once close, so a still timeline stops redrawing.
+  else if (Math.abs(t.to - shownSpan.to) < 1) shownSpan = t
   else shownSpan = { from: t.from, to: shownSpan.to + (t.to - shownSpan.to) * 0.18 }
 }
 const span = () => shownSpan || { from: 0, to: 1 }

@@ -112,6 +112,8 @@ W.fetch = function (input, init) {
     if (deliveredEarly.delete(i)) return toResponse(rec.fetches[i])
     return new Promise((resolve, reject) => pendingFetches.set(i, { resolve, reject }))
   }
+  // Paused (trying things out, unrecorded): just go live.
+  if (rec.start != null && !clock.playing) return real.fetch(input, init)
   // Not in the recording (or nothing left to replay): go live and record it.
   fork()
   const idx = rec.fetches.length
@@ -150,6 +152,7 @@ function recordedAsync(realCall) {
     if (settledEarly.has(i)) return asyncOutcome(settledEarly.get(i))
     return new Promise((resolve, reject) => pendingAsync.set(i, { resolve, reject }))
   }
+  if (rec.start != null && !clock.playing) return realCall()
   fork()
   return realCall().then(
     (value) => {

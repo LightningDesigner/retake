@@ -100,7 +100,9 @@ window.__waybackShell = {
     const old = activeBranch()
     old.json = json
     old.end = end
-    activeId = newBranch(at, old.id).id
+    const b = newBranch(at, old.id)
+    b.version = old.version // a new timeline starts on its parent's code
+    activeId = b.id
   },
 }
 

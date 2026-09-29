@@ -1,7 +1,7 @@
-// Code branches (with `--code-branches`): when the prototype's source changes,
-// the timeline forks at the current moment. The old branch keeps the old code,
-// the new one runs the new code from that moment on. Stepping into a branch
-// checks its code back out.
+// Code versions per timeline (with `--code-branches`): when the prototype's
+// source changes, the timeline you're on takes the new code and the moment is
+// rebuilt on it. Each timeline remembers its code; stepping into one checks its
+// code back out, so timelines can differ in code as well as in what happened.
 
 const CODE_BRANCHES = !!(window.__waybackConfig && window.__waybackConfig.codeBranches)
 
@@ -29,16 +29,11 @@ if (CODE_BRANCHES) {
       cur.version = version
       return freshFrame()
     }
-    // On a scoped preview, build that moment for real first; the next check
-    // branches from it.
-    if (PT.state().previewing) return PT.seek(PT.state().previewAt)
-    // The code changed under the current moment: branch here onto it.
-    const t = PT.state().now
-    PT.pause()
-    PT.forkHere()
-    const b = activeBranch()
-    b.version = version
-    b.name = `Timeline ${b.id} · new code`
+    // The code changed: the timeline you're on takes it (no new timeline;
+    // those only come from the +). Rebuild this moment on the new code.
+    const st = PT.state()
+    const t = st.previewing ? st.previewAt : st.now
+    cur.version = version
     PT.load(JSON.stringify(PT.history()), t)
   }, 500)
 }

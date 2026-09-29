@@ -90,8 +90,9 @@ function onInput(e) {
     if (previewing && FORKING.has(e.type) && shell && shell.wake) shell.wake()
     return
   }
-  // Acting in the past starts a new branch. Only Record starts recording.
-  if (FORKING.has(e.type) && rec.start != null) fork()
+  // Nothing branches on its own: new timelines only come from the dock's +.
+  // While paused, input still reaches the prototype but isn't recorded.
+  if (rec.start != null && !clock.playing) return
   if (hasFuture()) {
     // The real mouse wandering over the page mustn't disturb the replay.
     if (HOVER.has(e.type)) e.stopImmediatePropagation()

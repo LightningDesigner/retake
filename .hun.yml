@@ -1,0 +1,7 @@
+name: wayback-machine
+services:
+    app:
+        cmd: echo 'replace with your command'
+detect:
+    version: v2
+    profile: hybrid
