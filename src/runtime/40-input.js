@@ -66,8 +66,9 @@ function serialize(e) {
 function onInput(e) {
   if (!e.isTrusted || dispatching || !rec) return
   // Holding ⌘ is the dock's "pick an element" gesture, never app input.
-  if (shell && e.key === "Meta") return shell.meta(e.type === "keydown")
-  if (shell && e.type === "pointermove") shell.pointer(e.clientX, e.clientY, e.metaKey)
+  // (The dock may still be wiring these up while the prototype boots.)
+  if (shell && shell.meta && e.key === "Meta") return shell.meta(e.type === "keydown")
+  if (shell && shell.pointer && e.type === "pointermove") shell.pointer(e.clientX, e.clientY, e.metaKey)
   // Comment mode: the dock is picking an element. The app sees nothing.
   if (shell && shell.inspecting) {
     shell.inspect(e)

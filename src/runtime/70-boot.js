@@ -89,7 +89,7 @@ PT.shortcut = function (e) {
 function boot() {
   observe()
   if (shell) shell.attach(PT)
-  if (shell) W.addEventListener("blur", () => shell.meta(false))
+  if (shell) W.addEventListener("blur", () => shell.meta && shell.meta(false))
   // Let the first render settle on real frames before time starts moving.
   real.raf(() =>
     real.raf(() => {
