@@ -120,3 +120,9 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 .lines .note-mark text { font: 700 7.5px/1 system-ui, sans-serif; fill: rgba(0,0,0,.88); pointer-events: none; }
 .tool.disabled { opacity: .3; cursor: default; }
 @media (hover: hover) { .tool.disabled:hover { background: transparent; color: var(--text-2); } }
+.lines .head { pointer-events: none; }
+.ctx { width: auto; min-width: 200px; padding: 4px; }
+.ctx button { display: flex; width: 100%; justify-content: flex-start; padding: 8px 10px; border-radius: 8px; font: 500 13px/1 system-ui, sans-serif; }
+.ctx button.danger { color: #ff6b7d; }
+@media (hover: hover) { .ctx button.danger:hover { background: rgba(227,84,106,.14); color: #ff8a99; } }
+.ctx .menu-note { padding: 8px 10px; color: var(--text-3); font-size: 12px; }

@@ -95,22 +95,8 @@ function renderTimeline(s, shownT) {
   }
   const d = ribbon(active, s, g, activeEnd)
   const young = active.parentId && performance.now() - active.born < 800 ? ' grow" pathLength="1' : ""
-  out += `<path class="ribbon ahead${young}" stroke-width="${BAR}" d="${d}"/>`
-  out += `<path class="ribbon past${young}" stroke-width="${BAR}" clip-path="url(#wb-past)" d="${d}"/>`
-  // Every comment, from every timeline, as a small speech bubble sitting on
-  // the ribbon that covers its moment (a note made before its timeline split
-  // off sits on the parent's ribbon, where that moment is drawn).
-  notes.forEach((n, i) => {
-    let b = branches.find((x) => x.id === n.branchId)
-    while (b && b.parentId && n.t < b.forkAt) b = branches.find((x) => x.id === b.parentId)
-    if (!b) return
-    const x = xOf(n.t, g)
-    const y = rowY(b) - BAR / 2 - 3
-    out += `<g class="note-mark${n.branchId === activeId ? " here" : ""}" data-note="${n.id}" transform="translate(${x} ${y})">
-      <path d="M-6 -13 h12 a2.5 2.5 0 0 1 2.5 2.5 v5 a2.5 2.5 0 0 1 -2.5 2.5 h-3.5 l-2.5 3 l-2.5 -3 h-3.5 a2.5 2.5 0 0 1 -2.5 -2.5 v-5 a2.5 2.5 0 0 1 2.5 -2.5z"/>
-      <text x="0" y="-5.6" text-anchor="middle">${i + 1}</text>
-      <title>${esc(n.text)}</title></g>`
-  })
+  out += `<path class="ribbon ahead${young}" data-branch="${active.id}" stroke-width="${BAR}" d="${d}"/>`
+  out += `<path class="ribbon past${young}" data-branch="${active.id}" stroke-width="${BAR}" clip-path="url(#wb-past)" d="${d}"/>`
   for (const m of markers) {
     const b = branches.find((x) => x.id === m.branchId)
     if (!b) continue
@@ -136,6 +122,21 @@ function renderTimeline(s, shownT) {
   if (xEnd - xNow > 8) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="4.5"><title>Last recorded</title></circle>`
   out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="${TOP - 6}" y2="${TOP + (branches.length - 1) * ROW + BAR + 4}"/>`
   out += `<circle class="knob-hit" cx="${xNow}" cy="${yA}" r="12"/><circle class="knob" cx="${xNow}" cy="${yA}" r="6.5"/>`
+  // Drawn last so they sit above the playhead and stay clickable.
+  // Every comment, from every timeline, as a small speech bubble sitting on
+  // the ribbon that covers its moment (a note made before its timeline split
+  // off sits on the parent's ribbon, where that moment is drawn).
+  notes.forEach((n, i) => {
+    let b = branches.find((x) => x.id === n.branchId)
+    while (b && b.parentId && n.t < b.forkAt - 30) b = branches.find((x) => x.id === b.parentId)
+    if (!b) return
+    const x = xOf(n.t, g)
+    const y = rowY(b) - BAR / 2 - 3
+    out += `<g class="note-mark${n.branchId === activeId ? " here" : ""}" data-note="${n.id}" transform="translate(${x} ${y})">
+      <path d="M-6 -13 h12 a2.5 2.5 0 0 1 2.5 2.5 v5 a2.5 2.5 0 0 1 -2.5 2.5 h-3.5 l-2.5 3 l-2.5 -3 h-3.5 a2.5 2.5 0 0 1 -2.5 -2.5 v-5 a2.5 2.5 0 0 1 2.5 -2.5z"/>
+      <text x="0" y="-5.6" text-anchor="middle">${i + 1}</text>
+      <title>${esc(n.text)}</title></g>`
+  })
   setSvg(out)
   timeChip.textContent = fmt(shownT - s.start)
   timeChip.style.left = xNow + "px"
@@ -251,7 +252,8 @@ track.addEventListener("pointerdown", (e) => {
   if (!PT || !s || !s.started) return
   if (e.target === plus) return
   const branchEl = e.target.closest("[data-branch]")
-  if (branchEl) {
+  if (e.button === 2) return
+  if (branchEl && Number(branchEl.dataset.branch) !== activeId) {
     switchTo(Number(branchEl.dataset.branch), timeAt(e.clientX))
     return
   }
@@ -277,7 +279,8 @@ track.addEventListener("pointerdown", (e) => {
 track.addEventListener("pointermove", (e) => {
   if (dragT == null) {
     const s = last
-    const onBranch = e.target.closest && e.target.closest("[data-branch]")
+    const branchEl = e.target.closest && e.target.closest("[data-branch]")
+    const onBranch = branchEl && Number(branchEl.dataset.branch) !== activeId
     // Near the playhead the + snaps to it: that's where you'd branch from after
     // dragging back. It sits below the ribbon so the handle stays draggable.
     if (e.target === plus) return
@@ -294,9 +297,46 @@ track.addEventListener("pointermove", (e) => {
   if (pendingT == null) requestAnimationFrame(applyDrag)
   pendingT = dragT
 })
+// Right-click a timeline: delete it (with anything grown from it, its notes
+// and its code). The first timeline stays.
+const menuEl = $("#wb-menu")
 track.addEventListener("contextmenu", (e) => {
-  if (e.target.closest("[data-marker]")) e.preventDefault()
+  if (e.target.closest("[data-marker]")) return e.preventDefault()
+  const el = e.target.closest("[data-branch]")
+  const b = el && branches.find((x) => x.id === Number(el.dataset.branch))
+  if (!b) return
+  e.preventDefault()
+  menuEl.innerHTML = b.parentId
+    ? `<button class="danger" data-delete-timeline="${b.id}">Delete ${esc(b.name)}</button>`
+    : `<div class="menu-note">The first timeline can't be deleted</div>`
+  menuEl.hidden = false
+  menuEl.style.left = Math.min(e.clientX, innerWidth - 220) + "px"
+  menuEl.style.top = e.clientY - menuEl.offsetHeight - 8 + "px"
 })
+document.addEventListener("pointerdown", (e) => {
+  if (!menuEl.hidden && !e.target.closest("#wb-menu")) menuEl.hidden = true
+})
+
+async function deleteTimeline(id) {
+  const b = branches.find((x) => x.id === id)
+  if (!b || !b.parentId) return
+  const doomed = new Set([id])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const x of branches) {
+      if (x.parentId && doomed.has(x.parentId) && !doomed.has(x.id)) {
+        doomed.add(x.id)
+        grew = true
+      }
+    }
+  }
+  // Standing on it? Step back onto its parent first (that restores the
+  // parent's code too).
+  if (doomed.has(activeId)) await switchTo(b.parentId, b.forkAt)
+  branches = branches.filter((x) => !doomed.has(x.id))
+  notes = notes.filter((n) => !doomed.has(n.branchId))
+  markers = markers.filter((m) => !doomed.has(m.branchId))
+}
 track.addEventListener("pointerleave", () => {
   if (dragT == null) hoverT = null
 })

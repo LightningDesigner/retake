@@ -224,6 +224,11 @@ document.addEventListener("click", (e) => {
   if (a === "record" && PT && !(last && last.recording)) PT.record()
   if (a === "pause" && PT) PT.pause()
   if (a === "flag") addFlag()
+  if (b.dataset.deleteTimeline) {
+    menuEl.hidden = true
+    deleteTimeline(Number(b.dataset.deleteTimeline))
+    return
+  }
   // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
   if (b.dataset.tool && !b.disabled) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
   if (handleNoteClick(b)) return

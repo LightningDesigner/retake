@@ -36,6 +36,9 @@ shell.inspect = (e) => {
 }
 // ⌘ is read from every pointer move too, so a missed keyup (a ⌘-shortcut that
 // took focus away, like a screenshot) can't leave the tool stuck on.
+shell.appPointerDown = () => {
+  if (!card.hidden && !draft) closeCard()
+}
 shell.pointer = (x, y, meta) => {
   lastPointer = { x, y }
   if (meta !== undefined && meta !== metaHeld) shell.meta(meta)
@@ -236,7 +239,11 @@ function handleNoteClick(b) {
   const act = b.dataset.noteA
   if (act === "save") saveDraft()
   if (act === "cancel") closeCard()
-  if (act === "copy" && openNote) copy(prompt(openNote), b)
+  if (act === "copy" && openNote) {
+    copy(prompt(openNote), b)
+    // Copied: fold the note back to its pin.
+    setTimeout(closeCard, 700)
+  }
   if (act === "copy-all") copy(notes.map(prompt).join("\n\n---\n\n"), b)
   if (act === "delete" && openNote) {
     notes = notes.filter((n) => n !== openNote)

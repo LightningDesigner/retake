@@ -69,6 +69,8 @@ function onInput(e) {
   // (The dock may still be wiring these up while the prototype boots.)
   if (shell && shell.meta && e.key === "Meta") return shell.meta(e.type === "keydown")
   if (shell && shell.pointer && e.type === "pointermove") shell.pointer(e.clientX, e.clientY, e.metaKey)
+  // A click in the prototype folds away an open note, like a click anywhere else.
+  if (shell && shell.appPointerDown && e.type === "pointerdown" && !shell.inspecting) shell.appPointerDown()
   // Comment mode: the dock is picking an element. The app sees nothing.
   if (shell && shell.inspecting) {
     shell.inspect(e)
