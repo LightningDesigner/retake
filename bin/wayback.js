@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // wayback CLI.
-//   wayback dev <project> [--port 3014] [--markers file.json] [--code-branches]
+//   wayback dev <project> [--port 3014] [--code-branches]
 //     Runs the project's own Vite dev server with the timeline added, from a
 //     wrapper config kept here. Nothing in the project is touched.
 //   wayback init
@@ -29,7 +29,6 @@ function fail(msg) {
 
 function dev() {
   const port = Number(flag("port", 3014))
-  const markersArg = flag("markers")
   const codeBranches = rest.includes("--code-branches")
   if (codeBranches) rest.splice(rest.indexOf("--code-branches"), 1)
   const project = path.resolve(rest[0] || ".")
@@ -39,8 +38,6 @@ function dev() {
   if (!vite) fail(`vite isn't installed in ${project} (run npm install there first)`)
   const config = CONFIGS.map((f) => path.join(project, f)).find((f) => fs.existsSync(f))
   const name = path.basename(project)
-  const defaultMarkers = path.join(HOME, "markers", `${name}.json`)
-  const markers = markersArg ? path.resolve(markersArg) : fs.existsSync(defaultMarkers) ? defaultMarkers : null
 
   const work = path.join(HOME, ".cache", "projects", name)
   fs.mkdirSync(work, { recursive: true })
@@ -59,13 +56,13 @@ export default async (env) => {
     root: cfg.root ? cfg.root : ${JSON.stringify(project)},
     // Our own dep cache, so the project's node_modules/.vite is left alone.
     cacheDir: ${JSON.stringify(path.join(work, "vite"))},
-    plugins: [wayback({ markers: ${JSON.stringify(markers)}, codeBranches: ${codeBranches} }), ...(cfg.plugins || [])],
+    plugins: [wayback({ codeBranches: ${codeBranches} }), ...(cfg.plugins || [])],
     server: { ...cfg.server, port: ${port}, strictPort: true },
   }
 }
 `,
   )
-  console.log(`wayback: ${name} on http://localhost:${port}/${markers ? `  (markers: ${path.relative(HOME, markers)})` : ""}`)
+  console.log(`wayback: ${name} on http://localhost:${port}/`)
   const child = spawn(process.execPath, [vite, "--config", wrapper, ...rest.slice(1)], {
     cwd: project,
     stdio: "inherit",
@@ -89,7 +86,7 @@ if (cmd === "dev") dev()
 else if (cmd === "init") init()
 else {
   console.log(`Usage:
-  wayback dev <project> [--port 3014] [--markers file.json] [--code-branches]
+  wayback dev <project> [--port 3014] [--code-branches]
   wayback init`)
   process.exit(cmd ? 1 : 0)
 }

@@ -34,7 +34,6 @@ async function processBoundary(B) {
   recordFrame(B)
   syncAnimations()
   await settle()
-  checkMarkers()
   await dispatchUpTo(B)
 }
 

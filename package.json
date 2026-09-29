@@ -10,7 +10,7 @@
   "bin": {
     "wayback": "./bin/wayback.js"
   },
-  "files": ["src", "bin", "markers", "README.md"],
+  "files": ["src", "bin", "README.md"],
   "peerDependencies": {
     "vite": ">=5"
   },

@@ -51,7 +51,6 @@ Object.assign(PT, {
   },
   setRate,
   setEnabled,
-  mark: (label) => addMarker(label, "app"),
   history: () => rec,
   // Jump into another branch's history (a JSON string from history()).
   load: (json, t) => rewind(t, false, json),
@@ -65,28 +64,22 @@ Object.assign(PT, {
     seeking: clock.seeking,
     rate: clock.rate,
     future: hasFuture(),
-    markers: rec.markers,
   }),
   debug: () => ({ ...stats, appMessages, timers: timers.size, anims: managed.size }),
 })
 
-const addManualMarker = () => addMarker(`Marker ${rec.markers.filter((m) => m.src === "user").length + 1}`, "user")
-PT.addMarker = addManualMarker
-
-// Alt+P play/pause and Alt+M marker, while focus is inside the prototype.
+// Alt+P play/pause while focus is inside the prototype.
 PT.shortcut = function (e) {
-  if (!e.altKey || e.metaKey || e.ctrlKey || rec.start == null) return false
-  if (e.code !== "KeyP" && e.code !== "KeyM") return false
+  if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== "KeyP" || rec.start == null) return false
   e.preventDefault()
   e.stopImmediatePropagation()
-  if (e.type !== "keydown" || e.repeat) return true
-  if (e.code === "KeyP") clock.playing ? pause() : play()
-  else addManualMarker()
+  if (e.type === "keydown" && !e.repeat) clock.playing ? pause() : play()
   return true
 }
 
 function boot() {
   if (shell) shell.attach(PT)
+  if (shell) W.addEventListener("blur", () => shell.meta(false))
   // Let the first render settle on real frames before time starts moving.
   real.raf(() =>
     real.raf(() => {

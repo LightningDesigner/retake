@@ -11,10 +11,6 @@
     <div id="wb-dock" role="region" aria-label="Timeline">
       <div class="divider" title="Drag to resize"></div>
       <div class="bar">
-        <button class="switch" data-a="enable" role="switch" aria-checked="false" aria-label="Timeline on/off">
-          <span class="knob"></span>
-        </button>
-        <span class="label">Timeline</span>
         <button class="play" data-a="toggle" aria-label="Play"></button>
         <button class="icon" data-a="loop" aria-label="Loop a moment" title="Loop the last 3s · shift-drag the scrubber for any range">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>
@@ -24,14 +20,13 @@
           <div class="lanes"></div>
           <div class="active-lane">
             <div class="band"><div class="past"></div><div class="future"></div></div>
-            <div class="marks"></div>
           </div>
           <div class="loop-range"></div>
           <div class="pins"></div>
           <div class="head"></div>
           <div class="ghost"><span></span></div>
         </div>
-        <button class="icon" data-a="comment" aria-label="Comment on an element" title="Comment on an element (Esc to stop)">
+        <button class="icon" data-a="comment" aria-label="Comment on an element" title="Comment on an element · or hold ⌘ and click">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
         </button>
         <button class="notes-btn" data-a="notes" aria-label="Notes">Notes <b>0</b></button>
@@ -46,13 +41,13 @@
             <button data-rate="1">1×</button>
             <button data-rate="2">2×</button>
             <hr />
-            <button data-a="mark">Add marker here<kbd>⌥M</kbd></button>
             <button data-a="start">Back to the beginning</button>
           </div>
         </div>
       </div>
     </div>
     <div id="wb-hl"></div>
+    <div id="wb-pins"></div>
     <div id="wb-note" class="card" hidden></div>
     <div id="wb-notes" class="card" hidden></div>
     <script>/*CONFIG*/</script>

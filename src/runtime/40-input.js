@@ -65,6 +65,9 @@ function serialize(e) {
 
 function onInput(e) {
   if (!e.isTrusted || dispatching || !rec) return
+  // Holding ⌘ is the dock's "pick an element" gesture, never app input.
+  if (shell && e.key === "Meta") return shell.meta(e.type === "keydown")
+  if (shell && e.type === "pointermove") shell.pointer(e.clientX, e.clientY)
   // Comment mode: the dock is picking an element. The app sees nothing.
   if (shell && shell.inspecting) {
     shell.inspect(e)
@@ -79,10 +82,8 @@ function onInput(e) {
     if (e.cancelable) e.preventDefault()
     return
   }
-  if (FORKING.has(e.type)) {
-    fork()
-    if (!clock.playing) PT.play()
-  }
+  // Acting in the past starts a new branch. Paused stays paused.
+  if (FORKING.has(e.type)) fork()
   if (hasFuture()) {
     // The real mouse wandering over the page mustn't disturb the replay.
     if (HOVER.has(e.type)) e.stopImmediatePropagation()

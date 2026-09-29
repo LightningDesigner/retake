@@ -28,7 +28,8 @@ const store = {
   },
 }
 
-let enabled = store.get("enabled", false)
+// Installed means on: there's no off switch.
+const enabled = true
 let height = store.get("height", 96)
 let PT = null
 let last = null // last state seen, shown while the frame reloads
@@ -45,7 +46,7 @@ const newBranch = (forkAt, json = null, end = 0) => {
   branches.push(b)
   return b
 }
-const resetBranches = () => {
+function resetBranches() {
   branches = []
   branchSeq = 0
   activeId = newBranch(0).id
@@ -162,15 +163,12 @@ function layout() {
   return rows
 }
 
-let marksKey = ""
 let lanesKey = ""
 function render() {
   const s = state()
-  dock.classList.toggle("off", !enabled)
   const need = 64 + Math.max(0, branches.length - 1) * 22
   dock.style.height = Math.max(height, need) + "px"
-  $(".switch").setAttribute("aria-checked", String(enabled))
-  if (!s || !enabled) return
+  if (!s) return
   const busy = s.seeking || !PT
   dock.classList.toggle("busy", busy)
   const shown = busy && s.target != null ? s.target : s.now
@@ -221,21 +219,6 @@ function render() {
       .join("")
   }
 
-  const key = s.markers.map((m) => m.t + m.label).join() + range(s).dur + width
-  if (key !== marksKey) {
-    marksKey = key
-    // Labels that would collide with the previous one are left to the tooltip.
-    let lastX = -Infinity
-    $(".marks").innerHTML = s.markers
-      .filter((m) => m.t >= s.start)
-      .map((m) => {
-        const x = frac(s, m.t) * width
-        const label = x - lastX > 110 ? `<span>${esc(m.label)}</span>` : ""
-        if (label) lastX = x
-        return `<button data-t="${m.t}" class="${m.src}" title="${esc(m.label)} · ${fmt(m.t - s.start)}" style="left:${x}px">${label}</button>`
-      })
-      .join("")
-  }
   renderExtras(s, rows, width)
   menu.querySelectorAll("[data-rate]").forEach((b) => b.classList.toggle("on", Number(b.dataset.rate) === s.rate))
 }
@@ -253,21 +236,13 @@ document.addEventListener("click", (e) => {
     return
   }
   const a = b.dataset.a
-  if (a === "enable") {
-    enabled = !enabled
-    store.set("enabled", enabled)
-    if (!enabled) resetBranches()
-    if (PT) PT.setEnabled(enabled)
-  }
   if (a === "toggle" && PT) PT.state().playing ? PT.pause() : PT.play()
   if (a === "menu") menu.hidden = !menu.hidden
   if (a === "start" && PT) PT.seek(PT.state().start)
-  if (a === "mark" && PT) PT.addMarker()
   if (b.dataset.rate && PT) PT.setRate(Number(b.dataset.rate))
-  if (b.dataset.t && PT) PT.seek(Number(b.dataset.t))
   if (b.dataset.remove) removeBranch(Number(b.dataset.remove))
   if (a === "loop") toggleLoop()
-  if (a === "comment") setCommenting(!commenting)
+  if (a === "comment") setCommenting(!commentMode)
   if (a === "notes") toggleNotesPanel()
   if (handleExtraClick(b)) return
   if (a !== "menu" && b.closest(".menu")) menu.hidden = true
@@ -329,11 +304,13 @@ divider.addEventListener("pointerdown", (e) => {
   divider.addEventListener("pointerup", up)
 })
 
+window.addEventListener("keyup", (e) => e.key === "Meta" && window.__waybackShell.meta(false))
+window.addEventListener("blur", () => window.__waybackShell.meta(false))
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Meta") return window.__waybackShell.meta(true)
   if (e.key === "Escape" && commenting) return setCommenting(false)
-  if (!e.altKey || !PT || !enabled) return
-  if (e.code === "KeyP") PT.state().playing ? PT.pause() : PT.play()
-  else if (e.code === "KeyM") PT.addMarker()
-  else return
-  e.preventDefault()
+  if (e.altKey && e.code === "KeyP" && PT) {
+    e.preventDefault()
+    PT.state().playing ? PT.pause() : PT.play()
+  }
 })

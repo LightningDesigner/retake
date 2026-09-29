@@ -33,7 +33,6 @@ function newRecording() {
     frames: [],
     events: [],
     fetches: [],
-    markers: [],
     end: 0,
   }
 }
@@ -53,7 +52,6 @@ function fork() {
   rec.events.length = cursor.event
   rec.frames.length = cursor.frame
   rec.fetches = rec.fetches.map((f, i) => (usedFetches.has(i) ? f : null))
-  rec.markers = rec.markers.filter((m) => m.t <= clock.now)
   rec.end = clock.now
   PT.emit()
 }
@@ -77,14 +75,6 @@ function recordFrame(t) {
     cursor.frame = rec.frames.length
   }
   if (t > rec.end) rec.end = t
-}
-
-function addMarker(label, src) {
-  const near = rec.markers.find((m) => m.label === label && Math.abs(m.t - clock.now) < 250)
-  if (near) return
-  rec.markers.push({ t: clock.now, label: String(label), src })
-  rec.markers.sort((a, b) => a.t - b.t)
-  PT.emit()
 }
 
 // ---- fetch ------------------------------------------------------------------

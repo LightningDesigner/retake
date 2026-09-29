@@ -11,12 +11,11 @@ const SRC = path.dirname(fileURLToPath(import.meta.url))
 const read = (...p) => fs.readFileSync(path.join(SRC, ...p), "utf8")
 
 // Read on every page load, so edits to the tool apply on refresh.
-export function runtimeSource(markers = []) {
+export function runtimeSource() {
   const dir = path.join(SRC, "runtime")
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).sort()
   const body = files.map((f) => `// ---- ${f}\n${read("runtime", f)}`).join("\n")
-  const rules = `window.__waybackMarkers = ${JSON.stringify(markers).replace(/</g, "\\u003c")};\n`
-  return `;(function () {\n"use strict";\nif (window.__wayback) return;\n${rules}${body}\n})();`
+  return `;(function () {\n"use strict";\nif (window.__wayback) return;\n${body}\n})();`
 }
 
 export function shellHtml(options = {}) {
@@ -29,21 +28,8 @@ export function shellHtml(options = {}) {
     })
 }
 
-function loadMarkers(markers) {
-  if (!markers) return []
-  if (Array.isArray(markers)) return markers
-  try {
-    return JSON.parse(fs.readFileSync(markers, "utf8"))
-  } catch (err) {
-    console.warn(`[wayback] couldn't read markers from ${markers}: ${err.message}`)
-    return []
-  }
-}
-
 /**
- * @param {{ enabled?: boolean, codeBranches?: boolean, markers?: string | Array<{ name: string, text?: string, selector?: string, count?: number }> }} [options]
- *   `markers`: rules (or a path to a JSON file of them) that drop a marker when
- *   text appears on the page or enough elements match a selector.
+ * @param {{ enabled?: boolean, codeBranches?: boolean }} [options]
  *   `codeBranches`: branch the timeline whenever the source changes, and check
  *   old code back out when stepping into an older branch. Rewrites files.
  * @returns {import("vite").Plugin}
@@ -68,7 +54,7 @@ export function wayback(options = {}) {
         // `?wayback=0` opts a page load out entirely.
         if (params.get("wayback") === "0") return
         if (params.get("__wb") !== "app") return shellHtml(options)
-        return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(loadMarkers(options.markers)), injectTo: "head-prepend" }]
+        return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
       },
     },
   }

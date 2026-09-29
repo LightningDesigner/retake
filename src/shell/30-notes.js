@@ -1,8 +1,13 @@
 // Notes: pick any element in the prototype, at any moment, and write a note on
-// it. Each note remembers the time, the timeline branch and what the element
-// is (selector, text, React component), and copies as a ready-to-paste prompt.
+// it. Hold ⌘ (or toggle the comment button) and the element under the pointer
+// highlights, down to the innermost child. Each note remembers the time, the
+// timeline branch and what the element is, shows as a numbered pin on the
+// prototype and on the timeline, and copies as a ready-to-paste prompt.
 
-let commenting = false
+let commentMode = false // toggled by the button
+let metaHeld = false // held ⌘
+let commenting = false // either of the above
+let lastPointer = null
 let hovered = null
 let notes = [] // { id, t, branchId, text, el }
 let noteSeq = 0
@@ -18,28 +23,36 @@ const panel = $("#wb-notes")
 window.__waybackShell.inspecting = false
 window.__waybackShell.inspect = (e) => {
   if (e.type === "pointermove" || e.type === "pointerover") {
-    hovered = e.target.nodeType === 1 ? pickable(e.target) : null
+    hovered = e.target.nodeType === 1 ? e.target : null
   } else if (e.type === "click" && e.target.nodeType === 1) {
-    openComposer(pickable(e.target))
+    openComposer(e.target)
   } else if (e.type === "keydown" && e.key === "Escape") {
     setCommenting(false)
   }
 }
-
-// Text and icons inside a control stand for the control itself.
-function pickable(el) {
-  return el.closest("button, a, input, select, textarea, label, [role=button], [role=tab], [role=menuitem]") || el
+window.__waybackShell.pointer = (x, y) => (lastPointer = { x, y })
+window.__waybackShell.meta = (down) => {
+  if (metaHeld === down) return
+  metaHeld = down
+  syncPicking()
 }
 
 function setCommenting(on) {
-  commenting = on && enabled
+  commentMode = on
+  if (!on) closeCard()
+  syncPicking()
+}
+
+function syncPicking() {
+  commenting = commentMode || metaHeld
   window.__waybackShell.inspecting = commenting
   hovered = null
-  if (commenting && PT) PT.pause()
   try {
-    frame.contentDocument.documentElement.style.cursor = commenting ? "crosshair" : ""
+    const doc = frame.contentDocument
+    doc.documentElement.style.cursor = commenting ? "crosshair" : ""
+    // Highlight straight away when ⌘ goes down over the prototype.
+    if (commenting && lastPointer) hovered = doc.elementFromPoint(lastPointer.x, lastPointer.y)
   } catch {}
-  if (!commenting) closeCard()
 }
 
 // ---- describing an element ----------------------------------------------------
@@ -144,6 +157,8 @@ function placeCard(anchor) {
 function openComposer(el) {
   const s = PT && PT.state()
   if (!s) return
+  // A note belongs to one moment: freeze time while writing it.
+  PT.pause()
   draft = { el: describe(el), t: s.now }
   openNote = null
   card.innerHTML = `
@@ -222,8 +237,11 @@ function handleExtraClick(b) {
     const n = notes.find((x) => x.id === Number(b.dataset.note))
     if (!n) return true
     panel.hidden = true
-    if (n.branchId !== activeId) switchTo(n.branchId, n.t)
-    else if (PT) PT.seek(n.t)
+    // Pins on the timeline also take you to the note's moment.
+    if (!b.classList.contains("canvas-pin")) {
+      if (n.branchId !== activeId) switchTo(n.branchId, n.t)
+      else if (PT) PT.seek(n.t)
+    }
     showNote(n, n.el.rect)
   }
   return !!(act || b.dataset.note)
@@ -231,7 +249,47 @@ function handleExtraClick(b) {
 
 // ---- drawing --------------------------------------------------------------------
 
+// Numbered pins on the prototype itself, on the notes of the branch in view.
+const canvasPins = $("#wb-pins")
+const pinEls = new Map()
+function renderCanvasPins(s) {
+  const f = frame.getBoundingClientRect()
+  let doc = null
+  try {
+    doc = frame.contentDocument
+  } catch {}
+  const visible = new Set()
+  notes.forEach((n, i) => {
+    if (n.branchId !== activeId || !PT || s.seeking || !doc) return
+    let r = null
+    try {
+      const el = doc.querySelector(n.el.selector)
+      if (el) r = el.getBoundingClientRect()
+    } catch {}
+    if (!r) r = { right: n.el.rect.x + n.el.rect.w, top: n.el.rect.y }
+    let pin = pinEls.get(n.id)
+    if (!pin) {
+      pin = document.createElement("button")
+      pin.className = "canvas-pin"
+      pin.dataset.note = n.id
+      canvasPins.appendChild(pin)
+      pinEls.set(n.id, pin)
+    }
+    pin.textContent = String(i + 1)
+    pin.title = n.text
+    pin.style.left = f.left + r.right - 10 + "px"
+    pin.style.top = f.top + r.top - 10 + "px"
+    visible.add(n.id)
+  })
+  for (const [id, pin] of pinEls) {
+    if (visible.has(id)) continue
+    pin.remove()
+    pinEls.delete(id)
+  }
+}
+
 function renderExtras(s, rows, width) {
+  renderCanvasPins(s)
   renderLoop(s)
   $('[data-a="comment"]').classList.toggle("on", commenting)
   const count = $('[data-a="notes"] b')
