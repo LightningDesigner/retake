@@ -20,29 +20,27 @@ if (pending) {
   clock.rate = pending.rate || 1
 } else {
   rec = newRecording()
-  // The timeline is visible from the moment it's switched on.
-  rec.start = shell && shell.enabled ? 0 : null
+  // Nothing shows on the timeline until Record is pressed.
+  rec.start = null
 }
 epoch = rec.epoch
 seedRandom(rec.seed)
 
-// Switching off lets the prototype run normally: live, 1×, no alternate future.
-function setEnabled(on) {
-  if (on && rec.start == null) rec.start = clock.now
-  if (!on) {
-    rec.start = null
-    fork()
-    setRate(1)
-    play()
-  }
-  PT.emit()
+// Record starts the timeline (or carries on from here, branching if this is a
+// moment in the past).
+function record() {
+  if (hasFuture()) fork()
+  if (rec.start == null) rec.start = clock.now
+  play()
 }
 
 Object.assign(PT, {
   version: "0.2.0",
   now: () => clock.now,
-  play,
+  record,
   pause,
+  preview,
+  endPreview,
   seek: (t, andPlay) => rec.start != null && seek(Math.max(t, rec.start), andPlay ? play : undefined),
   // Start a new branch at this moment, even if nothing lies ahead yet.
   forkHere() {
@@ -50,12 +48,15 @@ Object.assign(PT, {
     if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
   },
   setRate,
-  setEnabled,
   history: () => rec,
   // Jump into another branch's history (a JSON string from history()).
   load: (json, t) => rewind(t, false, json),
   state: () => ({
-    enabled: rec.start != null,
+    recording: rec.start != null && clock.playing,
+    booted: clock.booted,
+    started: rec.start != null,
+    previewing,
+    previewAt,
     start: rec.start ?? 0,
     now: clock.now,
     end: Math.max(rec.end, clock.now),
@@ -65,19 +66,26 @@ Object.assign(PT, {
     rate: clock.rate,
     future: hasFuture(),
   }),
-  debug: () => ({ ...stats, appMessages, timers: timers.size, anims: managed.size }),
+  debug: () => ({
+    ...stats,
+    appMessages,
+    timers: timers.size,
+    dom: domLog.length,
+    anims: animLog.map((e) => ({ target: e.target.id || e.target.getAttribute("class"), vStart: Math.round(e.vStart), vEnd: e.vEnd && Math.round(e.vEnd), state: stateOf(e.anim), kf: e.keyframes.length, fill: e.timing.fill })),
+  }),
 })
 
-// Alt+P play/pause while focus is inside the prototype.
+// Alt+P record/pause while focus is inside the prototype.
 PT.shortcut = function (e) {
-  if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== "KeyP" || rec.start == null) return false
+  if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== "KeyP") return false
   e.preventDefault()
   e.stopImmediatePropagation()
-  if (e.type === "keydown" && !e.repeat) clock.playing ? pause() : play()
+  if (e.type === "keydown" && !e.repeat) clock.playing && rec.start != null ? pause() : record()
   return true
 }
 
 function boot() {
+  observe()
   if (shell) shell.attach(PT)
   if (shell) W.addEventListener("blur", () => shell.meta(false))
   // Let the first render settle on real frames before time starts moving.

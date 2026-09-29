@@ -34,6 +34,10 @@ function adopt(a) {
   }
   managed.set(a, s)
   if (!s.done && !s.userPaused) orig.pause.call(a)
+  // The browser drops finished animations once a later one covers them; the
+  // timeline still needs them to show earlier moments.
+  if (a.persist) a.persist()
+  logAnim(a, s)
   return s
 }
 
@@ -55,10 +59,13 @@ function catchUp(a, s) {
 }
 
 function syncAnimations() {
+  // While previewing another moment, the preview owns every animation.
+  if (previewing) return
   for (const a of document.getAnimations()) adopt(a)
   for (const [a, s] of managed) {
     if (stateOf(a) === "idle") {
       managed.delete(a)
+      endAnim(a)
       continue
     }
     if (s.done) continue
@@ -104,6 +111,7 @@ AP.finish = function () {
 }
 AP.cancel = function () {
   managed.delete(this)
+  endAnim(this)
   return orig.cancel.call(this)
 }
 AP.reverse = function () {

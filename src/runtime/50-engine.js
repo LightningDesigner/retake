@@ -143,10 +143,8 @@ function seek(t, then) {
 
 // Going back means rebuilding: reload the prototype frame and replay what
 // happened up to t. The dock (parent window) holds the history meanwhile.
+// The dock builds the moment in a fresh frame behind this one and swaps it in
+// when it's ready, so going back never flashes.
 function rewind(t, playAfter, json = JSON.stringify(rec)) {
-  if (!shell) return
-  shell.stash({ rec: json, target: t, play: playAfter, rate: clock.rate })
-  const url = JSON.parse(json).url
-  if (location.href === url) location.reload()
-  else location.replace(url)
+  if (shell) shell.rebuild({ rec: json, target: t, play: playAfter, rate: clock.rate })
 }

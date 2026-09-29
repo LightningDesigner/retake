@@ -11,7 +11,7 @@ async function checkoutCode(version) {
 
 if (CODE_BRANCHES) {
   setInterval(async () => {
-    if (switching || !PT || !enabled || stash) return
+    if (switching || !PT || building) return
     let version
     try {
       version = (await (await fetch("/__wayback/version")).json()).version
@@ -24,6 +24,14 @@ if (CODE_BRANCHES) {
       return
     }
     if (version === cur.version || switching || !PT) return
+    // Not recording yet: just show the new code.
+    if (!PT.state().started) {
+      cur.version = version
+      return freshFrame()
+    }
+    // On a scoped preview, build that moment for real first; the next check
+    // branches from it.
+    if (PT.state().previewing) return PT.seek(PT.state().previewAt)
     // The code changed under the current moment: branch here onto it.
     const t = PT.state().now
     PT.pause()

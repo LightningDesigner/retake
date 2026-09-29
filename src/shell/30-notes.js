@@ -1,72 +1,76 @@
-// Notes: pick any element in the prototype, at any moment, and write a note on
-// it. Hold ⌘ (or toggle the comment button) and the element under the pointer
-// highlights, down to the innermost child. Each note remembers the time, the
-// timeline branch and what the element is, shows as a numbered pin on the
-// prototype and on the timeline, and copies as a ready-to-paste prompt.
+// Picking elements in the prototype. Two tools share it:
+//  - Comment (or hold ⌘): click an element, down to the innermost child, and
+//    write a note. Notes keep their moment and branch, show as numbered pins on
+//    the prototype and tags on the timeline, and copy as a prompt.
+//  - Select: pick one component; scrubbing then rewinds only that component.
 
-let commentMode = false // toggled by the button
-let metaHeld = false // held ⌘
-let commenting = false // either of the above
-let lastPointer = null
+let picking = null // "comment" | "select" | null (button tools)
+let metaHeld = false
 let hovered = null
+let lastPointer = null
+let scopeEl = null
 let notes = [] // { id, t, branchId, text, el }
 let noteSeq = 0
-let draft = null // { el, t } while the composer is open
+let draft = null
 let openNote = null
-let panelKey = ""
-let pinsKey = ""
-let hlFor = null
 const hl = $("#wb-hl")
+const scopeBox = $("#wb-scope")
 const card = $("#wb-note")
 const panel = $("#wb-notes")
+const mode = () => (metaHeld ? "comment" : picking)
 
-window.__waybackShell.inspecting = false
-window.__waybackShell.inspect = (e) => {
-  if (e.type === "pointermove" || e.type === "pointerover") {
-    hovered = e.target.nodeType === 1 ? e.target : null
-  } else if (e.type === "click" && e.target.nodeType === 1) {
-    openComposer(e.target)
-  } else if (e.type === "keydown" && e.key === "Escape") {
-    setCommenting(false)
-  }
+const shell = window.__waybackShell
+shell.inspecting = false
+shell.inspect = (e) => {
+  const el = e.target.nodeType === 1 ? e.target : e.target.parentElement
+  if (e.type === "pointermove" || e.type === "pointerover") hovered = usable(el)
+  else if (e.type === "click" && usable(el)) {
+    if (mode() === "select") {
+      setScope(el)
+      setPicking(null)
+    } else openComposer(el)
+  } else if (e.type === "keydown" && e.key === "Escape") setPicking(null)
 }
-window.__waybackShell.pointer = (x, y) => (lastPointer = { x, y })
-window.__waybackShell.meta = (down) => {
+shell.pointer = (x, y) => (lastPointer = { x, y })
+shell.meta = (down) => {
   if (metaHeld === down) return
   metaHeld = down
   syncPicking()
 }
 
-function setCommenting(on) {
-  commentMode = on
-  if (!on) closeCard()
+// The page itself isn't a thing to comment on.
+const usable = (el) => (el && el.tagName !== "HTML" && el.tagName !== "BODY" ? el : null)
+
+function setPicking(m) {
+  picking = m
   syncPicking()
 }
 
 function syncPicking() {
-  commenting = commentMode || metaHeld
-  window.__waybackShell.inspecting = commenting
+  shell.inspecting = !!mode()
   hovered = null
   try {
     const doc = frame.contentDocument
-    doc.documentElement.style.cursor = commenting ? "crosshair" : ""
-    // Highlight straight away when ⌘ goes down over the prototype.
-    if (commenting && lastPointer) hovered = doc.elementFromPoint(lastPointer.x, lastPointer.y)
+    doc.documentElement.style.cursor = mode() ? "crosshair" : ""
+    if (mode() && lastPointer) hovered = usable(doc.elementFromPoint(lastPointer.x, lastPointer.y))
   } catch {}
 }
 
-// ---- describing an element ----------------------------------------------------
+function setScope(el) {
+  scopeEl = el
+  const chip = $(".scope")
+  chip.hidden = !el
+  if (el) chip.innerHTML = `<span>${esc(describe(el).label)}</span><button data-a="clear-scope" aria-label="Clear selection">×</button>`
+  if (PT && last && last.previewing) PT.preview(last.previewAt, scopeEl)
+}
+
+// ---- describing an element ------------------------------------------------------
 
 function cssPath(el) {
   const parts = []
   for (let n = el; n && n.nodeType === 1 && n.tagName !== "HTML"; n = n.parentElement) {
     if (n.id) {
       parts.unshift(`#${n.id}`)
-      break
-    }
-    const test = n.getAttribute("data-testid")
-    if (test) {
-      parts.unshift(`[data-testid="${test}"]`)
       break
     }
     let part = n.tagName.toLowerCase()
@@ -94,27 +98,30 @@ function reactComponents(el) {
 function describe(el) {
   const tag = el.tagName.toLowerCase()
   const id = el.id ? `#${el.id}` : ""
-  const cls = [...el.classList].slice(0, 3).map((c) => `.${c}`).join("")
+  const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")
   const text = (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80)
   const r = el.getBoundingClientRect()
+  let page = "/"
+  try {
+    const u = new URL(frame.contentWindow.location.href)
+    u.searchParams.delete("__wb")
+    page = u.pathname + u.search
+  } catch {}
   return {
     label: `<${tag}${id}${cls}>`,
     text,
     selector: cssPath(el),
     components: reactComponents(el),
     rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-    page: (() => {
-      const u = new URL(frame.contentWindow.location.href)
-      u.searchParams.delete("__wb")
-      return u.pathname + u.search
-    })(),
+    page,
   }
 }
 
 function prompt(n) {
   const b = branches.find((x) => x.id === n.branchId)
+  const start = last ? last.start : 0
   const lines = [
-    `## Prototype note (${fmt(n.t - (last ? last.start : 0))}, ${b ? b.name : "timeline"})`,
+    `## Prototype note (${fmt(n.t - start)}, ${b ? b.name : "timeline"})`,
     `Page: ${n.el.page}`,
     `Element: ${n.el.label}${n.el.text ? ` "${n.el.text}"` : ""}`,
     `Selector: ${n.el.selector}`,
@@ -142,34 +149,37 @@ async function copy(text, btn) {
   }
 }
 
-// ---- composer and note card -----------------------------------------------------
+// ---- the note card -----------------------------------------------------------------
 
-function placeCard(anchor) {
+function placeCard(rect) {
   const f = frame.getBoundingClientRect()
-  const w = 320
-  const x = Math.min(Math.max(8, f.left + anchor.x), innerWidth - w - 8)
-  let y = f.top + anchor.y + anchor.h + 10
-  if (y + 220 > dock.getBoundingClientRect().top) y = Math.max(8, f.top + anchor.y - 230)
+  const x = Math.min(Math.max(8, f.left + rect.x), innerWidth - 308)
+  let y = f.top + rect.y + rect.h + 10
+  if (y + 170 > dock.getBoundingClientRect().top) y = Math.max(8, f.top + rect.y - 180)
   card.style.left = x + "px"
   card.style.top = y + "px"
 }
 
+function meta(t, el) {
+  const start = last ? last.start : 0
+  return `<div class="note-meta"><span>${fmt(t - start)}</span><span>·</span><span class="el">${esc(el.label)}</span></div>`
+}
+
 function openComposer(el) {
-  const s = PT && PT.state()
-  if (!s) return
+  const s = last
+  if (!PT || !s) return
+  if (!s.started) PT.record()
   // A note belongs to one moment: freeze time while writing it.
   PT.pause()
-  draft = { el: describe(el), t: s.now }
+  const t = s.previewing ? s.previewAt : s.now
+  draft = { el: describe(el), t }
   openNote = null
-  card.innerHTML = `
-    <div class="note-head"><span class="dot"></span>${fmt(draft.t - s.start)} · ${esc(activeBranch().name)}</div>
-    <div class="note-el mono">${esc(draft.el.label)}${draft.el.text ? ` <em>“${esc(draft.el.text.slice(0, 40))}”</em>` : ""}</div>
-    <textarea placeholder="What should change here?" rows="3"></textarea>
-    <div class="note-actions"><span class="hint">⌘↵ to save</span><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
+  card.innerHTML = `${meta(t, draft.el)}<textarea rows="3" placeholder="What should change here?"></textarea>
+    <div class="note-actions"><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
   card.hidden = false
   placeCard(draft.el.rect)
   const ta = card.querySelector("textarea")
-  ta.focus()
+  setTimeout(() => ta.focus())
   ta.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveDraft()
     if (e.key === "Escape") closeCard()
@@ -178,23 +188,17 @@ function openComposer(el) {
 
 function saveDraft() {
   const text = card.querySelector("textarea").value.trim()
-  if (!draft || !text) return closeCard()
-  notes.push({ id: ++noteSeq, t: draft.t, branchId: activeId, text, el: draft.el })
+  if (draft && text) notes.push({ id: ++noteSeq, t: draft.t, branchId: activeId, text, el: draft.el })
   closeCard()
 }
 
-function showNote(n, anchor) {
+function showNote(n) {
   openNote = n
   draft = null
-  const b = branches.find((x) => x.id === n.branchId)
-  const start = last ? last.start : 0
-  card.innerHTML = `
-    <div class="note-head"><span class="dot"></span>${fmt(n.t - start)} · ${esc(b ? b.name : "")}</div>
-    <div class="note-el mono">${esc(n.el.label)}${n.el.text ? ` <em>“${esc(n.el.text.slice(0, 40))}”</em>` : ""}</div>
-    <p class="note-text">${esc(n.text)}</p>
+  card.innerHTML = `${meta(n.t, n.el)}<p class="note-text">${esc(n.text)}</p>
     <div class="note-actions"><button data-note-a="delete">Delete</button><button data-note-a="copy" class="primary">Copy for Claude</button></div>`
   card.hidden = false
-  placeCard(anchor)
+  placeCard(n.el.rect)
 }
 
 function closeCard() {
@@ -205,25 +209,16 @@ function closeCard() {
 
 function toggleNotesPanel() {
   panel.hidden = !panel.hidden
-  panelKey = ""
-  if (!panel.hidden) renderNotesPanel()
-}
-
-function renderNotesPanel() {
+  if (panel.hidden) return
   const start = last ? last.start : 0
   panel.innerHTML = notes.length
     ? `<div class="panel-head"><span>Notes</span><button data-note-a="copy-all">Copy all</button></div>` +
-      notes
-        .map((n) => {
-          const b = branches.find((x) => x.id === n.branchId)
-          return `<button class="panel-row" data-note="${n.id}"><span class="mono">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span><span class="br">${esc(b ? b.name : "")}</span></button>`
-        })
-        .join("")
-    : `<div class="panel-empty">No notes yet. Press the comment button, then click anything in the prototype.</div>`
+      notes.map((n) => `<button class="panel-row" data-note="${n.id}"><span class="t">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span></button>`).join("")
+    : `<div class="panel-empty">No notes yet. Hold ⌘ and click anything in the prototype.</div>`
 }
 
 // Returns true when the click was one of ours.
-function handleExtraClick(b) {
+function handleNoteClick(b) {
   const act = b.dataset.noteA
   if (act === "save") saveDraft()
   if (act === "cancel") closeCard()
@@ -237,30 +232,49 @@ function handleExtraClick(b) {
     const n = notes.find((x) => x.id === Number(b.dataset.note))
     if (!n) return true
     panel.hidden = true
-    // Pins on the timeline also take you to the note's moment.
+    // From the timeline or the list, go to the note's moment too.
     if (!b.classList.contains("canvas-pin")) {
       if (n.branchId !== activeId) switchTo(n.branchId, n.t)
-      else if (PT) PT.seek(n.t)
+      else if (PT && Math.abs((last.previewing ? last.previewAt : last.now) - n.t) > 5) PT.seek(n.t)
     }
-    showNote(n, n.el.rect)
+    showNote(n)
   }
   return !!(act || b.dataset.note)
 }
 
-// ---- drawing --------------------------------------------------------------------
+// ---- drawing on the prototype --------------------------------------------------------
 
-// Numbered pins on the prototype itself, on the notes of the branch in view.
-const canvasPins = $("#wb-pins")
 const pinEls = new Map()
-function renderCanvasPins(s) {
+const boxAt = (el, box) => {
   const f = frame.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  Object.assign(box.style, { display: "block", left: f.left + r.left + "px", top: f.top + r.top + "px", width: r.width + "px", height: r.height + "px" })
+}
+
+function renderExtras(s) {
+  $('[data-a="comment"]').classList.toggle("on", mode() === "comment")
+  $('[data-a="select"]').classList.toggle("on", mode() === "select")
+  $('[data-a="notes"] b').textContent = String(notes.length)
+
+  const target = mode() && hovered && hovered.isConnected ? hovered : null
+  hl.style.display = target ? "block" : "none"
+  if (target) {
+    boxAt(target, hl)
+    hl.className = mode() === "select" ? "select" : ""
+    hl.dataset.label = describe(target).label
+  }
+  if (scopeEl && scopeEl.isConnected) boxAt(scopeEl, scopeBox)
+  else scopeBox.style.display = "none"
+
+  // Numbered pins on the notes of the branch in view.
   let doc = null
   try {
     doc = frame.contentDocument
   } catch {}
-  const visible = new Set()
+  const f = frame.getBoundingClientRect()
+  const seen = new Set()
   notes.forEach((n, i) => {
-    if (n.branchId !== activeId || !PT || s.seeking || !doc) return
+    if (n.branchId !== activeId || !doc || s.seeking) return
     let r = null
     try {
       const el = doc.querySelector(n.el.selector)
@@ -272,57 +286,17 @@ function renderCanvasPins(s) {
       pin = document.createElement("button")
       pin.className = "canvas-pin"
       pin.dataset.note = n.id
-      canvasPins.appendChild(pin)
+      $("#wb-pins").appendChild(pin)
       pinEls.set(n.id, pin)
     }
     pin.textContent = String(i + 1)
-    pin.title = n.text
     pin.style.left = f.left + r.right - 10 + "px"
     pin.style.top = f.top + r.top - 10 + "px"
-    visible.add(n.id)
+    seen.add(n.id)
   })
   for (const [id, pin] of pinEls) {
-    if (visible.has(id)) continue
+    if (seen.has(id)) continue
     pin.remove()
     pinEls.delete(id)
   }
-}
-
-function renderExtras(s, rows, width) {
-  renderCanvasPins(s)
-  renderLoop(s)
-  $('[data-a="comment"]').classList.toggle("on", commenting)
-  const count = $('[data-a="notes"] b')
-  count.textContent = String(notes.length)
-  // Re-render lists only when they change, so clicks land on stable buttons.
-  const listKey = notes.map((n) => n.id + n.branchId).join() + branches.map((b) => b.name).join() + s.start
-  if (!panel.hidden && listKey !== panelKey) {
-    panelKey = listKey
-    renderNotesPanel()
-  }
-
-  // Highlight whatever the pointer is over while picking.
-  const target = commenting ? hovered : null
-  hl.style.display = target && target.isConnected ? "block" : "none"
-  if (target && target.isConnected) {
-    const f = frame.getBoundingClientRect()
-    const r = target.getBoundingClientRect()
-    Object.assign(hl.style, { left: f.left + r.left + "px", top: f.top + r.top + "px", width: r.width + "px", height: r.height + "px" })
-    if (hlFor !== target) {
-      hlFor = target
-      hl.dataset.label = describe(target).label
-    }
-  }
-
-  // Note pins on their branch's lane.
-  const pinKey = notes.map((n) => `${n.id}:${n.branchId}:${n.t}`).join() + JSON.stringify([...rows]) + width + range(s).dur
-  if (pinKey === pinsKey) return
-  pinsKey = pinKey
-  $(".pins").innerHTML = notes
-    .filter((n) => rows.has(n.branchId) && n.t >= s.start)
-    .map((n) => {
-      const r = rows.get(n.branchId)
-      return `<button class="pin" data-note="${n.id}" title="${esc(n.text)}" style="left:${frac(s, n.t) * width}px;top:${r.top - 5}px"></button>`
-    })
-    .join("")
 }

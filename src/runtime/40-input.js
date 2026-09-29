@@ -82,8 +82,19 @@ function onInput(e) {
     if (e.cancelable) e.preventDefault()
     return
   }
-  // Acting in the past starts a new branch. Paused stays paused.
-  if (FORKING.has(e.type)) fork()
+  // While a past moment is on show (or being rebuilt), the page is a picture.
+  if (previewing || (shell && shell.rebuilding)) {
+    e.stopImmediatePropagation()
+    if (e.cancelable) e.preventDefault()
+    if (previewing && FORKING.has(e.type) && shell && shell.wake) shell.wake()
+    return
+  }
+  // Acting is recording: from a paused or past moment it picks recording back
+  // up, and from the past it starts a new branch.
+  if (FORKING.has(e.type) && rec.start != null) {
+    fork()
+    if (!clock.playing) play()
+  }
   if (hasFuture()) {
     // The real mouse wandering over the page mustn't disturb the replay.
     if (HOVER.has(e.type)) e.stopImmediatePropagation()
