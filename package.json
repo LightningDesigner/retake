@@ -1,0 +1,24 @@
+{
+  "name": "wayback-machine",
+  "version": "0.3.0",
+  "description": "A time machine for prototypes. Drag back on a timeline and your Vite app is at that moment; act from there and it branches.",
+  "type": "module",
+  "main": "./src/plugin.js",
+  "exports": {
+    ".": "./src/plugin.js"
+  },
+  "bin": {
+    "wayback": "./bin/wayback.js"
+  },
+  "files": ["src", "bin", "markers", "README.md"],
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  },
+  "scripts": {
+    "check": "node test/check-syntax.js"
+  },
+  "license": "MIT"
+}

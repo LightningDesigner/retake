@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prototype</title>
+    <style>/*CSS*/</style>
+  </head>
+  <body>
+    <iframe id="wb-app" title="Prototype"></iframe>
+    <div id="wb-dock" role="region" aria-label="Timeline">
+      <div class="divider" title="Drag to resize"></div>
+      <div class="bar">
+        <button class="switch" data-a="enable" role="switch" aria-checked="false" aria-label="Timeline on/off">
+          <span class="knob"></span>
+        </button>
+        <span class="label">Timeline</span>
+        <button class="play" data-a="toggle" aria-label="Play"></button>
+        <span class="time"></span>
+        <div class="track" aria-label="Scrubber">
+          <div class="lanes"></div>
+          <div class="active-lane">
+            <div class="band"><div class="past"></div><div class="future"></div></div>
+            <div class="marks"></div>
+          </div>
+          <div class="head"></div>
+          <div class="ghost"><span></span></div>
+        </div>
+        <div class="menu-wrap">
+          <button class="more" data-a="menu" aria-label="More">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+          </button>
+          <div class="menu" hidden>
+            <div class="menu-title">Speed</div>
+            <button data-rate="0.25">0.25×</button>
+            <button data-rate="0.5">0.5×</button>
+            <button data-rate="1">1×</button>
+            <button data-rate="2">2×</button>
+            <hr />
+            <button data-a="mark">Add marker here<kbd>⌥M</kbd></button>
+            <button data-a="start">Back to the beginning</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>/*JS*/</script>
+  </body>
+</html>

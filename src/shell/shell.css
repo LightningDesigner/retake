@@ -1,0 +1,69 @@
+:root {
+  --dock-bg: #161618;
+  --dock-line: #2b2b30;
+  --dock-text: #e7e7ea;
+  --dock-muted: #8d8d96;
+  --accent: #8ab4ff;
+  --future: rgba(138, 180, 255, 0.16);
+  --mark: #ffc56b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: var(--dock-bg); overflow: hidden; }
+body { display: flex; flex-direction: column; font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--dock-text); }
+#wb-app { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: #fff; }
+#wb-dock { position: relative; flex: none; height: 96px; background: var(--dock-bg); border-top: 1px solid var(--dock-line); }
+body.dragging #wb-app { pointer-events: none; }
+.divider { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; z-index: 2; }
+.divider:hover, body.dragging .divider { background: linear-gradient(transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+.bar { height: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 16px; }
+button { all: unset; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--dock-text); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch { width: 32px; height: 18px; border-radius: 999px; background: #3a3a40; position: relative; flex: none; transition: background .15s; }
+.switch .knob { position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"] .knob { transform: translateX(14px); }
+.label { color: var(--dock-muted); font-weight: 500; margin-right: 6px; }
+.play { width: 32px; height: 32px; border-radius: 50%; background: #fff; color: #111; flex: none; }
+.play:hover { background: #e4e4ea; }
+.time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 64px; }
+.track { position: relative; flex: 1; align-self: stretch; min-width: 80px; cursor: pointer; touch-action: none; }
+.active-lane { position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; }
+.band { position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,.05); overflow: hidden; }
+.lanes .lane { position: absolute; display: block; border-radius: 5px; cursor: pointer; }
+.lanes .lane .shared { position: absolute; left: 0; top: 50%; height: 1px; border-top: 1px dashed rgba(255,255,255,.18); }
+.lanes .lane .own { position: absolute; top: 0; bottom: 0; border-radius: 5px; background: rgba(255,255,255,.1); border-left: 2px solid rgba(138,180,255,.6); }
+.lanes .lane:hover .own { background: rgba(138,180,255,.22); }
+.lanes .lane .name { position: absolute; top: 50%; transform: translateY(-50%); font-size: 10px; font-weight: 600; color: var(--dock-muted); white-space: nowrap; padding-left: 6px; pointer-events: none; }
+.lanes .lane .x { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 4px; font-size: 12px; color: var(--dock-muted); opacity: 0; }
+.lanes .lane:hover .x { opacity: 1; }
+.lanes .lane .x:hover { background: rgba(255,255,255,.12); color: var(--dock-text); }
+.past { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(138,180,255,.32); }
+.future { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--future) 0 6px, transparent 6px 12px); }
+.head { position: absolute; top: var(--head-top, 0); bottom: var(--head-bottom, 0); width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+.head::before { content: ""; position: absolute; top: -2px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(0,0,0,.35); }
+.ghost { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--mark); pointer-events: none; }
+.ghost span { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums;
+  background: var(--mark); color: #111; padding: 3px 6px; border-radius: 5px; font-weight: 600; }
+.marks button { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--mark); opacity: .8; }
+.marks button.user { background: #c9a6ff; }
+.marks button:hover { opacity: 1; width: 4px; margin-left: -2px; }
+.marks button span { position: absolute; left: 5px; top: 2px; font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--mark);
+  pointer-events: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.marks button.user span { color: #c9a6ff; }
+.menu kbd { margin-left: auto; font: inherit; color: var(--dock-muted); }
+.menu-wrap { position: relative; flex: none; }
+.more { width: 28px; height: 28px; border-radius: 6px; color: var(--dock-muted); }
+.more:hover { background: rgba(255,255,255,.08); color: var(--dock-text); }
+.menu { position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 180px; padding: 6px; border-radius: 10px; background: #222226;
+  border: 1px solid var(--dock-line); box-shadow: 0 12px 32px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+.menu[hidden] { display: none; }
+.menu-title { color: var(--dock-muted); font-size: 11px; padding: 6px 8px 4px; }
+.menu button { justify-content: flex-start; padding: 7px 8px; border-radius: 6px; }
+.menu button:hover { background: rgba(255,255,255,.08); }
+.menu button.on::after { content: "✓"; margin-left: auto; color: var(--accent); }
+.menu hr { border: 0; border-top: 1px solid var(--dock-line); margin: 6px 2px; width: auto; }
+/* Off: just the switch. The prototype runs normally. */
+#wb-dock.off { height: 44px !important; }
+#wb-dock.off .divider, #wb-dock.off .play, #wb-dock.off .time, #wb-dock.off .track, #wb-dock.off .menu-wrap { display: none; }
+#wb-dock.busy .track { cursor: progress; }

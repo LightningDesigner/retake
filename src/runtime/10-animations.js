@@ -1,0 +1,247 @@
+// Web Animations + CSS animations/transitions. Every animation is held paused
+// underneath and its currentTime is driven from the virtual clock, so pausing,
+// slow motion and seeking all apply. App-facing calls (play, pause, startTime…)
+// are translated so libraries like motion still see a normal running animation.
+
+const managed = new Map() // Animation -> { t, v, userPaused, done }
+const AP = Animation.prototype
+const orig = {
+  play: AP.play,
+  pause: AP.pause,
+  finish: AP.finish,
+  cancel: AP.cancel,
+  reverse: AP.reverse,
+  updatePlaybackRate: AP.updatePlaybackRate,
+  currentTime: Object.getOwnPropertyDescriptor(AP, "currentTime"),
+  startTime: Object.getOwnPropertyDescriptor(AP, "startTime"),
+  playbackRate: Object.getOwnPropertyDescriptor(AP, "playbackRate"),
+  playState: Object.getOwnPropertyDescriptor(AP, "playState"),
+  animate: Element.prototype.animate,
+}
+const rateOf = (a) => orig.playbackRate.get.call(a)
+const stateOf = (a) => orig.playState.get.call(a)
+const endOf = (a) => (a.effect ? a.effect.getComputedTiming().endTime : Infinity)
+
+function adopt(a) {
+  if (managed.has(a)) return managed.get(a)
+  const ps = stateOf(a)
+  if (ps === "idle") return null
+  const s = {
+    t: Number(orig.currentTime.get.call(a)) || 0,
+    v: clock.now,
+    userPaused: ps === "paused",
+    done: ps === "finished",
+  }
+  managed.set(a, s)
+  if (!s.done && !s.userPaused) orig.pause.call(a)
+  return s
+}
+
+// A CSS animation paused via `animation-play-state` stays frozen.
+function cssPaused(a) {
+  if (typeof CSSAnimation === "undefined" || !(a instanceof CSSAnimation)) return false
+  const el = a.effect && a.effect.target
+  if (!el) return false
+  const cs = getComputedStyle(el)
+  const names = cs.animationName.split(", ")
+  const states = cs.animationPlayState.split(", ")
+  const i = names.indexOf(a.animationName)
+  return i >= 0 && states[i % states.length] === "paused"
+}
+
+function catchUp(a, s) {
+  if (!s.done && !s.userPaused && !cssPaused(a)) s.t += (clock.now - s.v) * rateOf(a)
+  s.v = clock.now
+}
+
+function syncAnimations() {
+  for (const a of document.getAnimations()) adopt(a)
+  for (const [a, s] of managed) {
+    if (stateOf(a) === "idle") {
+      managed.delete(a)
+      continue
+    }
+    if (s.done) continue
+    catchUp(a, s)
+    const rate = rateOf(a)
+    if ((rate > 0 && s.t >= endOf(a)) || (rate < 0 && s.t <= 0)) {
+      finishNow(a, s)
+    } else {
+      orig.currentTime.set.call(a, s.t)
+    }
+  }
+}
+
+Element.prototype.animate = function (...args) {
+  const a = orig.animate.apply(this, args)
+  adopt(a)
+  return a
+}
+
+AP.play = function () {
+  const s = managed.get(this)
+  if (!s) return orig.play.call(this)
+  catchUp(this, s)
+  const rate = rateOf(this)
+  if (rate > 0 && (s.done || s.t >= endOf(this))) s.t = 0
+  if (rate < 0 && (s.done || s.t <= 0)) s.t = endOf(this)
+  s.done = false
+  s.userPaused = false
+  orig.play.call(this) // renews the `finished` promise
+  orig.pause.call(this)
+  orig.currentTime.set.call(this, s.t)
+}
+AP.pause = function () {
+  const s = managed.get(this)
+  if (!s) return orig.pause.call(this)
+  catchUp(this, s)
+  s.userPaused = true
+}
+AP.finish = function () {
+  const s = managed.get(this)
+  if (!s) return orig.finish.call(this)
+  finishNow(this, s)
+}
+AP.cancel = function () {
+  managed.delete(this)
+  return orig.cancel.call(this)
+}
+AP.reverse = function () {
+  const s = managed.get(this)
+  if (!s) return orig.reverse.call(this)
+  catchUp(this, s)
+  orig.playbackRate.set.call(this, -rateOf(this))
+  s.t = Math.min(Math.max(s.t, 0), endOf(this))
+  s.done = false
+  s.userPaused = false
+}
+AP.updatePlaybackRate = function (r) {
+  const s = managed.get(this)
+  if (!s) return orig.updatePlaybackRate.call(this, r)
+  catchUp(this, s)
+  orig.playbackRate.set.call(this, r)
+}
+
+Object.defineProperty(AP, "currentTime", {
+  configurable: true,
+  get() {
+    return orig.currentTime.get.call(this)
+  },
+  set(value) {
+    const s = managed.get(this)
+    if (s && value != null) {
+      s.t = Number(value)
+      s.v = clock.now
+      s.done = false
+    }
+    orig.currentTime.set.call(this, value)
+  },
+})
+Object.defineProperty(AP, "startTime", {
+  configurable: true,
+  get() {
+    const s = managed.get(this)
+    if (!s) return orig.startTime.get.call(this)
+    catchUp(this, s)
+    return clock.now + PERF_BASE - s.t / (rateOf(this) || 1)
+  },
+  set(value) {
+    const s = managed.get(this) || adopt(this)
+    if (!s || value == null) return orig.startTime.set.call(this, value)
+    s.t = (clock.now + PERF_BASE - Number(value)) * rateOf(this)
+    s.v = clock.now
+    s.done = false
+    s.userPaused = false
+    orig.currentTime.set.call(this, s.t)
+  },
+})
+Object.defineProperty(AP, "playbackRate", {
+  configurable: true,
+  get() {
+    return rateOf(this)
+  },
+  set(value) {
+    const s = managed.get(this)
+    if (s) catchUp(this, s)
+    orig.playbackRate.set.call(this, value)
+  },
+})
+Object.defineProperty(AP, "playState", {
+  configurable: true,
+  get() {
+    const s = managed.get(this)
+    const ps = stateOf(this)
+    if (!s || ps === "idle" || ps === "finished") return ps
+    return s.userPaused ? "paused" : "running"
+  },
+})
+
+// ---- deterministic end events -----------------------------------------------
+// The browser delivers `finish`, `animationend` and `transitionend` on its next
+// rendering step, i.e. at a real-time moment. We fire them ourselves, right when
+// the virtual clock finishes the animation, and drop the browser's copies.
+
+const finishHandlers = new WeakMap() // Animation -> { prop, listeners: Set }
+const handlersOf = (a) => {
+  if (!finishHandlers.has(a)) finishHandlers.set(a, { prop: null, listeners: new Set() })
+  return finishHandlers.get(a)
+}
+Object.defineProperty(AP, "onfinish", {
+  configurable: true,
+  get() {
+    return finishHandlers.get(this)?.prop ?? null
+  },
+  set(fn) {
+    handlersOf(this).prop = typeof fn === "function" ? fn : null
+  },
+})
+const animAdd = AP.addEventListener
+const animRemove = AP.removeEventListener
+AP.addEventListener = function (type, fn, opts) {
+  if (type !== "finish" || !fn) return animAdd.call(this, type, fn, opts)
+  handlersOf(this).listeners.add(fn)
+}
+AP.removeEventListener = function (type, fn, opts) {
+  if (type !== "finish") return animRemove.call(this, type, fn, opts)
+  finishHandlers.get(this)?.listeners.delete(fn)
+}
+
+let synthesizing = 0
+function finishNow(a, s) {
+  if (s.done) return
+  s.done = true
+  orig.finish.call(a)
+  const h = finishHandlers.get(a)
+  const ev = new AnimationPlaybackEvent("finish", { currentTime: a.currentTime, timelineTime: clock.now + PERF_BASE })
+  if (h) {
+    for (const fn of [h.prop, ...h.listeners]) {
+      if (!fn) continue
+      safeCall(typeof fn === "function" ? fn : fn.handleEvent.bind(fn), [ev])
+    }
+  }
+  const target = a.effect && a.effect.target
+  if (!target) return
+  let dom = null
+  if (typeof CSSAnimation !== "undefined" && a instanceof CSSAnimation) {
+    dom = new AnimationEvent("animationend", { bubbles: true, animationName: a.animationName, elapsedTime: endOf(a) / 1000 })
+  } else if (typeof CSSTransition !== "undefined" && a instanceof CSSTransition) {
+    dom = new TransitionEvent("transitionend", { bubbles: true, propertyName: a.transitionProperty, elapsedTime: endOf(a) / 1000 })
+  }
+  if (!dom) return
+  synthesizing++
+  try {
+    target.dispatchEvent(dom)
+  } finally {
+    synthesizing--
+  }
+}
+
+for (const type of ["animationend", "transitionend"]) {
+  W.addEventListener(
+    type,
+    (e) => {
+      if (e.isTrusted && !synthesizing) e.stopImmediatePropagation()
+    },
+    true,
+  )
+}
