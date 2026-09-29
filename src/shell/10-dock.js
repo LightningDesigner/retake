@@ -187,7 +187,9 @@ function render() {
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
   $(".rec").classList.toggle("on", !!s.recording)
-  $('[data-a="pause"]').classList.toggle("on", !!s.started && !s.recording)
+  // Dragging the playhead pauses, and the Pause button says so straight away.
+  $('[data-a="pause"]').classList.toggle("on", !!s.started && (!s.recording || dragT != null))
+  $(".rec").classList.toggle("on", !!s.recording && dragT == null)
   const shownT = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
   renderTimeline(s, shownT)
   renderExtras(s)

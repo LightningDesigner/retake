@@ -39,8 +39,9 @@ button:focus-visible { outline: 1px solid rgba(255,255,255,.5); outline-offset: 
 .tool { width: 24px; height: 24px; border-radius: 7px; color: var(--text-2); }
 @media (hover: hover) { .tool:hover { color: var(--text); background: var(--glass); } }
 .tool.on { color: var(--text); background: var(--glass-strong); }
-.rec { color: rgba(227,84,106,.8); }
-@media (hover: hover) { .rec:hover { color: var(--rec); } }
+/* Record is white at rest and turns red only while it's recording. */
+.rec { color: var(--text-2); }
+@media (hover: hover) { .rec:hover { color: var(--text); } }
 .rec.on { color: var(--rec); background: rgba(227,84,106,.16); }
 .rec.on svg { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
