@@ -189,8 +189,12 @@ function openComposer(el) {
   placeCard(draft.el.rect)
   const ta = card.querySelector("textarea")
   setTimeout(() => ta.focus())
+  // Enter saves and folds the note down to its pin; Shift+Enter is a new line.
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveDraft()
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      saveDraft()
+    }
     if (e.key === "Escape") closeCard()
   })
 }
@@ -199,6 +203,8 @@ function saveDraft() {
   const text = card.querySelector("textarea").value.trim()
   if (draft && text) notes.push({ id: ++noteSeq, t: draft.t, branchId: activeId, text, el: draft.el })
   closeCard()
+  // Back to the Hand so the next click is on the prototype, not another note.
+  setPicking(null)
 }
 
 function showNote(n) {
