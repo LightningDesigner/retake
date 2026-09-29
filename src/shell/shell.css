@@ -25,7 +25,7 @@ body { display: flex; flex-direction: column; font: 400 12px/16px system-ui, -ap
 body.dragging #wb-stage, body.scrubbing #wb-stage { pointer-events: none; }
 
 /* ---- dock ---- */
-#wb-dock { position: relative; flex: none; height: 96px; background: var(--page); border-top: 1px solid var(--hairline); }
+#wb-dock { position: relative; flex: none; height: 104px; background: var(--page); border-top: 1px solid var(--hairline); }
 .divider { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; z-index: 2; }
 .divider:hover, body.dragging .divider { background: linear-gradient(transparent 3px, rgba(255,255,255,.24) 3px, rgba(255,255,255,.24) 4px, transparent 4px); }
 .bar { height: 100%; display: flex; align-items: stretch; gap: 14px; padding: 6px 12px; }
@@ -36,6 +36,8 @@ button:focus-visible { outline: 1px solid rgba(255,255,255,.5); outline-offset: 
 /* Both side groups share one shape: a glass capsule of identical 24px buttons. */
 .group { align-self: center; display: flex; flex-direction: column; gap: 1px; padding: 3px; border-radius: 10px; flex: none;
   background: var(--glass); border: 1px solid var(--hairline); }
+.side { align-self: center; display: flex; flex-direction: column; gap: 4px; flex: none; }
+.side .group { align-self: auto; }
 .tool { width: 24px; height: 24px; border-radius: 7px; color: var(--text-2); }
 @media (hover: hover) { .tool:hover { color: var(--text); background: var(--glass); } }
 .tool.on { color: var(--text); background: var(--glass-strong); }
@@ -102,3 +104,5 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 .note-actions button.primary { background: rgba(255,255,255,.94); color: rgba(0,0,0,.88); }
 @media (hover: hover) { .note-actions button.primary:hover { background: rgba(255,255,255,.85); } }
 .note-meta .tl { color: var(--text); }
+.lines .marker { fill: var(--accent); cursor: pointer; }
+.lines .marker-pole { stroke: var(--accent); stroke-width: 1.2; }

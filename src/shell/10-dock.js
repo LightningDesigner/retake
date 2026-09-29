@@ -24,7 +24,7 @@ const store = {
   },
 }
 
-let height = store.get("height", 96)
+let height = store.get("height", 104)
 let frame = null // the visible prototype frame
 let PT = null // its runtime
 let building = null // { frame, pt } being built behind it
@@ -146,11 +146,14 @@ async function switchTo(id, t) {
   }
 }
 
-function reset() {
-  resetBranches()
-  notes = []
-  setScope(null)
-  freshFrame()
+// Markers: flags dropped on a timeline at a moment, to come back to.
+let markers = [] // { id, t, branchId }
+let markerSeq = 0
+function addFlag() {
+  const s = state()
+  if (!s || !s.started) return
+  const t = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
+  markers.push({ id: ++markerSeq, t, branchId: activeId })
 }
 
 // Keep the address bar and title in step with the prototype's own route.
@@ -218,7 +221,7 @@ document.addEventListener("click", (e) => {
   const a = b.dataset.a
   if (a === "record" && PT && !(last && last.recording)) PT.record()
   if (a === "pause" && PT) PT.pause()
-  if (a === "reset") reset()
+  if (a === "flag") addFlag()
   // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
   if (b.dataset.tool) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
   if (handleNoteClick(b)) return
@@ -252,6 +255,7 @@ window.addEventListener("keydown", (e) => {
     closeCard()
     return
   }
+  if (e.code === "KeyM" && !e.metaKey && !e.ctrlKey && !e.altKey && e.target === document.body) addFlag()
   if (e.altKey && e.code === "KeyP") {
     e.preventDefault()
     toggleRecord()

@@ -11,6 +11,7 @@
     <div id="wb-dock" role="region" aria-label="Timeline">
       <div class="divider" title="Drag to resize"></div>
       <div class="bar">
+        <div class="side">
         <div class="group">
           <button class="tool rec" data-a="record" aria-label="Record" title="Record (⌥P)">
             <svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
@@ -18,9 +19,12 @@
           <button class="tool" data-a="pause" aria-label="Pause" title="Pause (⌥P)">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6.5" y="5.5" width="4" height="13" rx="1.2"/><rect x="13.5" y="5.5" width="4" height="13" rx="1.2"/></svg>
           </button>
-          <button class="tool" data-a="reset" aria-label="Reset" title="Reset: forget the timeline and start fresh">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-          </button>
+        </div>
+          <div class="group">
+            <button class="tool" data-a="flag" aria-label="Add a marker" title="Drop a marker here (M)">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>
+            </button>
+          </div>
         </div>
         <div class="timeline">
           <div class="track"><svg class="lines" aria-label="Timeline"></svg><span class="time"></span><button class="plus" aria-label="New timeline from here" hidden>+</button></div>

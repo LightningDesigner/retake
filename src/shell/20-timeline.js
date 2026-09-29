@@ -96,6 +96,13 @@ function renderTimeline(s, shownT) {
     const b = branches.find((x) => x.id === n.branchId)
     if (b) out += `<circle class="note-dot" data-note="${n.id}" cx="${xOf(n.t, g)}" cy="${rowY(b) - BAR / 2 - 4}" r="3"><title>${esc(n.text)}</title></circle>`
   }
+  for (const m of markers) {
+    const b = branches.find((x) => x.id === m.branchId)
+    if (!b) continue
+    const x = xOf(m.t, g)
+    const y = rowY(b) - BAR / 2
+    out += `<g data-marker="${m.id}"><line class="marker-pole" x1="${x}" x2="${x}" y1="${y - 12}" y2="${y}"/><path class="marker" d="M${x} ${y - 12} l7 2.5 -7 2.5z"/><rect x="${x - 3}" y="${y - 13}" width="12" height="14" fill="transparent" style="cursor:pointer"/><title>Marker · ${fmt(m.t - s.start)}</title></g>`
+  }
   const yA = rowY(active)
   const xEnd = xOf(activeEnd, g)
   if (xEnd - xNow > 8) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="4.5"><title>Last recorded</title></circle>`
@@ -121,7 +128,7 @@ function setSvg(markup) {
 }
 
 // Rows set the dock's height.
-const neededHeight = () => Math.max(96, TOP + branches.length * ROW + 28)
+const neededHeight = () => Math.max(104, TOP + branches.length * ROW + 28)
 
 // ---- a new timeline from a chosen moment -------------------------------------------
 
@@ -189,6 +196,16 @@ track.addEventListener("pointerdown", (e) => {
     switchTo(Number(branchEl.dataset.branch), timeAt(e.clientX))
     return
   }
+  const markerEl = e.target.closest("[data-marker]")
+  if (markerEl) {
+    const m = markers.find((x) => x.id === Number(markerEl.dataset.marker))
+    if (!m) return
+    // Right-click removes a marker; a click goes to it.
+    if (e.button === 2) markers = markers.filter((x) => x !== m)
+    else if (m.branchId !== activeId) switchTo(m.branchId, m.t)
+    else PT.seek(m.t)
+    return
+  }
   if (e.target.closest("[data-note]") || !nearKnob(e.clientX)) return
   track.setPointerCapture(e.pointerId)
   document.body.classList.add("scrubbing")
@@ -210,6 +227,9 @@ track.addEventListener("pointermove", (e) => {
   dragT = Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end))
   if (pendingT == null) requestAnimationFrame(applyDrag)
   pendingT = dragT
+})
+track.addEventListener("contextmenu", (e) => {
+  if (e.target.closest("[data-marker]")) e.preventDefault()
 })
 track.addEventListener("pointerleave", () => {
   if (dragT == null) hoverT = null
