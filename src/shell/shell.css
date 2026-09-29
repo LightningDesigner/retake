@@ -103,6 +103,8 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 @media (hover: hover) { .note-actions button:hover { background: var(--glass); color: var(--text); } }
 .note-actions button.primary { background: rgba(255,255,255,.94); color: rgba(0,0,0,.88); }
 @media (hover: hover) { .note-actions button.primary:hover { background: rgba(255,255,255,.85); } }
+.note-meta > span { white-space: nowrap; flex: none; }
 .note-meta .tl { color: var(--text); }
+.note-meta .el { flex: 1 1 auto; min-width: 0; }
 .lines .marker { fill: var(--accent); cursor: pointer; }
 .lines .marker-pole { stroke: var(--accent); stroke-width: 1.2; }
