@@ -179,3 +179,33 @@ function endPreview() {
   syncAnimations()
   PT.emit()
 }
+
+// ---- activity, for the timeline's marks ------------------------------------------
+
+// When input happened (clicks and keys) and when animations were running.
+let activityCache = null
+function activity() {
+  const key = rec.events.length + ":" + animLog.length + ":" + Math.round(clock.now / 250)
+  if (activityCache && activityCache.key === key) return activityCache.value
+  const inputs = []
+  for (const ev of rec.events) if (ev.type === "pointerdown" || ev.type === "keydown") inputs.push(ev.t)
+  const spans = []
+  for (const e of animLog) {
+    let end = e.vEnd
+    if (end == null) {
+      const total = (e.timing.delay || 0) + (Number(e.timing.duration) || 0) * (e.timing.iterations || 1)
+      end = Number.isFinite(total) ? e.vStart + total / (e.rate || 1) : clock.now
+    }
+    spans.push([e.vStart, Math.min(end, clock.now)])
+  }
+  // Merge overlapping runs into bands.
+  spans.sort((a, b) => a[0] - b[0])
+  const bands = []
+  for (const [a, b] of spans) {
+    const last = bands[bands.length - 1]
+    if (last && a <= last[1] + 30) last[1] = Math.max(last[1], b)
+    else bands.push([a, b])
+  }
+  activityCache = { key, value: { inputs, bands } }
+  return activityCache.value
+}

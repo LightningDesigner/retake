@@ -50,6 +50,7 @@ Object.assign(PT, {
   },
   setRate,
   history: () => rec,
+  activity,
   // Jump into another branch's history (a JSON string from history()).
   load: (json, t) => rewind(t, false, json),
   state: () => ({

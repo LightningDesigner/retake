@@ -107,6 +107,19 @@ function renderTimeline(s, shownT) {
     out += `<g data-marker="${m.id}"><line class="marker-pole" x1="${x}" x2="${x}" y1="${y - 12}" y2="${y}"/><path class="marker" d="M${x} ${y - 12} l7 2.5 -7 2.5z"/><rect x="${x - 3}" y="${y - 13}" width="12" height="14" fill="transparent" style="cursor:pointer"/><title>Marker · ${fmt(m.t - s.start)}</title></g>`
   }
   const yA = rowY(active)
+  // What happened on this timeline: a spike per click or key, a band under the
+  // ribbon wherever something was animating.
+  const act = activityNow()
+  for (const [a, b] of act.bands) {
+    if (b < active.forkAt) continue
+    const xa = xOf(Math.max(a, active.forkAt), g)
+    out += `<rect class="band" x="${xa}" y="${yA + BAR / 2 + 3}" width="${Math.max(2, xOf(b, g) - xa)}" height="2" rx="1"/>`
+  }
+  for (const t of act.inputs) {
+    if (t < active.forkAt) continue
+    const x = xOf(t, g)
+    out += `<line class="spike" x1="${x}" x2="${x}" y1="${yA - BAR / 2 - 7}" y2="${yA - BAR / 2 - 2}"/>`
+  }
   const xEnd = xOf(activeEnd, g)
   if (xEnd - xNow > 8) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="4.5"><title>Last recorded</title></circle>`
   out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="${TOP - 6}" y2="${TOP + (branches.length - 1) * ROW + BAR + 4}"/>`
@@ -176,6 +189,37 @@ function applyDrag() {
   }
 }
 
+let activityMemo = { at: 0, value: { inputs: [], bands: [] } }
+function activityNow() {
+  if (!PT || !PT.activity) return activityMemo.value
+  const now = performance.now()
+  if (now - activityMemo.at > 120) {
+    try {
+      activityMemo = { at: now, value: PT.activity() }
+    } catch {}
+  }
+  return activityMemo.value
+}
+
+// Within a few pixels of something that happened, land on it: just after an
+// input or an animation's start (so its first frame shows), or on its end.
+function snap(t) {
+  const g = geom()
+  const pxPerMs = (g.w - 2 * PAD) / (span().to - span().from)
+  const act = activityNow()
+  let best = null
+  const consider = (c) => {
+    const d = Math.abs(c - t) * pxPerMs
+    if (d <= 7 && (!best || d < best.d)) best = { c, d }
+  }
+  for (const i of act.inputs) consider(i + 1)
+  for (const [a, b] of act.bands) {
+    consider(a + 1)
+    consider(b)
+  }
+  return best ? best.c : t
+}
+
 const nearKnob = (clientX) => {
   const knob = svg.querySelector(".knob")
   const kr = knob && knob.getBoundingClientRect()
@@ -234,7 +278,7 @@ track.addEventListener("pointermove", (e) => {
   }
   const s = last
   const b = activeBranch()
-  dragT = Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end))
+  dragT = snap(Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end)))
   if (pendingT == null) requestAnimationFrame(applyDrag)
   pendingT = dragT
 })
