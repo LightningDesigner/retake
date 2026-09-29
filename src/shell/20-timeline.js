@@ -52,9 +52,12 @@ function ribbon(b, s, g, until) {
   const parent = branches.find((p) => p.id === b.parentId)
   const x1 = xOf(until, g)
   if (!parent) return `M${xOf(s.start, g)} ${y} L${Math.max(x1, xOf(s.start, g) + 0.5)} ${y}`
+  // The curve leads into the fork moment, so from its first instant a new
+  // timeline already sits on its own row, under the playhead.
   const x0 = xOf(b.forkAt, g)
   const py = rowY(parent)
-  return `M${x0} ${py} C${x0 + BEND * 0.55} ${py} ${x0 + BEND * 0.45} ${y} ${x0 + BEND} ${y} L${Math.max(x1, x0 + BEND)} ${y}`
+  const xs = Math.max(PAD, x0 - BEND)
+  return `M${xs} ${py} C${xs + BEND * 0.55} ${py} ${x0 - BEND * 0.45} ${y} ${x0} ${y} L${Math.max(x1, x0 + 0.5)} ${y}`
 }
 
 // Before anything is recorded: a quiet ruler and a waiting record dot.
@@ -116,7 +119,7 @@ function renderTimeline(s, shownT) {
   plus.hidden = !showPlus
   if (showPlus) {
     plus.style.left = xOf(hoverT, g) + "px"
-    plus.style.top = yA + 6 + "px"
+    plus.style.top = yA + 17 + "px"
   }
   checkPendingFork(s)
 }
@@ -219,7 +222,14 @@ track.addEventListener("pointermove", (e) => {
   if (dragT == null) {
     const s = last
     const onBranch = e.target.closest && e.target.closest("[data-branch]")
-    hoverT = s && s.started && !s.recording && !onBranch && e.target !== plus && !nearKnob(e.clientX) ? hoverTime(e.clientX) : e.target === plus ? hoverT : null
+    // Near the playhead the + snaps to it: that's where you'd branch from after
+    // dragging back. It sits below the ribbon so the handle stays draggable.
+    if (e.target === plus) return
+    if (!s || !s.started || s.recording || onBranch) {
+      hoverT = null
+      return
+    }
+    hoverT = nearKnob(e.clientX) ? (s.previewing ? s.previewAt : s.now) : hoverTime(e.clientX)
     return
   }
   const s = last
