@@ -30,6 +30,13 @@
   .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse 42% 36% at 50% 46%, rgba(0,0,0,.85) 0%, rgba(0,0,0,.35) 60%, transparent 100%); }
   .hero-inner { position: relative; z-index: 1; text-align: center; padding: 0 16px; max-width: 760px; }
+  /* A soft, blurred disc under the whole content block, so the text sits on
+     calm ground while the timelines play around it. */
+  .hero-inner::before { content: ""; position: absolute; z-index: -1; left: 50%; top: 50%; width: min(980px, 140vw); aspect-ratio: 1.45;
+    transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(6,6,8,.92) 0%, rgba(6,6,8,.78) 45%, rgba(6,6,8,.35) 75%, transparent 100%);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent 100%); mask-image: radial-gradient(closest-side, #000 55%, transparent 100%); }
   .badge { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); border: 1px solid var(--line);
     border-radius: 999px; padding: 6px 12px; background: rgba(10,10,10,.7); backdrop-filter: blur(6px); }
   .badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 10px var(--blue); }
