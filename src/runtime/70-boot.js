@@ -43,7 +43,12 @@ Object.assign(PT, {
   now: () => clock.now,
   play,
   pause,
-  seek: (t) => rec.start != null && seek(Math.max(t, rec.start)),
+  seek: (t, andPlay) => rec.start != null && seek(Math.max(t, rec.start), andPlay ? play : undefined),
+  // Start a new branch at this moment, even if nothing lies ahead yet.
+  forkHere() {
+    if (hasFuture()) return fork()
+    if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
+  },
   setRate,
   setEnabled,
   mark: (label) => addMarker(label, "app"),

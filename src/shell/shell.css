@@ -67,3 +67,41 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #wb-dock.off { height: 44px !important; }
 #wb-dock.off .divider, #wb-dock.off .play, #wb-dock.off .time, #wb-dock.off .track, #wb-dock.off .menu-wrap { display: none; }
 #wb-dock.busy .track { cursor: progress; }
+/* loop, comment, notes */
+.icon { width: 30px; height: 30px; border-radius: 7px; color: var(--dock-muted); flex: none; }
+.icon:hover { background: rgba(255,255,255,.08); color: var(--dock-text); }
+.icon.on { background: rgba(138,180,255,.18); color: var(--accent); }
+.notes-btn { height: 28px; padding: 0 10px; border-radius: 7px; color: var(--dock-muted); gap: 6px; font-weight: 500; flex: none; }
+.notes-btn:hover { background: rgba(255,255,255,.08); color: var(--dock-text); }
+.notes-btn b { font-weight: 600; color: var(--dock-text); background: rgba(255,255,255,.1); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+.loop-range { position: absolute; top: 0; bottom: 0; background: rgba(126,231,184,.12); border-left: 2px solid #7ee7b8; border-right: 2px solid #7ee7b8; pointer-events: none; }
+.pins .pin { position: absolute; width: 12px; height: 12px; margin-left: -6px; border-radius: 50% 50% 50% 2px; background: #7ee7b8; box-shadow: 0 0 0 2px var(--dock-bg); z-index: 3; }
+.pins .pin:hover { transform: scale(1.25); }
+#wb-dock.off ~ #wb-hl, #wb-dock.off .icon, #wb-dock.off .notes-btn { display: none; }
+#wb-hl { position: fixed; pointer-events: none; border: 1.5px solid #7ee7b8; background: rgba(126,231,184,.08); border-radius: 4px; z-index: 20; display: none; }
+#wb-hl::after { content: attr(data-label); position: absolute; left: -1px; top: -22px; font: 500 11px/1 "SF Mono", ui-monospace, monospace; color: #0b0b0c; background: #7ee7b8; padding: 4px 6px; border-radius: 4px; white-space: nowrap; }
+.card { position: fixed; z-index: 30; width: 320px; background: #1c1c1f; border: 1px solid var(--dock-line); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.5); padding: 12px; color: var(--dock-text); }
+.card[hidden] { display: none; }
+.mono { font-family: "SF Mono", ui-monospace, monospace; }
+.note-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dock-muted); font-weight: 600; }
+.note-head .dot { width: 8px; height: 8px; border-radius: 50%; background: #7ee7b8; }
+.note-el { margin: 8px 0; font-size: 11px; color: #7ee7b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-el em { color: var(--dock-muted); font-style: normal; }
+.card textarea { width: 100%; resize: none; background: #111113; border: 1px solid var(--dock-line); border-radius: 8px; color: var(--dock-text); font: 13px/1.4 inherit; padding: 8px 10px; outline: none; }
+.card textarea:focus { border-color: var(--accent); }
+.note-text { margin: 4px 0 10px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.note-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+.note-actions .hint { margin-right: auto; font-size: 11px; color: var(--dock-muted); }
+.note-actions button { height: 28px; padding: 0 10px; border-radius: 7px; color: var(--dock-muted); font-weight: 500; }
+.note-actions button:hover { background: rgba(255,255,255,.08); color: var(--dock-text); }
+.note-actions button.primary { background: #fff; color: #111; }
+.note-actions button.primary:hover { background: #e4e4ea; }
+#wb-notes { right: 16px; bottom: 110px; width: 360px; max-height: 50vh; overflow: auto; padding: 6px; left: auto; top: auto; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 8px; font-weight: 600; }
+.panel-head button { font-size: 12px; color: var(--accent); }
+.panel-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; width: 100%; box-sizing: border-box; padding: 8px; border-radius: 7px; text-align: left; align-items: center; }
+.panel-row:hover { background: rgba(255,255,255,.06); }
+.panel-row .mono { color: var(--dock-muted); font-size: 11px; }
+.panel-row .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-row .br { font-size: 11px; color: var(--dock-muted); }
+.panel-empty { padding: 14px; color: var(--dock-muted); line-height: 1.45; }

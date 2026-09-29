@@ -5,6 +5,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { codeVersions } from "./code-versions.js"
 
 const SRC = path.dirname(fileURLToPath(import.meta.url))
 const read = (...p) => fs.readFileSync(path.join(SRC, ...p), "utf8")
@@ -18,10 +19,14 @@ export function runtimeSource(markers = []) {
   return `;(function () {\n"use strict";\nif (window.__wayback) return;\n${rules}${body}\n})();`
 }
 
-export function shellHtml() {
+export function shellHtml(options = {}) {
   return read("shell", "shell.html")
+    .replace("/*CONFIG*/", () => `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches })};`)
     .replace("/*CSS*/", () => read("shell", "shell.css"))
-    .replace("/*JS*/", () => read("shell", "shell.js"))
+    .replace("/*JS*/", () => {
+      const files = fs.readdirSync(path.join(SRC, "shell")).filter((f) => f.endsWith(".js")).sort()
+      return `;(function () {\n"use strict";\n${files.map((f) => read("shell", f)).join("\n")}\n})();`
+    })
 }
 
 function loadMarkers(markers) {
@@ -36,15 +41,25 @@ function loadMarkers(markers) {
 }
 
 /**
- * @param {{ enabled?: boolean, markers?: string | Array<{ name: string, text?: string, selector?: string, count?: number }> }} [options]
+ * @param {{ enabled?: boolean, codeBranches?: boolean, markers?: string | Array<{ name: string, text?: string, selector?: string, count?: number }> }} [options]
  *   `markers`: rules (or a path to a JSON file of them) that drop a marker when
  *   text appears on the page or enough elements match a selector.
+ *   `codeBranches`: branch the timeline whenever the source changes, and check
+ *   old code back out when stepping into an older branch. Rewrites files.
  * @returns {import("vite").Plugin}
  */
 export function wayback(options = {}) {
   return {
     name: "wayback",
     apply: "serve",
+    configureServer(server) {
+      if (options.codeBranches) codeVersions(server)
+    },
+    // With code branches the dock decides when the frame reloads (it replays
+    // up to the current moment on the new code), so Vite's HMR stands down.
+    handleHotUpdate() {
+      if (options.codeBranches) return []
+    },
     transformIndexHtml: {
       order: "pre",
       handler(html, ctx) {
@@ -52,7 +67,7 @@ export function wayback(options = {}) {
         const params = new URL(ctx.originalUrl || ctx.path, "http://x").searchParams
         // `?wayback=0` opts a page load out entirely.
         if (params.get("wayback") === "0") return
-        if (params.get("__wb") !== "app") return shellHtml()
+        if (params.get("__wb") !== "app") return shellHtml(options)
         return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(loadMarkers(options.markers)), injectTo: "head-prepend" }]
       },
     },

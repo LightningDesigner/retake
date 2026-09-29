@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // wayback CLI.
-//   wayback dev <project> [--port 3014] [--markers file.json]
+//   wayback dev <project> [--port 3014] [--markers file.json] [--code-branches]
 //     Runs the project's own Vite dev server with the timeline added, from a
 //     wrapper config kept here. Nothing in the project is touched.
 //   wayback init
@@ -30,10 +30,13 @@ function fail(msg) {
 function dev() {
   const port = Number(flag("port", 3014))
   const markersArg = flag("markers")
+  const codeBranches = rest.includes("--code-branches")
+  if (codeBranches) rest.splice(rest.indexOf("--code-branches"), 1)
   const project = path.resolve(rest[0] || ".")
   if (!fs.existsSync(path.join(project, "package.json"))) fail(`no package.json in ${project}`)
-  const vite = path.join(project, "node_modules", "vite", "bin", "vite.js")
-  if (!fs.existsSync(vite)) fail(`vite isn't installed in ${project} (run npm install there first)`)
+  // The project's own Vite if it has one (so its plugins match), else ours.
+  const vite = [project, HOME].map((d) => path.join(d, "node_modules", "vite", "bin", "vite.js")).find((f) => fs.existsSync(f))
+  if (!vite) fail(`vite isn't installed in ${project} (run npm install there first)`)
   const config = CONFIGS.map((f) => path.join(project, f)).find((f) => fs.existsSync(f))
   const name = path.basename(project)
   const defaultMarkers = path.join(HOME, "markers", `${name}.json`)
@@ -56,7 +59,7 @@ export default async (env) => {
     root: cfg.root ? cfg.root : ${JSON.stringify(project)},
     // Our own dep cache, so the project's node_modules/.vite is left alone.
     cacheDir: ${JSON.stringify(path.join(work, "vite"))},
-    plugins: [wayback({ markers: ${JSON.stringify(markers)} }), ...(cfg.plugins || [])],
+    plugins: [wayback({ markers: ${JSON.stringify(markers)}, codeBranches: ${codeBranches} }), ...(cfg.plugins || [])],
     server: { ...cfg.server, port: ${port}, strictPort: true },
   }
 }
@@ -86,7 +89,7 @@ if (cmd === "dev") dev()
 else if (cmd === "init") init()
 else {
   console.log(`Usage:
-  wayback dev <project> [--port 3014] [--markers file.json]
+  wayback dev <project> [--port 3014] [--markers file.json] [--code-branches]
   wayback init`)
   process.exit(cmd ? 1 : 0)
 }

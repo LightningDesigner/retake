@@ -65,6 +65,13 @@ function serialize(e) {
 
 function onInput(e) {
   if (!e.isTrusted || dispatching || !rec) return
+  // Comment mode: the dock is picking an element. The app sees nothing.
+  if (shell && shell.inspecting) {
+    shell.inspect(e)
+    e.stopImmediatePropagation()
+    if (e.cancelable && e.type !== "scroll" && e.type !== "input") e.preventDefault()
+    return
+  }
   if ((e.type === "keydown" || e.type === "keyup") && PT.shortcut && PT.shortcut(e)) return
   if (clock.seeking) {
     // Input during a rewind would land at the wrong moment; drop it.
