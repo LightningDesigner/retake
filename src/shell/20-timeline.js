@@ -116,7 +116,7 @@ function renderLabels(s) {
 }
 
 // Rows set the dock's height: a new timeline gets its own row.
-const neededHeight = () => Math.max(84, rowY(branches.length + 1) + 12)
+const neededHeight = () => Math.max(96, rowY(branches.length + 1) + 12)
 
 // ---- dragging the playhead -------------------------------------------------------
 

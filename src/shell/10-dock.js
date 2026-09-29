@@ -24,7 +24,7 @@ const store = {
   },
 }
 
-let height = store.get("height", 56)
+let height = store.get("height", 96)
 let frame = null // the visible prototype frame
 let PT = null // its runtime
 let building = null // { frame, pt } being built behind it
@@ -221,8 +221,8 @@ document.addEventListener("click", (e) => {
   const a = b.dataset.a
   if (a === "record") toggleRecord()
   if (a === "reset") reset()
-  if (a === "select") setPicking(picking === "select" ? null : "select")
-  if (a === "comment") setPicking(picking === "comment" ? null : "comment")
+  // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
+  if (b.dataset.tool) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
   if (a === "new-branch") newTimeline()
   if (handleNoteClick(b)) return
   // Timeline labels: step into that timeline at the moment on show.

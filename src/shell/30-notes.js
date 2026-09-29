@@ -260,8 +260,11 @@ const boxAt = (el, box) => {
 }
 
 function renderExtras(s) {
-  $('[data-a="comment"]').classList.toggle("on", mode() === "comment")
-  $('[data-a="select"]').classList.toggle("on", mode() === "select")
+  const tool = mode() || "hand"
+  for (const t of document.querySelectorAll("[data-tool]")) {
+    t.classList.toggle("on", t.dataset.tool === tool)
+    t.setAttribute("aria-selected", String(t.dataset.tool === tool))
+  }
 
   const target = mode() && hovered && hovered.isConnected ? hovered : null
   hl.style.display = target ? "block" : "none"
