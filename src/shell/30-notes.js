@@ -25,10 +25,8 @@ shell.inspect = (e) => {
   const el = e.target.nodeType === 1 ? e.target : e.target.parentElement
   if (e.type === "pointermove" || e.type === "pointerover") hovered = usable(el)
   else if (e.type === "click" && usable(el)) {
-    if (mode() === "select") {
-      setScope(el)
-      setPicking(null)
-    } else openComposer(el)
+    if (mode() === "select") setScope(el)
+    else openComposer(el)
   } else if (e.type === "keydown" && e.key === "Escape") {
     setPicking(null)
     setScope(null)
@@ -49,7 +47,9 @@ shell.meta = (down) => {
 // The page itself isn't a thing to comment on.
 const usable = (el) => (el && el.tagName !== "HTML" && el.tagName !== "BODY" ? el : null)
 
+// Leaving the Select tool lets go of the selected component.
 function setPicking(m) {
+  if (m !== "select") setScope(null)
   picking = m
   syncPicking()
 }
@@ -64,7 +64,7 @@ function syncPicking() {
   } catch {}
 }
 
-// Selecting the same component again (or pressing Esc) clears it.
+// Selecting the same component again clears it.
 function setScope(el) {
   scopeEl = el && el === scopeEl ? null : el
   if (PT && last && last.previewing) PT.preview(last.previewAt, scopeEl)
@@ -168,9 +168,10 @@ function placeCard(rect) {
   card.style.top = y + "px"
 }
 
-function meta(t, el) {
+function meta(t, el, branchId = activeId) {
   const start = last ? last.start : 0
-  return `<div class="note-meta"><span>${fmt(t - start)}</span><span>·</span><span class="el">${esc(el.label)}</span></div>`
+  const b = branches.find((x) => x.id === branchId)
+  return `<div class="note-meta"><span class="tl">${esc(b ? b.name : "")}</span><span>·</span><span>${fmt(t - start)}</span><span>·</span><span class="el">${esc(el.label)}</span></div>`
 }
 
 function openComposer(el) {
@@ -203,7 +204,7 @@ function saveDraft() {
 function showNote(n) {
   openNote = n
   draft = null
-  card.innerHTML = `${meta(n.t, n.el)}<p class="note-text">${esc(n.text)}</p>
+  card.innerHTML = `${meta(n.t, n.el, n.branchId)}<p class="note-text">${esc(n.text)}</p>
     <div class="note-actions"><button data-note-a="delete">Delete</button><button data-note-a="copy" class="primary">Copy for Claude</button></div>`
   card.hidden = false
   placeCard(n.el.rect)

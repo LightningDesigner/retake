@@ -37,7 +37,7 @@ let branches = []
 let activeId = 0
 let branchSeq = 0
 const newBranch = (forkAt, parentId = null) => {
-  const b = { id: ++branchSeq, name: branchSeq === 1 ? "Main" : `Timeline ${branchSeq}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
+  const b = { id: ++branchSeq, name: `Timeline ${branchSeq}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
   branches.push(b)
   return b
 }
@@ -186,10 +186,8 @@ function render() {
   if (!s) return
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
-  const recBtn = $(".rec")
-  recBtn.classList.toggle("on", !!s.recording)
-  recBtn.setAttribute("aria-label", s.recording ? "Pause recording" : "Record")
-  recBtn.title = s.recording ? "Pause recording (⌥P)" : "Record (⌥P)"
+  $(".rec").classList.toggle("on", !!s.recording)
+  $('[data-a="pause"]').classList.toggle("on", !!s.started && !s.recording)
   const shownT = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
   renderTimeline(s, shownT)
   renderExtras(s)
@@ -205,11 +203,8 @@ const refocus = () => frame && frame.contentWindow && frame.contentWindow.focus(
 function toggleRecord() {
   const s = state()
   if (!PT || !s) return
-  if (s.recording) return PT.pause()
-  // Recording from a moment on show in a scoped preview: build it for real
-  // first, then carry on recording from there.
-  if (s.previewing) return PT.seek(s.previewAt, true)
-  PT.record()
+  if (s.recording) PT.pause()
+  else PT.record()
 }
 
 document.addEventListener("click", (e) => {
@@ -219,17 +214,12 @@ document.addEventListener("click", (e) => {
     return
   }
   const a = b.dataset.a
-  if (a === "record") toggleRecord()
+  if (a === "record" && PT && !(last && last.recording)) PT.record()
+  if (a === "pause" && PT) PT.pause()
   if (a === "reset") reset()
   // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
   if (b.dataset.tool) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
-  if (a === "new-branch") newTimeline()
   if (handleNoteClick(b)) return
-  // Timeline labels: step into that timeline at the moment on show.
-  if (b.closest(".labels") && b.dataset.branch && Number(b.dataset.branch) !== activeId) {
-    const s = state()
-    switchTo(Number(b.dataset.branch), s ? (s.previewing ? s.previewAt : s.now) : 0)
-  }
   refocus()
 })
 

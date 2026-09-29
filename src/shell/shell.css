@@ -39,40 +39,37 @@ button:focus-visible { outline: 1px solid rgba(255,255,255,.5); outline-offset: 
 .tool { width: 24px; height: 24px; border-radius: 7px; color: var(--text-2); }
 @media (hover: hover) { .tool:hover { color: var(--text); background: var(--glass); } }
 .tool.on { color: var(--text); background: var(--glass-strong); }
-.rec { color: var(--rec); }
+.rec { color: rgba(227,84,106,.8); }
 @media (hover: hover) { .rec:hover { color: var(--rec); } }
-.rec .g-pause, .rec.on .g-rec { display: none; }
-.rec.on .g-pause { display: block; }
-.rec.on { color: var(--text); }
+.rec.on { color: var(--rec); background: rgba(227,84,106,.16); }
+.rec.on svg { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
 
 /* ---- timeline ---- */
-.timeline { flex: 1; min-width: 0; display: flex; gap: 10px; }
-.labels { position: relative; width: 112px; flex: none; }
-.labels button { position: absolute; left: 0; right: 0; height: 18px; padding: 0 8px; border-radius: 6px; font: 500 12px/18px system-ui, -apple-system, sans-serif;
-  color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-@media (hover: hover) { .labels button:hover { color: var(--text); background: var(--glass); } }
-.labels button.active { color: var(--text); }
-.labels button.active::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text); margin-right: 6px; vertical-align: 1px; }
-.labels .add { color: var(--text-3); }
-@media (hover: hover) { .labels .add:hover { color: var(--accent); background: transparent; } }
-.track { position: relative; flex: 1; min-width: 80px; }
+.timeline { flex: 1; min-width: 0; display: flex; }
+@media (hover: hover) { @media (hover: hover) { .track { position: relative; flex: 1; min-width: 80px; }
 .lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.lines .row { fill: var(--faint); }
-.lines .bar-past { fill: rgba(255,255,255,.24); transition: fill .15s; }
-.lines .bar-past[data-branch]:hover { fill: rgba(255,255,255,.4); }
-.lines .bar-past.active { fill: rgba(255,255,255,.94); }
-.lines .bar-ahead { fill: rgba(255,255,255,.16); }
-.lines .fork { fill: none; stroke: rgba(255,255,255,.24); stroke-width: 1.5; }
-.lines .fork.active { stroke: rgba(255,255,255,.72); }
-.lines .grow { animation: grow .55s cubic-bezier(.2,.8,.2,1) both; transform-box: fill-box; transform-origin: left center; }
-@keyframes grow { from { transform: scaleX(0); opacity: 0; } }
+/* Timelines are ribbons: thick round strokes. A branch curves out of its parent. */
+.lines .ribbon { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255,255,255,.2); }
+.lines .ribbon.other { cursor: pointer; }
+.lines .ribbon.other:hover { stroke: rgba(255,255,255,.34); }
+.lines .ribbon.ahead { stroke: rgba(255,255,255,.14); }
+.lines .ribbon.past { stroke: rgba(255,255,255,.94); }
+.lines .grow { stroke-dasharray: 1 1; stroke-dashoffset: 1; animation: sprout .7s cubic-bezier(.2,.8,.2,1) forwards; }
+@keyframes sprout { to { stroke-dashoffset: 0; } }
+.lines .tick { stroke: rgba(255,255,255,.14); stroke-width: 1; }
+.lines .tick.major { stroke: rgba(255,255,255,.26); }
+.lines .ghost-head { stroke: rgba(255,255,255,.24); stroke-width: 1; stroke-dasharray: 2 3; }
+.lines .ghost-dot { fill: var(--rec); animation: pulse 1.6s ease-in-out infinite; }
+.plus { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: rgba(255,255,255,.94); color: rgba(0,0,0,.88);
+  font: 600 14px/18px system-ui, sans-serif; box-shadow: var(--float); z-index: 2; }
+.plus[hidden] { display: none; }
 .lines .note-dot { fill: var(--accent); cursor: pointer; }
 .lines .head { stroke: rgba(255,255,255,.94); stroke-width: 1; }
 .lines .knob { fill: #fff; stroke: var(--page); stroke-width: 2; cursor: grab; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
 .lines .knob-hit { fill: transparent; cursor: grab; }
 body.scrubbing .lines .knob { cursor: grabbing; }
 .lines .stop { fill: var(--page); stroke: rgba(255,255,255,.72); stroke-width: 1.5; }
-.lines .empty { fill: var(--text-3); font: 12px system-ui, -apple-system, sans-serif; }
 .time { position: absolute; top: -4px; transform: translateX(-50%); font: 500 10px/1 ui-monospace, "SF Mono", monospace; font-variant-numeric: tabular-nums;
   letter-spacing: .02em; color: rgba(0,0,0,.88); background: rgba(255,255,255,.94); padding: 3px 6px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
 .time:empty { display: none; }
@@ -103,3 +100,4 @@ body.scrubbing .lines .knob { cursor: grabbing; }
 @media (hover: hover) { .note-actions button:hover { background: var(--glass); color: var(--text); } }
 .note-actions button.primary { background: rgba(255,255,255,.94); color: rgba(0,0,0,.88); }
 @media (hover: hover) { .note-actions button.primary:hover { background: rgba(255,255,255,.85); } }
+.note-meta .tl { color: var(--text); }

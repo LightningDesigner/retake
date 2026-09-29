@@ -26,10 +26,11 @@ if (pending) {
 epoch = rec.epoch
 seedRandom(rec.seed)
 
-// Record starts the timeline (or carries on from here, branching if this is a
-// moment in the past).
+// Record starts the timeline, or resumes it from where it last got to.
 function record() {
-  if (hasFuture()) fork()
+  if (previewing) endPreview()
+  // Back in time? Record carries on from the end of this timeline, not here.
+  if (hasFuture()) return seek(rec.end, play)
   if (rec.start == null) rec.start = clock.now
   play()
 }
