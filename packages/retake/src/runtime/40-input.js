@@ -12,13 +12,27 @@ const TOUCH = ["touchstart", "touchmove", "touchend", "touchcancel"]
 const DRAG = ["dragstart", "drag", "dragenter", "dragover", "dragleave", "drop", "dragend"]
 const CLIP = ["paste", "copy", "cut"]
 const COMPOSE = ["compositionstart", "compositionupdate", "compositionend"]
-const OTHER = ["input", "beforeinput", "change", "focusin", "focusout", "scroll", "wheel", "submit"]
+const OTHER = ["input", "beforeinput", "change", "focusin", "focusout", "focus", "blur", "scroll", "wheel", "submit"]
 const HOVER = new Set(["pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave"])
 // Acting on a paused app at the live edge resumes recording (CONTRACT.md).
 const RESUMES = new Set(["pointerdown", "mousedown", "keydown", "touchstart", "wheel", "input", "beforeinput", "change", "paste", "cut", "drop", "compositionstart", "submit"])
 
 let dispatching = 0
 let missingTargets = 0
+
+// Virtual focus: while rebuilding, the frame being built doesn't have real
+// focus (the visible frame or the dock does), so the browser keeps moving
+// focus away from what the recording focused. The recording's own focus is
+// tracked here: keys go to it, and document.activeElement reports it.
+let vFocus = null
+const realActive = Object.getOwnPropertyDescriptor(Document.prototype, "activeElement").get
+const focused = () => (vFocus && vFocus.isConnected ? vFocus : null)
+Object.defineProperty(document, "activeElement", {
+  configurable: true,
+  get() {
+    return (clock.seeking && focused()) || realActive.call(document)
+  },
+})
 
 function pathOf(node) {
   if (node === W) return "w"
@@ -208,6 +222,9 @@ function onInput(e) {
       return
     }
   }
+  if (e.type === "focus" || e.type === "blur") return // focusin/focusout carry these
+  if (e.type === "focusin") vFocus = e.target
+  if (e.type === "focusout" && vFocus === e.target) vFocus = null
   const ev = serialize(e)
   if (ev.path) {
     trace("input", ev.type)
@@ -259,7 +276,20 @@ function nativeSetter(el, prop) {
 // Keys go to whatever has focus now; pointers fall back to what's under the
 // recorded coordinates if the DOM has shifted.
 function findTarget(ev) {
-  if (ev.active) return document.activeElement || document.body
+  if (ev.active) {
+    const f = focused()
+    if (f) return f
+    const a = realActive.call(document)
+    if (a && a !== document.body) return a
+    // Focus got lost altogether: fall back to what the key was pressed in.
+    if (ev.css) {
+      try {
+        const el = document.querySelector(ev.css)
+        if (el) return el
+      } catch {}
+    }
+    return a || document.body
+  }
   const byPath = resolvePath(ev.path)
   if (byPath) return byPath
   if (ev.clientX == null || HOVER.has(ev.type)) return null
@@ -340,9 +370,11 @@ function replayOne(ev, target) {
       return
     }
     case ev.type === "focusin":
+      vFocus = target
       return target.focus && target.focus({ preventScroll: true })
     case ev.type === "focusout":
-      return document.activeElement === target && target.blur()
+      if (vFocus === target) vFocus = null
+      return realActive.call(document) === target && target.blur()
     case ev.type === "submit": {
       if (ev.viaClick) return // the replayed click submits it
       const submitter = ev.submitter ? resolvePath(ev.submitter) : null

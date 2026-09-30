@@ -102,6 +102,13 @@ async function runSeek() {
   syncAnimations()
   alignMedia()
   syncMedia()
+  // Put real focus back where the recording had it.
+  const f = focused()
+  if (f && realActive.call(document) !== f) {
+    try {
+      f.focus({ preventScroll: true })
+    } catch {}
+  }
   const then = afterSeek
   afterSeek = null
   if (then) then()
