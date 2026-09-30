@@ -10,6 +10,12 @@
   #spin.go { animation: spin 800ms linear 2; }
   @keyframes spin { to { transform: rotate(360deg); } }
   #\:r1\: { padding: 4px; border: 1px dashed #666; }
+  /* A loading skeleton: the shimmer is an ::after animation, forever. */
+  .skel { position: relative; width: 240px; height: 28px; margin: 12px 0; background: #2a2a2e; border-radius: 6px; overflow: hidden; }
+  .skel .title { position: relative; z-index: 1; display: inline-block; padding: 6px 10px; color: #aaa; }
+  .skel::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
+    animation: shimmer 1.2s linear infinite; }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 </style></head>
 <body>
   <button id="toggle">Toggle</button>
@@ -21,6 +27,7 @@
   <div id="spin"></div>
   <div id=":r1:">useId box</div>
   <div id="1st">digit id</div>
+  <div class="skel card-skel" id="skel"><span class="title">Loading…</span></div>
   <p id="count">0</p>
   <textarea id="idea" placeholder="Share your idea"></textarea>
   <p id="sent"></p>

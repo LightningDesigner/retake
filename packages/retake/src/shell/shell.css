@@ -193,6 +193,15 @@ body.branching .track, body.branching .track * { cursor: crosshair !important; }
 #wb-hl::after { content: attr(data-label); position: absolute; left: -1.5px; top: -24px; font: 500 11px/1 var(--sans);
   color: var(--ink); background: var(--amber); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
 #wb-hl.select { border-color: var(--white); }
+#wb-hl.pseudo { border-style: dashed; }
+/* The layer picker's chip, beside the pointer. */
+#wb-layers { position: fixed; z-index: 21; pointer-events: none; min-width: 140px; max-width: 280px; padding: 4px; border-radius: 8px;
+  background: var(--glass-strong); border: 1px solid var(--hair-2); box-shadow: var(--shadow); font: 400 11px/16px var(--mono); color: var(--muted); }
+#wb-layers[hidden] { display: none; }
+#wb-layers .layer { padding: 2px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wb-layers .layer.pseudo { padding-left: 14px; }
+#wb-layers .layer.on { color: var(--ink); background: var(--amber); }
+#wb-layers .more { padding: 2px 6px; color: var(--dim); }
 #wb-hl.select::after { background: var(--white); }
 #wb-scope { position: fixed; pointer-events: none; border: 1px dashed var(--muted); border-radius: 8px; z-index: 14; display: none; }
 #wb-pins { position: fixed; inset: 0; pointer-events: none; z-index: 15; }

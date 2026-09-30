@@ -19,10 +19,16 @@ const shell = window.__waybackShell
 shell.inspecting = false
 shell.inspect = (e) => {
   const el = e.target.nodeType === 1 ? e.target : e.target.parentElement
-  if (e.type === "pointermove" || e.type === "pointerover") hovered = usable(el)
-  else if (e.type === "click" && usable(el)) {
-    if (mode() === "select") setScope(usable(el))
-    else openComposer(usable(el), { x: e.clientX, y: e.clientY })
+  if (e.type === "pointermove" || e.type === "pointerover") {
+    buildLayers(e.clientX, e.clientY, usable(el))
+  } else if (e.type === "wheel") {
+    if (Math.abs(e.deltaY) >= 4) cycleLayer(e.deltaY > 0 ? 1 : -1)
+  } else if (e.type === "keydown" && e.key === "Tab") {
+    cycleLayer(e.shiftKey ? -1 : 1)
+  } else if (e.type === "click" && usable(el)) {
+    const p = pick()
+    if (mode() === "select") setScope(p ? p.el : usable(el))
+    else openComposer(p ? p.el : usable(el), { x: e.clientX, y: e.clientY }, p)
   } else if (e.type === "keydown" && e.key === "Escape") {
     setPicking(null)
     setScope(null)
@@ -41,6 +47,98 @@ shell.meta = (down) => {
   if (D.metaHeld === down) return
   D.metaHeld = down
   syncPicking()
+}
+
+// ---- the layer picker: what's under the pointer, including pseudo-elements ----------
+// ⌘ over the app lists the layers at that point, topmost first: each element,
+// and after it any animation running on its ::before/::after (a shimmer on a
+// skeleton, say). Wheel or Tab moves through them; a click picks the
+// highlighted one.
+
+let layers = [] // [{ el, pseudo, anim, name, label }]
+let layerIdx = 0
+let layersKey = ""
+const layersEl = $("#wb-layers")
+const pick = () => layers[layerIdx] || null
+
+const shortLabel = (el) => {
+  const tag = el.tagName.toLowerCase()
+  if (el.id) return `${tag}#${el.id}`
+  const c = [...el.classList][0]
+  return c ? `${tag}.${c}` : tag
+}
+function animTiming(a) {
+  try {
+    const t = a.effect.getComputedTiming ? a.effect.getComputedTiming() : a.effect.getTiming()
+    const d = Number(t.duration) || 0
+    const it = t.iterations
+    return `${msWord(d)}${it === Infinity ? " loop" : it > 1 ? ` ×${it}` : ""}`
+  } catch {
+    return ""
+  }
+}
+const animName = (a) => a.animationName || (a.transitionProperty ? `${a.transitionProperty} transition` : "animation")
+
+function buildLayers(x, y, fallback) {
+  let els = []
+  try {
+    els = D.frame.contentDocument.elementsFromPoint(x, y)
+  } catch {}
+  const seen = new Set()
+  const out = []
+  for (const raw of els) {
+    const el = usable(raw)
+    if (!el || seen.has(el)) continue
+    seen.add(el)
+    if (seen.size > 4) break
+    out.push({ el, pseudo: null, anim: null, name: null, label: shortLabel(el) })
+    let anims = []
+    try {
+      anims = el.getAnimations({ subtree: true })
+    } catch {}
+    const names = new Set()
+    for (const a of anims) {
+      const pe = a.effect && a.effect.pseudoElement
+      if (!pe || a.effect.target !== el) continue
+      const name = animName(a)
+      if (names.has(pe + name)) continue
+      names.add(pe + name)
+      out.push({ el, pseudo: pe, anim: a, name, label: `${pe} · ${name} · ${animTiming(a)}` })
+    }
+  }
+  if (!out.length && fallback) out.push({ el: fallback, pseudo: null, anim: null, name: null, label: shortLabel(fallback) })
+  const key = out.map((l) => l.label).join("|")
+  if (key !== layersKey) {
+    layersKey = key
+    layerIdx = 0
+  }
+  layers = out
+  hovered = pick() ? pick().el : null
+}
+
+function cycleLayer(dir) {
+  if (layers.length < 2) return
+  layerIdx = (layerIdx + dir + layers.length) % layers.length
+  hovered = pick().el
+}
+
+// The chip beside the pointer: the top layers, the pick highlighted.
+let layersHtml = ""
+function renderLayers() {
+  const show = mode() === "comment" && layers.length > 0 && lastPointer
+  layersEl.hidden = !show
+  if (!show) return
+  const top = layers.slice(0, 4)
+  const html = top.map((l, i) => `<div class="layer${i === layerIdx ? " on" : ""}${l.pseudo ? " pseudo" : ""}">${esc(l.label)}</div>`).join("") + (layers.length > 4 ? `<div class="more">+${layers.length - 4}</div>` : "")
+  if (html !== layersHtml) {
+    layersHtml = html
+    layersEl.innerHTML = html
+  }
+  const f = D.frame.getBoundingClientRect()
+  const w = layersEl.offsetWidth
+  const h = layersEl.offsetHeight
+  layersEl.style.left = clamp(f.left + lastPointer.x + 16, 8, innerWidth - w - 8) + "px"
+  layersEl.style.top = clamp(f.top + lastPointer.y + 16, 8, dock.getBoundingClientRect().top - h - 8) + "px"
 }
 
 // The page itself isn't a thing to comment on.
@@ -322,6 +420,8 @@ function prompt(n) {
   const el = n.el
   const lines = [`## ${n.text}`, "", `Page: ${el.page}`, `Element: ${el.label}${el.text ? ` "${el.text}"` : ""}`, `Selector: ${el.selector}`]
   if (el.components.length) lines.push(`Component: ${el.components.join(" < ")}`)
+  if (el.pseudo) lines.push(`Animation: ${pseudoSentence(el)}`)
+  if (el.cssSource) lines.push(`CSS: ${el.cssSource.file}${el.cssSource.line ? `:${el.cssSource.line}` : ""}${el.cssSource.keyframes && el.cssSource.keyframes.line ? ` (@keyframes ${el.cssSource.keyframes.name} at ${el.cssSource.keyframes.file}:${el.cssSource.keyframes.line})` : ""}`)
   if (el.source) lines.push(`Source: ${el.source.file}${el.source.line ? `:${el.source.line}` : ""}`)
   if (el.classes && el.classes.length) lines.push(`Classes: ${el.classes.join(" ")}`)
   const st = el.styles || {}
@@ -450,6 +550,53 @@ function placeCard(point) {
   }
 }
 
+function pseudoInfo(layer) {
+  const a = layer.anim
+  let timing = {}
+  try {
+    timing = a.effect.getTiming()
+  } catch {}
+  return {
+    pseudoElement: layer.pseudo,
+    animationName: layer.name,
+    keyframes: a.animationName || null,
+    duration: Number(timing.duration) || 0,
+    iterations: timing.iterations === Infinity ? "infinite" : timing.iterations || 1,
+    delay: Number(timing.delay) || 0,
+  }
+}
+// The clip of that pseudo-element animation at t (the runtime keys it by the
+// host's selector plus the pseudo-element).
+function pseudoClip(t, desc) {
+  const want = (c) => (c.pseudoElement || null) === desc.pseudo.pseudoElement
+  const clips = timeline().clips.filter((c) => want(c) && c.start <= t && (c.end == null || c.end >= t))
+  const c = clips.find((c) => c.selector === desc.selector + desc.pseudo.pseudoElement) || clips[0]
+  if (!c) return null
+  return { id: c.id, offset: Math.round(t - c.start), duration: c.end == null ? null : Math.round(c.end - c.start), label: c.label || desc.pseudo.animationName, kind: c.kind, property: c.property || null, selector: c.selector || null }
+}
+// Where the animation is written in the CSS (the runtime reads Vite's
+// source maps); filled in when it answers.
+function lookUpCss(desc, anim) {
+  const pt = D.PT
+  if (!pt || typeof pt.cssSourceFor !== "function") return
+  Promise.resolve()
+    .then(() => pt.cssSourceFor(anim))
+    .then((r) => {
+      if (!r || (!r.file && !r.line)) return
+      // No file: it's in a <style> in the page itself.
+      const where = (f) => (f ? shortPath(f) : `${desc.page || "/"} <style>`)
+      desc.cssSource = { file: where(r.file), line: r.line || null, keyframes: r.keyframes ? { name: r.keyframes.name, file: where(r.keyframes.file || r.file), line: r.keyframes.line || null } : null }
+    })
+    .catch(() => {})
+}
+// "The ::after shimmer animation (keyframes `shimmer`, 1.2s, infinite) on .card"
+function pseudoSentence(el) {
+  const p = el.pseudo
+  const host = el.classes && el.classes.length ? `.${el.classes[0]}` : el.selector
+  const bits = [p.keyframes ? `keyframes \`${p.keyframes}\`` : null, p.duration ? msWord(p.duration) : null, p.iterations === "infinite" ? "infinite" : p.iterations > 1 ? `${p.iterations} times` : null].filter(Boolean)
+  return `The ${p.pseudoElement} ${p.animationName} animation${bits.length ? ` (${bits.join(", ")})` : ""} on ${host}`
+}
+
 // The card's header: the timeline's colour, the moment, the element.
 function meta(t, el, branchId = D.activeId) {
   const start = D.last ? D.last.start : 0
@@ -470,11 +617,13 @@ function details(el) {
   const rows = [["Selector", el.selector]]
   if (el.components && el.components.length) rows.push(["Component", el.components.join(" < ")])
   if (el.source) rows.push(["Source", `${el.source.file}${el.source.line ? ":" + el.source.line : ""}`])
+  if (el.pseudo) rows.push(["Animation", pseudoSentence(el)])
+  if (el.cssSource) rows.push(["CSS", `${el.cssSource.file}${el.cssSource.line ? ":" + el.cssSource.line : ""}`])
   if (el.classes && el.classes.length) rows.push(["Classes", el.classes.join(" ")])
   return `<details class="details"><summary>Details</summary><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></details>`
 }
 
-function openComposer(el, point) {
+function openComposer(el, point, layer) {
   const s = D.last
   if (!D.PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
@@ -482,7 +631,14 @@ function openComposer(el, point) {
   // The spot that was clicked, as a fraction of the element.
   const r = el.getBoundingClientRect()
   desc.at = point && r.width && r.height ? { dx: clamp((point.x - r.x) / r.width, 0, 1), dy: clamp((point.y - r.y) / r.height, 0, 1) } : { dx: 0.5, dy: 0.5 }
-  draft = { el: desc, t, clip: clipFor(t, desc.selector, el) }
+  // A picked ::before/::after animation: the note is about that.
+  if (layer && layer.pseudo) {
+    desc.pseudo = pseudoInfo(layer)
+    desc.label = `<${shortLabel(el)}>${layer.pseudo}`
+    lookUpCss(desc, layer.anim)
+  }
+  const clip = desc.pseudo ? pseudoClip(t, desc) : clipFor(t, desc.selector, el)
+  draft = { el: desc, t, clip }
   openNote = null
   card.innerHTML = `${meta(t, draft.el)}<textarea rows="3" placeholder="What should change here?"></textarea>
     <div class="note-actions"><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
@@ -602,14 +758,18 @@ function clipsOfElement(el) {
 }
 
 function updateLens() {
+  const p = pick()
   const target = D.metaHeld && mode() === "comment" && hovered && hovered.isConnected ? hovered : null
   if (!target) {
     D.lens = null
     return
   }
-  if (D.lens && D.lens.el === target) return
-  const clips = clipsOfElement(target)
-  D.lens = { el: target, clips, key: `${cssPath(target)}:${clips.length}` }
+  const want = `${cssPath(target)}${p && p.el === target && p.pseudo ? p.pseudo + p.name : ""}`
+  if (D.lens && D.lens.want === want) return
+  let clips = clipsOfElement(target)
+  // A picked ::after shimmer: only its own activity.
+  if (p && p.el === target && p.pseudo) clips = clips.filter((c) => (c.pseudoElement || null) === p.pseudo && (!p.name || !c.label || c.label === p.name || c.label.startsWith(p.name)))
+  D.lens = { el: target, clips, want, key: `${want}:${clips.length}` }
 }
 
 // ---- drawing on the prototype --------------------------------------------------------
@@ -635,12 +795,16 @@ function renderExtras(s) {
   }
 
   updateLens()
+  renderLayers()
   const target = mode() && hovered && hovered.isConnected ? hovered : null
   hl.style.display = target ? "block" : "none"
   if (target) {
     boxAt(target, hl)
-    hl.className = mode() === "select" ? "select" : ""
-    hl.dataset.label = describe(target).label
+    // A picked ::before/::after: its host, dashed, labelled with the pseudo.
+    const p = pick()
+    const pseudo = p && p.el === target && p.pseudo
+    hl.className = (mode() === "select" ? "select" : "") + (pseudo ? " pseudo" : "")
+    hl.dataset.label = pseudo ? `${shortLabel(target)}${p.pseudo}` : `<${shortLabel(target)}>`
   }
   if (D.scopeEl && D.scopeEl.isConnected) boxAt(D.scopeEl, scopeBox)
   else scopeBox.style.display = "none"
