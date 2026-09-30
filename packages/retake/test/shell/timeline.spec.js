@@ -172,3 +172,21 @@ test("the past is view-only, with a quiet hint", async ({ page }) => {
   expect(await h.rt(() => document.querySelector("#count").textContent)).toBe(before)
   expect(h.dockErrors).toEqual([])
 })
+
+test("a slow rebuild shows its progress in the readout while the preview stays up", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordAndRewind(h, ["#toggle", "#toggle", "#toggle"], 0.9)
+  const seen = []
+  page.on("console", () => {})
+  const s = await h.state()
+  await page.evaluate(() => {
+    window.__phases = []
+    const el = document.querySelector(".readout .phase")
+    new MutationObserver(() => window.__phases.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true })
+  })
+  await h.seek(s.start + (s.end - s.start) * 0.2)
+  const phases = await page.evaluate(() => window.__phases)
+  seen.push(...phases)
+  expect(seen.some((p) => /^BUILDING( \d+%)?$/.test(p))).toBe(true)
+  await expect(page.locator(".readout .phase")).toHaveText("PAUSED")
+})

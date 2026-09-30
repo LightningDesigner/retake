@@ -228,13 +228,13 @@ function renderTimeline(s, shownT) {
     const L = lanes.get(b.id)
     const d = lanePath(b, g, lanes, s, b.end)
     const p = growth(b)
-    const grow = p < 1 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
+    const grow = p < 0.999 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
     out += `<path class="lane${L.thin ? " thin" : ""}"${grow} d="${d}"/>`
     out += `<path class="lane hit" data-branch="${b.id}" d="${d}"><title>${esc(b.name)}</title></path>`
   }
   const d = lanePath(active, g, lanes, s, activeEnd)
   const p = growth(active)
-  const grow = p < 1 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
+  const grow = p < 0.999 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
   out += `<path class="lane active ahead"${grow} d="${d}"/>`
   out += `<path class="lane active"${grow} clip-path="url(#wb-past)" d="${d}"/>`
   out += `<path class="lane hit" data-branch="${active.id}" data-active="1" d="${d}"/>`
@@ -336,9 +336,23 @@ function renderGutter(lanes) {
 
 function phaseOf(s) {
   if (D.dragT != null || s.previewing) return "SCRUBBING"
-  if (D.building || s.seeking) return "LOADING"
+  if (D.building) return `BUILDING${buildProgress()}`
+  if (s.seeking) return "LOADING"
   if (s.playing) return s.future ? "PLAYING" : "LIVE"
   return "PAUSED"
+}
+
+// How far the frame being built behind the visible one has got: " 43%".
+// The visible frame keeps showing the moment (as a preview) meanwhile.
+function buildProgress() {
+  try {
+    const b = D.building.pt && D.building.pt.state()
+    if (!b || b.target == null) return ""
+    const pct = clamp((b.now - b.start) / Math.max(1, b.target - b.start), 0, 0.99)
+    return ` ${Math.floor(pct * 100)}%`
+  } catch {
+    return ""
+  }
 }
 
 function renderHead(s, shownT) {
