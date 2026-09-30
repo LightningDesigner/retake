@@ -34,12 +34,21 @@ export function shellHtml(options = {}) {
  *   old code back out when stepping into an older branch. Rewrites files.
  * @returns {import("vite").Plugin}
  */
-export function wayback(options = {}) {
+export function retake(options = {}) {
   return {
-    name: "wayback",
+    name: "retake",
     apply: "serve",
     configureServer(server) {
       if (options.codeBranches) codeVersions(server)
+      if (options.banner && server.httpServer) {
+        server.httpServer.once("listening", () => {
+          const a = server.httpServer.address()
+          const port = a && typeof a === "object" ? a.port : server.config.server.port
+          const proto = server.config.server.https ? "https" : "http"
+          const base = server.config.base || "/"
+          console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
+        })
+      }
     },
     // With code branches the dock decides when the frame reloads (it replays
     // up to the current moment on the new code), so Vite's HMR stands down.
@@ -51,8 +60,8 @@ export function wayback(options = {}) {
       handler(html, ctx) {
         if (options.enabled === false) return
         const params = new URL(ctx.originalUrl || ctx.path, "http://x").searchParams
-        // `?wayback=0` opts a page load out entirely.
-        if (params.get("wayback") === "0") return
+        // `?retake=0` (or the old `?wayback=0`) opts a page load out entirely.
+        if (params.get("retake") === "0" || params.get("wayback") === "0") return
         if (params.get("__wb") !== "app") return shellHtml(options)
         return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
       },
@@ -60,4 +69,6 @@ export function wayback(options = {}) {
   }
 }
 
-export default wayback
+// `wayback` is the old name, kept as an alias.
+export const wayback = retake
+export default retake

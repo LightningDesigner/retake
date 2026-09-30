@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Probe</title>
+<style>
+  #box { width: 40px; height: 40px; background: tomato; transition: transform 400ms linear; }
+  #box.on { transform: translateX(200px); }
+  #slider { width: 300px; height: 20px; background: #ccc; position: relative; touch-action: none; }
+  #pad { width: 200px; height: 80px; background: #def; }
+  #late { display: none; height: 30px; background: gold; }
+  #late.show { display: block; }
+</style></head>
+<body>
+  <button id="go">Go</button>
+  <button id="sse">SSE</button>
+  <button id="slow">Slow</button>
+  <form id="f"><input id="q" autocomplete="off"></form>
+  <label><input type="checkbox" id="cb"> check</label>
+  <div id="slider"><div id="thumb"></div></div>
+  <div id="pad">pad</div>
+  <div id="box"></div>
+  <div id="late">late</div>
+  <pre id="out"></pre>
+  <script type="module" src="/main.js"></script>
+</body></html>

@@ -36,7 +36,7 @@ function record() {
 }
 
 Object.assign(PT, {
-  version: "0.2.0",
+  version: "0.4.0",
   now: () => clock.now,
   record,
   pause,

@@ -1,24 +1,13 @@
 {
-  "name": "wayback-machine",
-  "version": "0.3.0",
-  "description": "A time machine for prototypes. Drag back on a timeline and your Vite app is at that moment; act from there and it branches.",
+  "name": "retake-monorepo",
+  "private": true,
   "type": "module",
-  "main": "./src/plugin.js",
-  "exports": {
-    ".": "./src/plugin.js"
-  },
-  "bin": {
-    "wayback": "./bin/wayback.js"
-  },
-  "files": ["src", "bin", "README.md"],
-  "peerDependencies": {
-    "vite": ">=5"
-  },
-  "devDependencies": {
-    "playwright": "^1.63.0"
-  },
+  "packageManager": "pnpm@10.34.5",
+  "engines": { "node": ">=18" },
   "scripts": {
-    "check": "node test/check-syntax.js"
-  },
-  "license": "MIT"
+    "test": "pnpm -r --if-present test",
+    "test:engine": "pnpm --filter retake-dev test:engine",
+    "test:shell": "pnpm --filter retake-dev test:shell",
+    "dev:site": "pnpm --filter ./apps/site --if-present dev"
+  }
 }
