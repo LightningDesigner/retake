@@ -127,3 +127,27 @@ test("after a rewind the whole timeline's clips are still there, with the same i
   await page.waitForTimeout(300)
   expect((await h.state()).playing).toBe(true)
 })
+
+test("adopt(): a frame rebuilt to an earlier moment seeks forward in place with a newer recording", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(300)
+  await h.click("#go")
+  await page.waitForTimeout(2500)
+  await h.pause()
+  const json = await h.rt(() => JSON.stringify(__wayback.history()))
+  const end = (await h.state()).now
+  // Reference: a full rebuild to end - 5
+  await h.seek(end - 5)
+  const full = await h.log()
+  // Checkpoint: rebuild to 400 (before the click), then adopt the recording and go forward.
+  await h.seek(400)
+  const frameBefore = await page.evaluateHandle(() => document.querySelector("#wb-stage iframe.live"))
+  expect(await h.rt(({ json, t }) => __wayback.adopt(json, t) || __wayback.adoptRefused, { json, t: end - 5 })).toBe(true)
+  await h.settle()
+  expect(await page.evaluate((f) => f === document.querySelector("#wb-stage iframe.live"), frameBefore)).toBe(true) // no new frame
+  expect(await h.log()).toEqual(full)
+  // A recording that doesn't continue this frame's past is refused.
+  const other = JSON.parse(json)
+  other.seed = 12345
+  expect(await h.rt((j) => __wayback.adopt(j, 99999), JSON.stringify(other))).toBe(false)
+})

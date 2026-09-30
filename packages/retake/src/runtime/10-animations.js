@@ -58,11 +58,16 @@ function catchUp(a, s) {
   s.v = clock.now
 }
 
+let syncCount = 0
 function syncAnimations() {
   // While previewing another moment, the preview owns every animation.
   if (previewing) return
   for (const a of document.getAnimations()) adopt(a)
+  // Finished animations are only checked for removal now and then; a long
+  // session collects hundreds of them.
+  const sweep = ++syncCount % 30 === 0
   for (const [a, s] of managed) {
+    if (s.done && !sweep) continue
     if (stateOf(a) === "idle") {
       managed.delete(a)
       endAnim(a)

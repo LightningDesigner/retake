@@ -82,6 +82,34 @@ Object.assign(PT, {
   activity,
   // Jump into another branch's history (a JSON string from history()).
   load: (json, t) => rewind(t, false, json),
+  // Checkpoints: a frame already rebuilt to some moment can take a newer copy
+  // of the same recording (one that only grew after that moment) and seek
+  // forward in place, instead of a rebuild from zero. Returns false (and
+  // changes nothing) if the recording doesn't continue this frame's past.
+  adopt(json, t, andPlay) {
+    const no = (why) => {
+      PT.adoptRefused = why
+      return false
+    }
+    let next
+    try {
+      next = typeof json === "string" ? JSON.parse(json) : json
+    } catch {
+      return no("not JSON")
+    }
+    if (!next || clock.seeking || previewing) return no("busy")
+    if (next.seed !== rec.seed || next.epoch !== rec.epoch) return no("a different recording")
+    if (next.events.length < cursor.event || next.frames.length < cursor.frame) return no("shorter than this frame's past")
+    const same = (a, b) => a === b || (!!a && !!b && a.t === b.t && a.type === b.type)
+    for (let i = Math.max(0, cursor.event - 64); i < cursor.event; i++) if (!same(next.events[i], rec.events[i])) return no(`event ${i} differs`)
+    if (cursor.frame && next.frames[cursor.frame - 1] !== rec.frames[cursor.frame - 1]) return no("frames differ")
+    if (t < clock.now) return no("that moment is behind this frame")
+    PT.adoptRefused = null
+    rec = next
+    seek(t, andPlay ? play : undefined)
+    PT.emit()
+    return true
+  },
   state: () => ({
     recording: rec.start != null && clock.playing,
     booted: clock.booted,
