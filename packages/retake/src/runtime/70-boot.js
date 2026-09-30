@@ -10,7 +10,21 @@ const shell = (() => {
   }
 })()
 
-const pending = shell && shell.take()
+// A full reload of this frame (Vite's full-reload after an edit HMR can't
+// apply, or the app calling location.reload()) keeps the recording: on the way
+// out it's left on the shell object, keyed by our iframe element, and picked
+// up here. A frame the dock is replacing (removed from the page) leaves nothing.
+function takeResume() {
+  try {
+    const r = shell && shell.__resume
+    if (r && r.frame === W.frameElement) {
+      shell.__resume = null
+      return r.payload
+    }
+  } catch {}
+  return null
+}
+const pending = (shell && shell.take()) || takeResume()
 
 if (pending) {
   rec = JSON.parse(pending.rec)
@@ -85,6 +99,16 @@ PT.shortcut = function (e) {
   if (e.type === "keydown" && !e.repeat) clock.playing && rec.start != null ? pause() : record()
   return true
 }
+
+W.addEventListener("pagehide", () => {
+  try {
+    if (!shell || !rec || rec.start == null || clock.seeking) return
+    const el = W.frameElement
+    if (!el || !el.isConnected) return
+    rec.reloads = [...(rec.reloads || []), clock.now]
+    shell.__resume = { frame: el, payload: { rec: JSON.stringify(rec), target: clock.now, play: clock.playing, rate: clock.rate, reloaded: true } }
+  } catch {}
+})
 
 function boot() {
   observe()

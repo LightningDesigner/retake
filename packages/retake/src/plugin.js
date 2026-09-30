@@ -7,6 +7,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { codeVersions } from "./code-versions.js"
+import { createBus, sessionApi } from "./server/api.js"
 
 const SRC = path.dirname(fileURLToPath(import.meta.url))
 const read = (...p) => fs.readFileSync(path.join(SRC, ...p), "utf8")
@@ -34,27 +35,50 @@ export function shellHtml(options = {}) {
     })
 }
 
+const NESTED_DEST = new Set(["iframe", "frame", "embed", "object"])
+
 /**
- * @param {{ enabled?: boolean, codeBranches?: boolean }} [options]
- *   `codeBranches`: branch the timeline whenever the source changes, and check
- *   old code back out when stepping into an older branch. Rewrites files.
- * @returns {import("vite").Plugin}
+ * @param {{ enabled?: boolean, codeBranches?: boolean, token?: string }} [options]
+ *   `codeBranches`: each timeline keeps its own version of the code; stepping
+ *   into a timeline checks its code out on disk (see code-versions.js).
+ * @returns {import("vite").Plugin[]}
  */
 export function retake(options = {}) {
   // Mutating /__wayback/ requests must carry this (see CONTRACT.md).
   options = { ...options, token: options.token || crypto.randomBytes(16).toString("hex") }
-  return {
+  const bus = createBus()
+  const main = {
     name: "retake",
     apply: "serve",
     configureServer(server) {
-      if (options.codeBranches) codeVersions(server, { token: options.token })
-      if (options.banner && server.httpServer) {
+      if (options.enabled === false) return
+      // Only a top-level page load gets the dock. An iframe the app itself
+      // embeds (or a frame navigating to another page of a multi-page app)
+      // gets its plain page. The dock's own frame asks for `?__wb=app`.
+      server.middlewares.use((req, res, next) => {
+        const dest = req.headers["sec-fetch-dest"]
+        if (dest && NESTED_DEST.has(dest) && req.url && !/[?&]__wb=/.test(req.url)) {
+          const add = (u) => u + (u.includes("?") ? "&" : "?") + "__wb=plain"
+          req.url = add(req.url)
+          if (req.originalUrl) req.originalUrl = add(req.originalUrl)
+        }
+        next()
+      })
+      sessionApi(server, { token: options.token, bus })
+      if (options.codeBranches) codeVersions(server, { token: options.token, bus })
+      if (server.httpServer) {
         server.httpServer.once("listening", () => {
           const a = server.httpServer.address()
           const port = a && typeof a === "object" ? a.port : server.config.server.port
           const proto = server.config.server.https ? "https" : "http"
           const base = server.config.base || "/"
-          console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
+          if (options.banner) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
+          if (!fs.existsSync(path.join(server.config.root, "index.html"))) {
+            server.config.logger.warn(
+              `  retake: no index.html in ${server.config.root}. Retake docks into pages Vite serves from index.html (single-page apps). ` +
+                `SSR and framework setups (React Router framework mode, Remix, Astro, SvelteKit, Nuxt) aren't supported yet, so the timeline won't appear.`,
+            )
+          }
         })
       }
     },
@@ -70,11 +94,27 @@ export function retake(options = {}) {
         const params = new URL(ctx.originalUrl || ctx.path, "http://x").searchParams
         // `?retake=0` (or the old `?wayback=0`) opts a page load out entirely.
         if (params.get("retake") === "0" || params.get("wayback") === "0") return
+        if (params.get("__wb") === "plain") return
         if (params.get("__wb") !== "app") return shellHtml(options)
         return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
       },
     },
   }
+  // The dock page must not run Vite's client: a full reload (an edit HMR
+  // can't apply) would reload the whole dock and drop the session. Only the
+  // app frame keeps the client, so only the app reloads.
+  const stripClient = {
+    name: "retake:shell-without-vite-client",
+    apply: "serve",
+    transformIndexHtml: {
+      order: "post",
+      handler(html) {
+        if (options.enabled === false || !html.includes('id="wb-dock"')) return
+        return html.replace(/<script\b[^>]*\bsrc="[^"]*@vite\/client"[^>]*>\s*<\/script>\s*/g, "")
+      },
+    },
+  }
+  return [main, stripClient]
 }
 
 // `wayback` is the old name, kept as an alias.

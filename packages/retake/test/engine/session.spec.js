@@ -22,7 +22,6 @@ test("rewinding a 10-second session is fast", async ({ page }) => {
 })
 
 test("F7 input while paused in the past is not silently lost", async ({ page }) => {
-  test.fail()
   const h = await openDock(page, URL_)
   await h.record(); await page.waitForTimeout(600); await h.pause()
   await h.click("#go") // app reacts, but nothing records it
@@ -52,7 +51,6 @@ test("F14 rewinding while a fetch is in flight doesn't hang that request later",
 })
 
 test("F10 a full reload of the app keeps the session", async ({ page }) => {
-  test.fail()
   const h = await openDock(page, URL_)
   await h.record(); await page.waitForTimeout(1200); await h.pause()
   await page.evaluate(() => (window.__marker = 1))
@@ -64,22 +62,30 @@ test("F10 a full reload of the app keeps the session", async ({ page }) => {
   } finally {
     fs.writeFileSync(f, orig)
   }
-  expect(await page.evaluate(() => window.__marker)).toBe(1)
-  const s = await h.state()
+  expect(await page.evaluate(() => window.__marker)).toBe(1) // the dock page itself didn't reload
+  const s = await h.settle()
   expect(s.started).toBe(true)
+  expect(s.end).toBeGreaterThan(1000) // the recording resumed rather than starting over
+  expect((await h.rt(() => __wayback.history())).reloads.length).toBeGreaterThanOrEqual(1)
 })
 
 test("F16 a same-origin iframe inside the app gets its own page, not the dock", async ({ page }) => {
-  test.fail()
   const h = await openDock(page, URL_)
-  const res = await h.rt(async () => {
+  await h.rt(() => {
     const f = document.createElement("iframe")
+    f.id = "nested-test"
     f.src = "/embed.html"
     document.body.appendChild(f)
-    await new Promise((r) => (f.onload = r))
-    await new Promise((r) => setTimeout(r, 300))
-    return { dock: !!f.contentDocument.querySelector("#wb-dock"), body: !!f.contentDocument.querySelector("#emb-body") }
   })
+  let res = null
+  for (let i = 0; i < 50; i++) {
+    await page.waitForTimeout(100)
+    res = await h.rt(() => {
+      const d = document.getElementById("nested-test").contentDocument
+      return d && d.readyState === "complete" ? { dock: !!d.querySelector("#wb-dock"), body: !!d.querySelector("#emb-body") } : null
+    })
+    if (res && (res.dock || res.body)) break
+  }
   expect(res).toEqual({ dock: false, body: true })
 })
 

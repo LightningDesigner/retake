@@ -198,7 +198,8 @@ export function createStore(root) {
   return { dir, snapshot, load, checkout, recover, state, saveState, plan }
 }
 
-export function codeVersions(server, { token } = {}) {
+export function codeVersions(server, { token, bus } = {}) {
+  const announce = () => bus && bus.emit("code-version", { version: current, newest })
   const root = server.config.root
   const store = createStore(root)
   const log = (msg) => server.config.logger.info(`  retake: ${msg}`, { timestamp: true })
@@ -260,8 +261,11 @@ export function codeVersions(server, { token } = {}) {
     clearTimeout(pending)
     pending = setTimeout(() => {
       try {
-        current = newest = store.snapshot()
+        const id = store.snapshot()
+        const changed = id !== current
+        current = newest = id
         persist()
+        if (changed) announce()
       } catch (err) {
         warn(`couldn't snapshot: ${err.message}`)
       }
@@ -277,6 +281,7 @@ export function codeVersions(server, { token } = {}) {
       if (r.from !== current && r.from !== id) newest = r.from
       current = id
       persist()
+      announce()
     } else warn(r.error)
     return r
   }

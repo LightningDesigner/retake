@@ -1,6 +1,17 @@
 // Drives the dock + app frame from Playwright. Works against the runtime API
 // (window.__wayback in the app frame) so specs don't depend on dock markup.
-export async function openDock(page, url) {
+// Start every spec from an empty persisted session (the dock restores
+// <project>/.retake/session.json on load).
+export async function resetSession(request, url) {
+  const origin = new URL(url).origin
+  const html = await (await request.get(origin + "/")).text()
+  const m = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)
+  if (!m) return
+  await request.put(origin + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": m[1] } })
+}
+
+export async function openDock(page, url, { fresh = true } = {}) {
+  if (fresh) await resetSession(page.request, url)
   const errors = []
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message))
   await page.goto(url)

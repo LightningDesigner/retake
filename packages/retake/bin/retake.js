@@ -76,12 +76,13 @@ export function parseArgs(argv) {
 // The project's own Vite (so its plugins match), found the way Node would find
 // it from the project, walking up to a workspace root. Falls back to ours.
 export function resolveVite(project) {
-  for (const from of [path.join(project, "package.json"), path.join(HOME, "package.json")]) {
+  const ours = path.join(HOME, "package.json")
+  for (const from of [path.join(project, "package.json"), ours]) {
     try {
       const pkgPath = createRequire(from).resolve("vite/package.json")
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
       const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin && pkg.bin.vite
-      return { bin: path.join(path.dirname(pkgPath), bin || "bin/vite.js"), version: pkg.version, own: from.startsWith(HOME) }
+      return { bin: path.join(path.dirname(pkgPath), bin || "bin/vite.js"), version: pkg.version, own: from === ours }
     } catch {}
   }
   return null
