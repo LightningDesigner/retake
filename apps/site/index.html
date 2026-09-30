@@ -48,6 +48,61 @@
     </div>
   </section>
 
+  <section class="try-sec" id="try">
+    <div class="wrap">
+      <div class="eyebrow mono">Try it</div>
+      <h2>A tiny prototype, built to be rewound.</h2>
+      <div class="try-grid">
+        <div class="proto" aria-label="Demo prototype">
+          <div class="proto-top mono"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="p-clock">--:--:--</span></div>
+          <div class="stage" id="stage">
+            <div class="card" data-step="0">
+              <div class="k mono">Step 1 of 3</div>
+              <h3>Pick a plan</h3>
+              <div class="plans" role="radiogroup" aria-label="Plan">
+                <button class="plan" role="radio" aria-checked="false" data-plan="Starter"><b>Starter</b><span class="mono">$0</span></button>
+                <button class="plan" role="radio" aria-checked="false" data-plan="Studio"><b>Studio</b><span class="mono">$12</span></button>
+                <button class="plan" role="radio" aria-checked="false" data-plan="Team"><b>Team</b><span class="mono">$32</span></button>
+              </div>
+              <button class="go" data-next disabled>Continue</button>
+            </div>
+            <div class="card" data-step="1" hidden>
+              <div class="k mono">Step 2 of 3</div>
+              <h3>Ask before you start</h3>
+              <div class="chat" id="chat">
+                <div class="msg me">How should the card handoff feel?</div>
+              </div>
+              <div class="chat-actions">
+                <button class="go ghost" id="ask">Ask</button>
+                <button class="like" id="like" aria-pressed="false" aria-label="Like reply" disabled><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 20s-7-4.35-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 10c0 5.65-7 10-7 10z" fill="currentColor"/></svg></button>
+                <button class="go" data-next>Continue</button>
+              </div>
+            </div>
+            <div class="card" data-step="2" hidden>
+              <div class="k mono">Step 3 of 3</div>
+              <div class="badge-ok" id="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <h3>You're in</h3>
+              <p class="meta mono"><span id="p-plan">Studio</span> · order <span id="p-order">RT-0000</span><br />confirmed at <span id="p-at">--:--:--</span></p>
+              <button class="go ghost" id="restart">Start over</button>
+            </div>
+          </div>
+          <div class="progress" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
+        <div class="try-notes">
+          <p class="cap">Run it locally with Retake and drag back.</p>
+          <ul class="mono">
+            <li><b>01</b> The card handoff: a CSS exit, a Web Animations enter.</li>
+            <li><b>02</b> The heart tap. 150ms, too quick to see live. Drag back and zoom in.</li>
+            <li><b>03</b> The reply streams in token by token from a dev-only endpoint.</li>
+            <li><b>04</b> The check springs in on requestAnimationFrame.</li>
+            <li><b>05</b> Order number and times come from Math.random and Date. Rewind and they match.</li>
+          </ul>
+          <div class="cmd mono"><span class="p">$</span><code>cd apps/site &amp;&amp; pnpm dev</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section>
     <div class="wrap">
       <div class="eyebrow mono">Install</div>
