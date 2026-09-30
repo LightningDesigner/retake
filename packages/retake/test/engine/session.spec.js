@@ -21,17 +21,19 @@ test("rewinding a 10-second session is fast", async ({ page }) => {
   expect(Date.now() - t0).toBeLessThan(5000)
 })
 
-test("F7 input while paused in the past is not silently lost", async ({ page }) => {
+test("F7 input while paused never goes unrecorded: the app doesn't get it", async ({ page }) => {
   const h = await openDock(page, URL_)
-  await h.record(); await page.waitForTimeout(600); await h.pause()
-  await h.click("#go") // app reacts, but nothing records it
+  await page.waitForTimeout(600)
+  await h.pause()
+  await h.click("#go") // blocked: paused is view-only
   await page.waitForTimeout(300)
-  await h.record(); await page.waitForTimeout(1000); await h.pause()
-  const liveClicks = pick(await h.log(), "click-random")
+  expect(pick(await h.log(), "click-random")).toEqual([])
+  await h.record()
+  await page.waitForTimeout(800)
+  await h.pause()
   const T = (await h.state()).now
   await h.seek(T - 1)
-  // Contract: either the click is blocked (live saw nothing) or it replays.
-  expect(pick(await h.log(), "click-random")).toEqual(liveClicks)
+  expect(pick(await h.log(), "click-random")).toEqual([])
 })
 
 test("F14 rewinding while a fetch is in flight doesn't hang that request later", async ({ page }) => {

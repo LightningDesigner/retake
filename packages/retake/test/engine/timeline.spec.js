@@ -50,7 +50,7 @@ test("timeline() has markers for what you did and clips for what animated", asyn
   expect((await h.rt(() => __wayback.history())).viewport).toEqual(tl.viewport)
 })
 
-test("the past is view-only; the live edge is live", async ({ page }) => {
+test("the past is view-only; + makes a paused timeline that only Play starts", async ({ page }) => {
   const h = await openDock(page, URL_)
   await page.waitForTimeout(1200)
   expect(await h.rt(() => __wayback.isInteractive())).toBe(true)
@@ -60,30 +60,84 @@ test("the past is view-only; the live edge is live", async ({ page }) => {
   await h.click("#go")
   await page.waitForTimeout(200)
   expect(pick(await h.log(), "click-random")).toEqual([]) // blocked
-  // + makes a new timeline here, and the app is live from there
   await h.rt(() => __wayback.forkHere())
-  const why = await h.rt(() => ({ i: __wayback.isInteractive(), ...__wayback.state(), rebuilding: parent.__waybackShell.rebuilding }))
-  expect(why).toMatchObject({ i: true })
-  await page.waitForTimeout(100)
+  let s = await h.state()
+  expect(s.playing).toBe(false) // the new timeline starts paused
+  expect(s.future).toBe(false)
+  expect(await h.rt(() => __wayback.isPaused())).toBe(true)
+  await h.click("#go") // still view-only until Play
+  await page.waitForTimeout(300)
+  s = await h.state()
+  expect(s.playing).toBe(false)
+  expect(s.now).toBe(300)
+  expect(pick(await h.log(), "click-random")).toEqual([])
+  await h.record()
+  await page.waitForTimeout(100) // the dock lifts its shield on the next frame
   await h.click("#go")
   await page.waitForTimeout(300)
-  const s = await h.state()
-  expect(s.playing).toBe(true) // acting at the live edge resumes recording
+  expect((await h.state()).playing).toBe(true)
   expect(pick(await h.log(), "click-random")).toHaveLength(1)
 })
 
-test("acting while paused at the live edge is recorded", async ({ page }) => {
+test("paused at the live edge, clicks and keys don't reach the app or start the clock", async ({ page }) => {
   const h = await openDock(page, URL_)
   await page.waitForTimeout(500)
   await h.pause()
+  const t = (await h.state()).now
   await h.click("#go")
+  await h.click("#q")
+  await page.keyboard.type("x")
+  await page.waitForTimeout(400)
+  const s = await h.state()
+  expect(s.playing).toBe(false)
+  expect(s.now).toBe(t)
+  expect(pick(await h.log(), "click-random")).toEqual([])
+  expect(pick(await h.log(), "keycode")).toEqual([])
+  expect(await h.rt(() => document.getElementById("q").value)).toBe("")
+})
+
+test("scrolling while paused is view-only: allowed, not recorded, no time passes, put back on play", async ({ page }) => {
+  const h = await openDock(page, URL_)
   await page.waitForTimeout(500)
   await h.pause()
-  const liveClicks = pick(await h.log(), "click-random")
-  expect(liveClicks).toHaveLength(1)
-  const T = (await h.state()).now
-  await h.seek(T - 1)
-  expect(pick(await h.log(), "click-random")).toEqual(liveClicks)
+  const t = (await h.state()).now
+  const events = await h.rt(() => __wayback.history().events.length)
+  // The dock's past/paused shield must let scrolling through (S2's side);
+  // here the runtime is tested on its own.
+  await page.evaluate(() => { const s = document.getElementById("wb-shield"); if (s) s.style.pointerEvents = "none" })
+  const b = await h.box("#scroller")
+  await page.mouse.move(b.x + 20, b.y + 20)
+  await page.mouse.wheel(0, 200)
+  await page.waitForTimeout(400)
+  expect(await h.rt(() => document.getElementById("scroller").scrollTop)).toBeGreaterThan(50) // it scrolls
+  const s = await h.state()
+  expect(s.playing).toBe(false)
+  expect(s.now).toBe(t)
+  expect(await h.rt(() => __wayback.history().events.length)).toBe(events) // not recorded
+  expect(pick(await h.log(), "scrolled")).toEqual([]) // the app didn't hear of it
+  await h.record()
+  await page.waitForTimeout(200)
+  expect(await h.rt(() => document.getElementById("scroller").scrollTop)).toBe(0) // back where the recording had it
+})
+
+test("switching timelines loads the other one paused, and onPlayState reports changes", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(800)
+  const json = await h.rt(() => JSON.stringify(__wayback.history()))
+  await h.rt(() => {
+    window.__ps = []
+    __wayback.onPlayState((s) => window.__ps.push(s.playing))
+  })
+  await h.pause()
+  await h.record()
+  await h.pause()
+  expect(await h.rt(() => window.__ps)).toEqual([false, true, false])
+  await h.record() // playing when we switch away
+  await h.rt((j) => __wayback.load(j, 400), json)
+  await page.waitForTimeout(200)
+  const s = await h.settle()
+  expect(s.playing).toBe(false)
+  expect(s.now).toBe(400)
 })
 
 test("setToolActive stops the app from seeing input", async ({ page }) => {

@@ -15,7 +15,9 @@ const COMPOSE = ["compositionstart", "compositionupdate", "compositionend"]
 const OTHER = ["input", "beforeinput", "change", "focusin", "focusout", "focus", "blur", "scroll", "wheel", "submit"]
 const HOVER = new Set(["pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave"])
 // Acting on a paused app at the live edge resumes recording (CONTRACT.md).
-const RESUMES = new Set(["pointerdown", "mousedown", "keydown", "touchstart", "wheel", "input", "beforeinput", "change", "paste", "cut", "drop", "compositionstart", "submit"])
+// Input that "acts" (used to wake a scoped preview into a real rebuild).
+const RESUMES = new Set(["pointerdown", "mousedown", "keydown", "touchstart", "input", "beforeinput", "change", "paste", "cut", "drop", "compositionstart", "submit"])
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "])
 
 let dispatching = 0
 let missingTargets = 0
@@ -168,6 +170,84 @@ function serialize(e) {
   return ev
 }
 
+// ---- view-only input and scrolling while paused ----------------------------------
+// Scroll positions as the recording has them (live recording and replay), and
+// the elements the user scrolled just to look while paused. Those go back to
+// the recorded position when playback resumes or on a seek.
+const scrollRec = new Map() // path key -> { top, left }
+const viewScrolled = new Map() // path key -> path
+const restoredScroll = new Map() // path key -> { top, left } just set by restoreScroll
+const keyOf = (path) => (Array.isArray(path) ? path.join(",") : String(path))
+
+function noteScroll(ev) {
+  scrollRec.set(keyOf(ev.path), { top: ev.top, left: ev.left })
+}
+
+function scrollElOf(path) {
+  if (path === "d") return document.scrollingElement
+  const n = resolvePath(path)
+  return n && n.nodeType === 1 ? n : null
+}
+
+function restoreScroll() {
+  for (const [key, path] of viewScrolled) {
+    const el = scrollElOf(path)
+    if (!el) continue
+    const r = scrollRec.get(key) || { top: 0, left: 0 }
+    if (el.scrollTop !== r.top || el.scrollLeft !== r.left) {
+      restoredScroll.set(key, r)
+      el.scrollTop = r.top
+      el.scrollLeft = r.left
+    }
+  }
+  viewScrolled.clear()
+}
+
+// The scroll event that restoreScroll itself causes isn't the user's.
+function ignoreRestoredScroll(e) {
+  const path = e.target === document ? "d" : pathOf(e.target)
+  const key = keyOf(path)
+  const r = restoredScroll.get(key)
+  if (!r) return false
+  restoredScroll.delete(key)
+  const el = scrollElOf(path)
+  return !!el && el.scrollTop === r.top && el.scrollLeft === r.left
+}
+
+function isEditable(el) {
+  return !!el && el.nodeType === 1 && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+}
+
+function viewOnly(e) {
+  if (e.type === "scroll") {
+    // Looking around: the browser scrolls, the app doesn't hear of it, and
+    // it isn't part of the recording.
+    const path = e.target === document ? "d" : pathOf(e.target)
+    if (path) viewScrolled.set(keyOf(path), path)
+    e.stopImmediatePropagation()
+    return
+  }
+  if (e.type === "wheel" || e.type === "touchstart" || e.type === "touchmove" || e.type === "touchend") {
+    e.stopImmediatePropagation() // default (scrolling) still happens
+    return
+  }
+  if (e.type === "keydown" || e.type === "keyup" || e.type === "keypress") {
+    // The dock drives space/arrows/F/+ while focus is in the app.
+    let handled = false
+    if (e.type === "keydown" && shell && typeof shell.key === "function") {
+      try {
+        handled = !!shell.key(e)
+      } catch {}
+    }
+    if (!handled && SCROLL_KEYS.has(e.key) && !isEditable(e.target)) {
+      e.stopImmediatePropagation() // keyboard scrolling still works
+      return
+    }
+    return block(e)
+  }
+  return block(e)
+}
+
 function block(e) {
   e.stopImmediatePropagation()
   if (e.cancelable && e.type !== "scroll") e.preventDefault()
@@ -199,23 +279,11 @@ function onInput(e) {
     if (previewing && RESUMES.has(e.type) && shell && shell.wake) shell.wake()
     return
   }
-  // In the past (rewound, or playing the recorded future back) the app is
-  // view-only, like a paused video: input is blocked, except scrolling to look
-  // around. Only the dock's + makes a new timeline from here.
-  if (hasFuture()) {
-    if (e.type === "scroll" || e.type === "wheel") return
-    // The dock drives space/arrows/F/+ while focus is in the app.
-    if (e.type === "keydown" && shell && typeof shell.key === "function") {
-      try {
-        shell.key(e)
-      } catch {}
-    }
-    return block(e)
-  }
-  // At the live edge the app is live and everything is recorded. Acting on
-  // a paused app there resumes time; hovering or scrolling it is recorded at
-  // the paused moment without starting the clock.
-  if (!clock.playing && RESUMES.has(e.type)) play()
+  // Paused, or in the past (rewound, or playing the recorded future back):
+  // the app is view-only, like a paused video. Nothing it gets reaches it or
+  // moves time, except that you can scroll around to look (CONTRACT.md).
+  // Only Play starts the clock.
+  if (!clock.playing || hasFuture()) return viewOnly(e)
   // A mousemove right after the pointermove it mirrors is one event.
   if (e.type === "mousemove") {
     const last = rec.events[rec.events.length - 1]
@@ -236,7 +304,9 @@ function onInput(e) {
   if (e.type === "focus" || e.type === "blur") return // focusin/focusout carry these
   if (e.type === "focusin") vFocus = e.target
   if (e.type === "focusout" && vFocus === e.target) vFocus = null
+  if (e.type === "scroll" && ignoreRestoredScroll(e)) return
   const ev = serialize(e)
+  if (ev.type === "scroll" && ev.path) noteScroll(ev)
   if (ev.path) {
     trace("input", ev.type)
     const before = rec.events.length
@@ -374,6 +444,7 @@ function replayOne(ev, target) {
       const el = target === document ? document.scrollingElement : target
       el.scrollTop = ev.top
       el.scrollLeft = ev.left
+      noteScroll(ev)
       return
     }
     case ev.type === "nav": {

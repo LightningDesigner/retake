@@ -79,9 +79,18 @@ Object.assign(PT, {
     return seek(Math.max(t, rec.start), andPlay ? play : undefined)
   },
   // Start a new branch at this moment, even if nothing lies ahead yet.
+  // The new timeline starts paused at this moment; recording into it starts
+  // when the user presses Play.
   forkHere() {
+    pause()
     if (hasFuture()) return fork()
     if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
+  },
+  isPaused: () => !clock.playing,
+  // fn({ playing, now }) whenever play state changes; returns an unsubscribe.
+  onPlayState(fn) {
+    playListeners.add(fn)
+    return () => playListeners.delete(fn)
   },
   setRate,
   history: () => rec,

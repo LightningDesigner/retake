@@ -108,6 +108,7 @@ async function runSeek() {
   syncAnimations()
   alignMedia()
   syncMedia()
+  restoreScroll()
   if (!hasFuture()) clearHover() // live again: the real :hover takes over
   // Put real focus back where the recording had it.
   const f = focused()
@@ -151,19 +152,29 @@ async function drive() {
 
 // ---- controls ----------------------------------------------------------------
 
+// Play state changes, for the dock (PT.onPlayState).
+const playListeners = new Set()
+function playStateChanged() {
+  for (const fn of playListeners) safeCall(fn, [{ playing: clock.playing, now: clock.now }])
+}
+
 function play() {
   if (clock.playing) return
+  restoreScroll() // anything scrolled just to look goes back first
   clock.playing = true
   pace = clock.now
   syncMedia()
   releaseHeld() // network arrivals held while paused at the live edge
+  playStateChanged()
   PT.emit()
 }
 
 function pause() {
+  const was = clock.playing
   clock.playing = false
   syncMedia()
   PT.emit()
+  if (was) playStateChanged()
 }
 
 function setRate(rate) {
@@ -175,7 +186,10 @@ function setRate(rate) {
 function seek(t, then) {
   t = Math.max(0, t)
   if (t >= clock.now) {
-    clock.playing = false
+    if (clock.playing) {
+      clock.playing = false
+      playStateChanged()
+    }
     seekTarget = t
     afterSeek = then || null
   } else {

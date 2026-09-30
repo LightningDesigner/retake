@@ -163,8 +163,9 @@ let toolActive = false
 function setToolActive(on) {
   toolActive = !!on
 }
+// Live = playing at the live edge. Paused or in the past it's view-only.
 function isInteractive() {
-  return !!rec && !hasFuture() && !previewing && !clock.seeking && !(shell && shell.rebuilding) && !toolActive
+  return !!rec && clock.playing && !hasFuture() && !previewing && !clock.seeking && !(shell && shell.rebuilding) && !toolActive
 }
 
 // ---- routes (for markers) ---------------------------------------------------------

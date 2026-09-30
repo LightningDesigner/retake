@@ -122,3 +122,5 @@ document.getElementById("unread").addEventListener("click", async () => {
   const res = await fetch("/api/stream?unread=1")
   L("unread", res.status)
 })
+
+document.getElementById("scroller").addEventListener("scroll", (e) => L("scrolled", e.target.scrollTop))

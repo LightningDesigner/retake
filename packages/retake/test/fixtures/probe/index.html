@@ -7,6 +7,8 @@
   #pad { width: 200px; height: 80px; background: #def; }
   #late { display: none; height: 30px; background: gold; }
   #late.show { display: block; }
+  #scroller { width: 200px; height: 60px; overflow: auto; }
+  #scroller div { height: 600px; }
   #hov { width: 120px; height: 30px; background-color: rgb(255, 255, 255); transition: background-color 200ms linear; }
   #hov:hover { background-color: rgb(0, 0, 255); }
 </style></head>
@@ -29,6 +31,7 @@
   <div id="late">late</div>
   <pre id="out"></pre>
   <div id="hov">hover me</div>
+  <div id="scroller"><div>tall</div></div>
   <audio id="aud" preload="auto" src="/api/tone.wav"></audio>
   <audio id="bg" autoplay loop muted src="/bg.wav"></audio>
   <img id="pic" src="/api/pic.svg" width="10" height="10">
