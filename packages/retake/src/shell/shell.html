@@ -7,46 +7,48 @@
     <style>/*CSS*/</style>
   </head>
   <body>
-    <div id="wb-stage"></div>
-    <div id="wb-dock" role="region" aria-label="Timeline">
-      <div class="divider" title="Drag to resize"></div>
-      <div class="bar">
-        <div class="side">
-        <div class="group">
-          <button class="tool rec" data-a="record" aria-label="Record" title="Record (⌥P)">
-            <svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
+    <div id="wb-stage"><div id="wb-shield" hidden></div></div>
+    <div id="wb-dock" role="region" aria-label="Retake timeline">
+      <div class="divider" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" title="Drag to resize"></div>
+      <div class="head">
+        <div class="left">
+          <button class="tool play" data-a="play" aria-label="Play" title="Play / pause (space)">
+            <svg class="i-play" viewBox="0 0 16 16" width="12" height="12"><path d="M4.5 3.2v9.6L12.5 8z" fill="currentColor"/></svg>
+            <svg class="i-pause" viewBox="0 0 16 16" width="12" height="12"><rect x="4" y="3.5" width="2.6" height="9" fill="currentColor"/><rect x="9.4" y="3.5" width="2.6" height="9" fill="currentColor"/></svg>
           </button>
-          <button class="tool" data-a="pause" aria-label="Pause" title="Pause (⌥P)">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6.5" y="5.5" width="4" height="13" rx="1.2"/><rect x="13.5" y="5.5" width="4" height="13" rx="1.2"/></svg>
-          </button>
+          <span class="readout" aria-live="off">T <b class="t">00:00.00</b> · <b class="phase">LIVE</b></span>
         </div>
-          <div class="group bare">
-            <button class="tool" data-a="flag" aria-label="Add a marker" title="Drop a marker here (M)">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>
+        <div class="hint" aria-live="polite"></div>
+        <div class="right">
+          <div class="tools" role="tablist" aria-label="Tool">
+            <button class="tool" data-tool="hand" role="tab" aria-label="Hand" title="Hand: just use the prototype">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+            </button>
+            <button class="tool" data-tool="select" role="tab" aria-label="Select" title="Select a component to scrub it on its own">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.04 4.69a.5.5 0 0 1 .65-.65l16 6.5a.5.5 0 0 1-.06.95l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.12a.5.5 0 0 1-.95.07z"/></svg>
+            </button>
+            <button class="tool" data-tool="comment" role="tab" aria-label="Comment" title="Comment on an element (or hold ⌘)">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
             </button>
           </div>
+          <button class="text-btn notes-btn" data-a="notes" aria-label="Notes on this timeline" title="Notes on this timeline">Notes <span class="n">0</span></button>
+          <button class="text-btn fresh" data-a="fresh" title="Clear every timeline and note, and reload the prototype">Start fresh</button>
         </div>
-        <div class="timeline">
-          <div class="track"><svg class="lines" aria-label="Timeline"></svg><span class="time"></span><button class="plus" aria-label="New timeline from here" hidden>+</button></div>
+      </div>
+      <div class="body">
+        <div class="gutter" aria-label="Timelines"></div>
+        <div class="track">
+          <svg class="lines" aria-label="Timeline"></svg>
+          <button class="plus" aria-label="New timeline from here" title="New timeline from here (+)" hidden>+</button>
+          <div class="tip" hidden></div>
         </div>
-        <div class="group tabs" role="tablist" aria-label="Tool">
-          <button class="tool" data-tool="hand" role="tab" aria-label="Hand" title="Hand: just use the prototype">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
-          </button>
-          <button class="tool" data-tool="select" role="tab" aria-label="Select" title="Select a component to scrub it on its own">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.04 4.69a.5.5 0 0 1 .65-.65l16 6.5a.5.5 0 0 1-.06.95l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.12a.5.5 0 0 1-.95.07z"/></svg>
-          </button>
-          <button class="tool" data-tool="comment" role="tab" aria-label="Comment" title="Comment on an element (or hold ⌘)">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
-          </button>
-        </div>
-        <button class="text-btn fresh" data-a="fresh" title="Clear every timeline and note, and reload the prototype">Start fresh</button>
       </div>
     </div>
     <div id="wb-hl"></div>
     <div id="wb-scope"></div>
     <div id="wb-pins"></div>
     <div id="wb-note" class="card" hidden></div>
+    <div id="wb-list" class="card list" hidden></div>
     <div id="wb-menu" class="card ctx" hidden></div>
     <script>/*CONFIG*/</script>
     <script>/*JS*/</script>

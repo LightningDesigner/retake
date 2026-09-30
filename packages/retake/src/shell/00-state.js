@@ -38,11 +38,18 @@ const D = {
   // pointer and tools
   dragT: null, // the time under the playhead while scrubbing
   hoverT: null, // where a + would start a new timeline
+  hoverX: null, // the pointer over the track, in px
+  hot: null, // what the pointer is over: { kind: "clip" | "mark", i }
+  keyT: null, // where arrow keys have taken the playhead, until it's built
+  snapT: null, // what the playhead snapped to while scrubbing
+  lanes: null, // lane id → { y, thin }, from the last draw
+  clipBars: [],
   picking: null, // "comment" | "select" | null
   metaHeld: false,
   scopeEl: null, // the element the Select tool scoped scrubbing to
   // dock size
   height: store.get("height", 150),
+  view: null, // the window of time on the timeline (20-timeline.js)
 }
 
 const fmt = (ms) => {

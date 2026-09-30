@@ -44,10 +44,20 @@ function swapIn(f, pt) {
   D.PT = pt
   D.building = null
   window.__waybackShell.rebuilding = false
+  hookFrameKeys(f.contentWindow)
 }
 
 window.__waybackShell = {
   rebuilding: false,
+  // The runtime hands over keys it blocks in the view-only past. True if the
+  // dock used it.
+  key(e) {
+    try {
+      return dockKey(e)
+    } catch {
+      return false
+    }
+  },
   take() {
     const p = D.stash
     D.stash = null
@@ -55,7 +65,10 @@ window.__waybackShell = {
   },
   attach(pt) {
     if (D.building && D.building.frame.contentWindow.__wayback === pt) D.building.pt = pt
-    else if (!D.frame || D.frame.contentWindow.__wayback === pt) D.PT = pt
+    else if (!D.frame || D.frame.contentWindow.__wayback === pt) {
+      D.PT = pt
+      hookFrameKeys(D.frame.contentWindow)
+    }
   },
   // Build a moment (a history and a time) in a fresh frame, swap when ready.
   rebuild(payload) {
@@ -180,14 +193,36 @@ function render() {
   const s = state()
   dock.style.height = dockHeight() + "px"
   if (!s) return
+  autoStart(s)
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
-  // Dragging the playhead pauses, and the Pause button says so straight away.
-  $('[data-a="pause"]').classList.toggle("on", !!s.started && (!s.recording || D.dragT != null))
-  $(".rec").classList.toggle("on", !!s.recording && D.dragT == null)
-  const shownT = D.dragT != null ? D.dragT : s.previewing ? s.previewAt : s.now
-  renderTimeline(s, shownT)
+  const shownT = shownTime(s)
+  renderHead(s, shownT)
+  renderShield(s)
+  if (s.started) renderTimeline(s, shownT)
   renderExtras(s)
+}
+
+// Recording is always on from page load: a runtime that waits for Record gets
+// it once, as soon as it has booted.
+function autoStart(s) {
+  if (s.started || !s.booted || D.building || D.autoStarted === D.PT) return
+  D.autoStarted = D.PT
+  D.PT.record()
+}
+
+// In the past the app is view-only: a clear shield takes its pointer events
+// and keyboard focus stays with the dock. The comment and select tools see
+// through it (they work on the past).
+const shield = $("#wb-shield")
+function renderShield(s) {
+  const block = !!s.started && !isInteractive(s) && !mode()
+  shield.hidden = !block
+  // A rebuilt frame can take focus; in the past, keys belong to the dock.
+  if (block && document.activeElement && document.activeElement.tagName === "IFRAME") {
+    document.activeElement.blur()
+    window.focus()
+  }
 }
 // One bad frame must never stop the dock: log it and keep going.
 let renderErrors = 0
@@ -202,13 +237,6 @@ requestAnimationFrame(function loop() {
 
 const refocus = () => D.frame && D.frame.contentWindow && D.frame.contentWindow.focus()
 
-function toggleRecord() {
-  const s = state()
-  if (!D.PT || !s) return
-  if (s.recording) D.PT.pause()
-  else D.PT.record()
-}
-
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button, [data-branch], [data-note]")
   if (!b) {
@@ -216,19 +244,23 @@ document.addEventListener("click", (e) => {
     return
   }
   const a = b.dataset.a
-  if (a === "record" && D.PT && !(D.last && D.last.recording)) D.PT.record()
-  if (a === "pause" && D.PT) D.PT.pause()
-  if (a === "flag") addFlag()
+  if (a === "play") togglePlay()
   if (a === "fresh") return confirmFresh(b)
+  if (a === "notes") return toggleList()
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
-    deleteTimeline(Number(b.dataset.deleteTimeline))
+    deleteTimeline(Number(b.dataset.deleteTimeline)).then((ok) => ok || flash("Couldn't delete that timeline right now"))
+    return
+  }
+  if (b.dataset.renameTimeline) {
+    menuEl.hidden = true
+    renameLane(Number(b.dataset.renameTimeline))
     return
   }
   // Tools: Hand (nothing picked, just use the prototype), Select, Comment.
   if (b.dataset.tool && !b.disabled) setPicking(b.dataset.tool === "hand" ? null : b.dataset.tool)
   if (handleNoteClick(b)) return
-  refocus()
+  if (isInteractive()) refocus()
 })
 
 // The dock never grows by itself (that would resize the app mid-recording);
@@ -276,13 +308,30 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     setPicking(null)
     closeCard()
+    closeList()
     return
   }
-  if (e.code === "KeyM" && !e.metaKey && !e.ctrlKey && !e.altKey && e.target === document.body) addFlag()
   if (e.altKey && e.code === "KeyP") {
     e.preventDefault()
-    toggleRecord()
+    return togglePlay()
   }
+  if (dockKey(e)) e.preventDefault()
 })
+// Keys pressed inside a view-only app are the dock's too.
+function hookFrameKeys(win) {
+  try {
+    if (!win || win.__retakeKeys) return
+    win.__retakeKeys = true
+    win.addEventListener(
+      "keydown",
+      (e) => {
+        if (isInteractive() || !dockKey(e)) return
+        e.preventDefault()
+        e.stopImmediatePropagation()
+      },
+      true,
+    )
+  } catch {}
+}
 window.addEventListener("keyup", (e) => e.key === "Meta" && window.__waybackShell.meta(false))
 window.addEventListener("blur", () => window.__waybackShell.meta(false))

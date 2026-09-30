@@ -11,8 +11,8 @@ let openNote = null
 const hl = $("#wb-hl")
 const scopeBox = $("#wb-scope")
 const card = $("#wb-note")
-// Select and Comment only work on a still moment: paused, or dragged back.
-const isStill = () => !!(D.last && D.last.started && !D.last.recording)
+// Select and Comment work on the past (the app is view-only there).
+const isStill = () => !!(D.last && D.last.started && !isInteractive())
 const mode = () => (!isStill() ? null : D.metaHeld ? "comment" : D.picking)
 
 const shell = window.__waybackShell
@@ -55,6 +55,7 @@ function setPicking(m) {
 
 function syncPicking() {
   shell.inspecting = !!mode()
+  setToolActive(!!mode())
   hovered = null
   try {
     const doc = D.frame.contentDocument
@@ -359,4 +360,34 @@ function renderExtras(s) {
     pin.remove()
     pinEls.delete(id)
   }
+}
+
+// ---- the notes list: this timeline's notes, compact ------------------------------------
+
+const list = $("#wb-list")
+function toggleList() {
+  if (!list.hidden) return closeList()
+  list.hidden = false
+  renderList()
+}
+function closeList() {
+  list.hidden = true
+  $('[data-a="notes"]').classList.remove("on")
+}
+function renderList() {
+  if (list.hidden) return
+  $('[data-a="notes"]').classList.add("on")
+  const start = D.last ? D.last.start : 0
+  const mine = D.notes.map((n, i) => ({ n, i })).filter(({ n }) => n.branchId === D.activeId)
+  list.innerHTML = mine.length
+    ? mine
+        .map(
+          ({ n, i }) =>
+            `<button class="list-row" data-note="${n.id}"><span class="num" style="background:${NOTE_FILL[n.status] || NOTE_FILL.pending}">${i + 1}</span><span class="t">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span><span class="st">${esc(n.status || "pending")}</span></button>`,
+        )
+        .join("")
+    : `<div class="list-empty">No notes on this timeline. Go back in time, then hold ⌘ and click anything.</div>`
+  const r = $('[data-a="notes"]').getBoundingClientRect()
+  list.style.left = Math.min(r.left, innerWidth - 340) + "px"
+  list.style.top = r.top - list.offsetHeight - 8 + "px"
 }

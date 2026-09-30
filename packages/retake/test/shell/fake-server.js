@@ -1,6 +1,7 @@
 // An in-memory stand-in for the /__wayback/ session API (CONTRACT.md), so dock
 // specs don't depend on the dev server having it. `store` survives reloads.
 export async function fakeServer(page, { store = { session: null, recordings: {} }, events = [] } = {}) {
+  page.__retakeFake = true
   const log = []
   await page.route("**/__wayback/session", async (route) => {
     const req = route.request()

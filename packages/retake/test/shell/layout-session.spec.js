@@ -48,7 +48,7 @@ test("the dock sits below the app, never over it, and the divider resizes both",
 
 test("without a session API the dock keeps everything in memory", async ({ page }) => {
   await page.route("**/__wayback/session", (r) => r.fulfill({ status: 404, body: "" }))
-  const h = await openDock(page, DOCK_URL)
+  const h = await openDock(page, DOCK_URL, { fake: false })
   await recordSome(h, ["#toggle"])
   await forkMid(h)
   expect(await D(page, (d) => d.branches.map((b) => b.id))).toEqual([1, 2])
@@ -143,9 +143,11 @@ test("F18: a rebuilding frame is pinned to the recorded viewport", async ({ page
   await h.rt(() => {
     __wayback.timeline = () => ({ now: 0, end: 0, viewport: { w: 640, h: 360 }, markers: [], clips: [] })
   })
+  // The recording's own viewport wins over timeline()'s.
+  const vp = (await h.rt(() => __wayback.history().viewport)) || { w: 640, h: 360 }
   const s = await h.state()
   await h.seek(s.start + 50)
-  expect(await page.evaluate(() => window.__sizes)).toContainEqual(["640px", "360px"])
+  expect(await page.evaluate(() => window.__sizes)).toContainEqual([vp.w + "px", vp.h + "px"])
   // Once swapped in, the frame fills the stage again.
   const stage = await page.locator("#wb-stage").boundingBox()
   expect((await page.locator("#wb-stage iframe.live").boundingBox()).width).toBeCloseTo(stage.width, 0)
