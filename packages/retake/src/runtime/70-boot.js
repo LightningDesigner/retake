@@ -128,6 +128,17 @@ Object.assign(PT, {
     if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
   },
   isPaused: () => !clock.playing,
+  // Checkpoint frames: build in idle slices (true) or at full speed (false).
+  setBackground(on) {
+    background = !!on
+  },
+  // Stop a seek in progress where it is (e.g. a checkpoint build the user overtook).
+  cancelSeek() {
+    if (seekTarget == null) return false
+    seekTarget = clock.now
+    afterSeek = null
+    return true
+  },
   // fn({ playing, now }) whenever play state changes; returns an unsubscribe.
   onPlayState(fn) {
     playListeners.add(fn)

@@ -13,6 +13,7 @@ const real = {
   Date: W.Date,
   random: Math.random,
   fetch: W.fetch.bind(W),
+  idle: W.requestIdleCallback ? W.requestIdleCallback.bind(W) : null,
   local: W.localStorage,
   session: W.sessionStorage,
 }

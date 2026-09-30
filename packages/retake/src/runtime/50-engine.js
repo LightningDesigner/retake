@@ -13,7 +13,6 @@ const futureFrame = () => (cursor.frame < rec.frames.length ? rec.frames[cursor.
 
 // Input recorded at exactly a seek target happened just *after* that moment,
 // so a seek stops short of it.
-const INPUT_TYPES = new Set([...POINTER, ...MOUSE, ...KEYS, ...TOUCH, ...DRAG, ...CLIP, ...COMPOSE, ...OTHER])
 let timersBefore = 0
 async function dispatchUpTo(B) {
   const exclusive = clock.seeking && B === seekTarget
@@ -27,9 +26,6 @@ async function dispatchUpTo(B) {
     // the app gets its turn after the group.
     const next = rec.events[cursor.event]
     if (next && next.g && next.t === ev.t && !(exclusive && next.t >= B)) continue
-    // Input: take in the animations it started now, as live does after the
-    // input's task.
-    if (INPUT_TYPES.has(ev.type)) syncAnimations()
     await settle()
     // An event that changed the DOM may have started CSS transitions, which
     // the next frame adopts; one that changed nothing leaves nothing behind.
@@ -43,9 +39,20 @@ async function dispatchUpTo(B) {
 // work) has nothing to wait for, so it's skipped through. That's most frames
 // of a long session, and it gives the same result as waiting.
 let appRan = true
-const animating = () => {
-  for (const st of managed.values()) if (!st.done && !st.userPaused) return true
-  return false
+// While rebuilding, animations only need a sync when one could have started
+// (app code ran) or one finishes by this frame (its end events must fire
+// here); in between, their state at the target is all that matters.
+function nextAnimationEnd() {
+  let min = Infinity
+  for (const [a, st] of managed) {
+    if (st.done || st.userPaused) continue
+    const end = endOf(a)
+    const rate = rateOf(a) || 1
+    if (!Number.isFinite(end)) continue
+    const at = rate > 0 ? st.v + (end - st.t) / rate : st.v + st.t / -rate
+    if (at < min) min = at
+  }
+  return min
 }
 
 async function processBoundary(B) {
@@ -62,11 +69,12 @@ async function processBoundary(B) {
   tickWorkers(B)
   while (futureFrame() != null && futureFrame() <= B) cursor.frame++
   recordFrame(B)
-  if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || animating()) {
+  if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || nextAnimationEnd() <= B) {
     syncAnimations()
     await settle()
-    // Whatever the app started while settling belongs to this moment too.
-    syncAnimations()
+    // Live, whatever the app started while settling belongs to this moment
+    // too (a rebuild takes recorded starts instead).
+    if (!clock.seeking) syncAnimations()
     appRan = false
   }
   await dispatchUpTo(B)
@@ -89,20 +97,31 @@ function nextBoundary(limit, skipping) {
   return B
 }
 
+// A frame being built in the background (a checkpoint) replays in idle
+// slices, so the frame you're looking at stays smooth.
+let background = false
+const idleSlice = () => new Promise((r) => (W.requestIdleCallback && real.idle ? real.idle(r, { timeout: 200 }) : real.setTimeout(r, 0)))
+
 async function runSeek() {
   const seekStart = real.perfNow()
   clock.seeking = true
   syncMedia()
   PT.emit()
   let lastPaint = real.perfNow()
+  let sliceStart = real.perfNow()
   while (seekTarget != null && clock.now < seekTarget) {
+    if (background && real.perfNow() - sliceStart > 8) {
+      await idleSlice()
+      sliceStart = real.perfNow()
+      if (seekTarget == null) break
+    }
     const B = nextBoundary(seekTarget, true)
     if (B == null) {
       clock.now = seekTarget // rest between recorded frames, like the original did
       break
     }
     await processBoundary(B)
-    if (real.perfNow() - lastPaint > 400) {
+    if (!background && real.perfNow() - lastPaint > 400) {
       PT.emit()
       await new Promise((r) => real.raf(r))
       lastPaint = real.perfNow()
