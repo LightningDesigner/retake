@@ -125,3 +125,6 @@ document.getElementById("unread").addEventListener("click", async () => {
 })
 
 document.getElementById("scroller").addEventListener("scroll", (e) => L("scrolled", e.target.scrollTop))
+
+// A full navigation to another page of the app (not pushState).
+document.getElementById("nav").addEventListener("click", () => { location.href = "/?p=2" })

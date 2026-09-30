@@ -137,6 +137,12 @@ async function drive() {
         await runSeek()
       } else if (clock.playing) {
         pace = Math.max(pace, clock.now) + dt * clock.rate
+        const nextSeg = hasFuture() && segmentsOf().find((sg) => sg.t > clock.now)
+        if (nextSeg && pace >= nextSeg.t) {
+          clock.playing = false
+          rewind(nextSeg.t, true) // the recorded future reloaded here: carry on from a fresh page
+          continue
+        }
         for (let B = nextBoundary(pace, false); B != null; B = nextBoundary(pace, false)) {
           await processBoundary(B)
           if (seekTarget != null || !clock.playing) break
@@ -186,6 +192,8 @@ function setRate(rate) {
 
 function seek(t, then) {
   t = Math.max(0, t)
+  // Past a reload, the moment needs a fresh page: rebuild instead.
+  if (t >= clock.now && segmentIndex(t) !== segmentIndex(clock.now)) return rewind(t, !!then)
   if (t >= clock.now) {
     if (clock.playing) {
       clock.playing = false
@@ -202,6 +210,12 @@ function seek(t, then) {
 // happened up to t. The dock (parent window) holds the history meanwhile.
 // The dock builds the moment in a fresh frame behind this one and swaps it in
 // when it's ready, so going back never flashes.
+// url: the page the moment's segment started on (the dock loads it; a frame
+// on another URL moves there itself).
 function rewind(t, playAfter, json = JSON.stringify(rec)) {
-  if (shell) shell.rebuild({ rec: json, target: t, play: playAfter, rate: clock.rate })
+  let url
+  try {
+    url = segmentAt(t, typeof json === "string" ? JSON.parse(json) : json).url
+  } catch {}
+  if (shell) shell.rebuild({ rec: json, target: t, play: playAfter, rate: clock.rate, url })
 }

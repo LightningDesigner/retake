@@ -25,17 +25,58 @@ function takeResume() {
   return null
 }
 const pending = (shell && shell.take()) || takeResume()
-
 // Time doesn't start until state is in place (IndexedDB is async).
 let stateReady
-if (pending) {
+// Set when this page is about to reload itself into another segment's URL.
+let handingOff = false
+if (pending && pending.reloaded) {
+  // The app reloaded (or navigated) itself mid-recording: a fresh page, so a
+  // new segment of the recording starts here, at this URL, with the storage
+  // as it is now. Nothing is replayed; later rebuilds to a moment in this
+  // segment start from here too.
   rec = JSON.parse(pending.rec)
-  // Web storage, cookies and IndexedDB go back to how they were when the
-  // history began.
-  restoreStorage(real.local, rec.storage.local)
-  restoreStorage(real.session, rec.storage.session)
-  restoreCookies(rec.cookies)
-  stateReady = rec.idb != null ? withIDBGate(() => restoreIDB(rec.idb)) : Promise.resolve()
+  const seg = {
+    t: pending.target,
+    ev: rec.events.length,
+    fr: rec.frames.length,
+    url: location.href,
+    storage: { local: snapshotStorage(real.local), session: snapshotStorage(real.session) },
+    cookies: snapshotCookies(),
+    seed: (rec.seed ^ Math.imul((rec.segments || []).length + 1, 0x85ebca6b)) >>> 0,
+  }
+  ;(rec.segments || (rec.segments = [])).push(seg)
+  clock.now = seg.t
+  cursor.event = seg.ev
+  cursor.frame = seg.fr
+  clock.rate = pending.rate || 1
+  stateReady = withIDBGate(async () => {
+    const snap = await snapshotIDB()
+    if (snap) seg.idb = snap
+  })
+} else if (pending) {
+  rec = JSON.parse(pending.rec)
+  const seg = segmentAt(pending.target)
+  if (seg.url && sameDocUrl(seg.url) === false) {
+    // This moment lives in a segment that started on another URL: go there
+    // (the payload rides along on the shell), and rebuild from that page.
+    handingOff = true
+    try {
+      shell.__resume = { frame: W.frameElement, payload: pending, handoff: true }
+    } catch {}
+    location.replace(seg.url)
+  }
+  // (If handing off, this page is going away: its clock never starts.)
+  // Web storage, cookies and IndexedDB go back to how they were when this
+  // segment began (the recording's start, or the reload that began it).
+  restoreStorage(real.local, seg.storage.local)
+  restoreStorage(real.session, seg.storage.session)
+  restoreCookies(seg.cookies)
+  stateReady = handingOff ? new Promise(() => {}) : seg.idb != null ? withIDBGate(() => restoreIDB(seg.idb)) : Promise.resolve()
+  if (seg.t > 0) {
+    clock.now = seg.t
+    cursor.event = seg.ev
+    cursor.frame = seg.fr
+  }
   clock.rate = pending.rate || 1
 } else {
   rec = newRecording()
@@ -48,7 +89,7 @@ if (pending) {
   })
 }
 epoch = rec.epoch
-seedRandom(rec.seed)
+seedRandom(pending ? segmentAt(clock.now).seed : rec.seed)
 
 // Record starts the timeline, or resumes it from where it last got to.
 function record() {
@@ -119,6 +160,7 @@ Object.assign(PT, {
     for (let i = Math.max(0, cursor.event - 64); i < cursor.event; i++) if (!same(next.events[i], rec.events[i])) return no(`event ${i} differs`)
     if (cursor.frame && next.frames[cursor.frame - 1] !== rec.frames[cursor.frame - 1]) return no("frames differ")
     if (t < clock.now) return no("that moment is behind this frame")
+    if (segmentIndex(t, next) !== segmentIndex(clock.now, next)) return no("that moment is after a reload")
     PT.adoptRefused = null
     rec = next
     seek(t, andPlay ? play : undefined)
@@ -165,13 +207,29 @@ PT.shortcut = function (e) {
   return true
 }
 
+// The app navigating its frame to another of its pages (location.href = …)
+// must stay in the time machine: the frame's marker (?__wb=app) is kept on
+// the new URL, so that page gets the runtime and starts a new segment.
+try {
+  if (W.navigation && shell) {
+    W.navigation.addEventListener("navigate", (e) => {
+      if (e.hashChange || !e.cancelable || e.downloadRequest || (e.destination && e.destination.sameDocument)) return
+      const url = new URL(e.destination.url)
+      if (url.origin !== location.origin || url.searchParams.get("__wb") === "app") return
+      url.searchParams.set("__wb", "app")
+      e.preventDefault()
+      location.assign(url.href)
+    })
+  }
+} catch {}
+
 // A reload (or navigation) fires beforeunload first; a frame the dock removes
 // doesn't. Only a reload leaves its recording on the shell to resume.
 let unloading = false
 W.addEventListener("beforeunload", () => (unloading = true))
 W.addEventListener("pagehide", () => {
   try {
-    if (!unloading || !shell || !rec || rec.start == null || clock.seeking) return
+    if (!unloading || handingOff || !shell || !rec || rec.start == null || clock.seeking) return
     const el = W.frameElement
     if (!el || !el.isConnected) return
     rec.reloads = [...(rec.reloads || []), clock.now]

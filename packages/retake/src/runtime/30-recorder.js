@@ -42,6 +42,33 @@ function newRecording() {
 let rec = null
 const cursor = { event: 0, frame: 0 }
 
+// Segments: a recording starts one on load, and another each time the app
+// reloads itself. A moment is rebuilt from the start of its segment: that
+// segment's URL, storage and seed, replaying only what came after it.
+function segmentsOf(r = rec) {
+  const first = { t: 0, ev: 0, fr: 0, url: r.url, storage: r.storage, cookies: r.cookies, idb: r.idb, seed: r.seed }
+  return [first, ...(r.segments || [])]
+}
+function segmentIndex(t, r = rec) {
+  let i = 0
+  for (const s of r.segments || []) if (s.t <= t) i++
+  return i
+}
+function segmentAt(t, r = rec) {
+  return segmentsOf(r)[segmentIndex(t, r)]
+}
+// Does this page already show that URL (ignoring our own __wb parameter)?
+function sameDocUrl(url) {
+  try {
+    const a = new URL(url, location.href)
+    const b = new URL(location.href)
+    for (const u of [a, b]) u.searchParams.delete("__wb")
+    return a.origin === b.origin && a.pathname === b.pathname && a.search === b.search
+  } catch {
+    return true
+  }
+}
+
 const hasFuture = () =>
   !!rec && (cursor.event < rec.events.length || cursor.frame < rec.frames.length)
 
@@ -55,6 +82,7 @@ function fork() {
   rec.frames.length = cursor.frame
   if (rec.routes) rec.routes = rec.routes.filter((r) => r.t <= clock.now)
   if (rec.reloads) rec.reloads = rec.reloads.filter((t) => t <= clock.now)
+  if (rec.segments) rec.segments = rec.segments.filter((sg) => sg.t <= clock.now)
   if (rec.clips) rec.clips = rec.clips.filter((c) => c.start <= clock.now)
   cutActivity(clock.now)
   netFork(cut)
