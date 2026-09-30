@@ -60,3 +60,46 @@ test("vite is resolved from a hoisted workspace root (F20)", () => {
   expect(r.version).toBe("5.9.9")
   expect(r.own).toBe(false)
 })
+
+// Two runs on one project must not share a wrapper config: Vite watches its
+// config, so a second run rewriting it restarted the first on the second's
+// port (S4 on Sherpa: :3400 moved to :3500, :3777, then died on a busy 3014).
+test("two runs on the same project each keep their own server", async () => {
+  const { spawn } = await import("node:child_process")
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "retake-two-runs-"))
+  fs.cpSync(path.join(FIXTURES, "probe"), project, { recursive: true, filter: (p) => !p.includes(".retake") && !p.includes("node_modules") })
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "retake-two-runs-cache-"))
+  const env = { ...process.env, RETAKE_CACHE_DIR: cache }
+  const start = (port) => {
+    const p = spawn(process.execPath, [BIN, project, "--port", String(port)], { env })
+    p.out = ""
+    p.stdout.on("data", (d) => (p.out += d))
+    p.stderr.on("data", (d) => (p.out += d))
+    return p
+  }
+  const up = async (port) => {
+    for (let i = 0; i < 100; i++) {
+      try {
+        if ((await fetch(`http://localhost:${port}/`)).ok) return true
+      } catch {}
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return false
+  }
+  const a = start(3490)
+  try {
+    expect(await up(3490)).toBe(true)
+    const b = start(3491)
+    try {
+      expect(await up(3491)).toBe(true)
+      await new Promise((r) => setTimeout(r, 1500))
+      expect(await up(3490)).toBe(true)
+      expect(a.out).not.toMatch(/restarting server/)
+      expect(a.exitCode).toBeNull()
+    } finally {
+      b.kill()
+    }
+  } finally {
+    a.kill()
+  }
+})

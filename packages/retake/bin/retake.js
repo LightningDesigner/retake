@@ -107,7 +107,9 @@ function dev(opts) {
   const config = CONFIGS.map((f) => path.join(project, f)).find((f) => fs.existsSync(f))
   const work = workDir(project)
   fs.mkdirSync(work, { recursive: true })
-  const wrapper = path.join(work, "vite.config.mjs")
+  // One wrapper (and dep cache) per port: Vite watches its config, so two runs
+  // on one project sharing a wrapper would restart each other on the wrong port.
+  const wrapper = path.join(work, `vite.config.${opts.port}.mjs`)
   const url = (p) => JSON.stringify(pathToFileURL(p).href)
   fs.writeFileSync(
     wrapper,
@@ -121,7 +123,7 @@ export default async (env) => {
     ...cfg,
     root: cfg.root ? cfg.root : ${JSON.stringify(project)},
     // Our own dep cache, so the project's node_modules/.vite is left alone.
-    cacheDir: ${JSON.stringify(path.join(work, "vite"))},
+    cacheDir: ${JSON.stringify(path.join(work, `vite-${opts.port}`))},
     plugins: [retake({ codeBranches: ${opts.codeBranches}, banner: true }), ...(cfg.plugins || [])],
     server: { ...cfg.server, port: ${opts.port}, strictPort: true },
   }
