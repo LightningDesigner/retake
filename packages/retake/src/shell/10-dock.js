@@ -95,7 +95,8 @@ window.__waybackShell = {
     const stash = own(payload)
     window.__waybackShell.rebuilding = true
     const rec = JSON.parse(payload.rec)
-    const url = new URL(urlAt(rec, payload.target))
+    // The page the target moment was on (the runtime says, per segment).
+    const url = new URL(payload.url || urlAt(rec, payload.target), location.href)
     // It's built for whichever timeline is active now (a switch sets that
     // before it loads the target's recording).
     D.building = { frame: makeFrame(url.pathname + url.search + url.hash, stash), pt: null, branchId: D.activeId, target: payload.target, startedAt: performance.now() }
@@ -122,11 +123,11 @@ window.__waybackShell = {
   },
 }
 
-// The page a recording was on at t: after a navigation or reload the dock
-// continued it through (rec.navs), that page; before, where it began.
+// The page a recording was on at t: its segment's (each reload or navigation
+// of the app starts one), else where it began.
 function urlAt(rec, t) {
   let url = rec.url
-  for (const n of rec.navs || []) if (n.t <= t && n.url) url = new URL(n.url, rec.url).href
+  for (const n of rec.segments || rec.navs || []) if (n.t <= t && n.url) url = new URL(n.url, rec.url).href
   return url
 }
 
