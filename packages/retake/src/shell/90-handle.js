@@ -7,4 +7,5 @@ window.__waybackDock = {
   scope: () => D.scopeEl,
   deleteTimeline: (id) => deleteTimeline(id),
   switchTo: (id, t) => switchTo(id, t),
+  newTimelineAt: (t) => newTimelineAt(t),
 }

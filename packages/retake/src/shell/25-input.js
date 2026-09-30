@@ -272,7 +272,10 @@ plus.addEventListener("click", (e) => {
   e.stopPropagation()
   if (D.hoverT != null) newTimelineAt(D.hoverT)
   D.hoverT = null
+  D.hoverX = null
   plusHeld = false
+  setHot(null)
+  hideTip()
 })
 
 // Double-click a clip: fit it. Told apart here, from two quick presses on the
