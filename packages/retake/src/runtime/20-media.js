@@ -50,3 +50,40 @@ function alignMedia() {
     } catch {}
   }
 }
+
+// ---- readiness events ------------------------------------------------------------
+// A media file or image finishing loading is the network talking, in real
+// time. Apps react to it (reveal UI on loadeddata, fade in on load), so the
+// moment it happened is recorded, and on replay the real event is held back
+// and the recorded one is dispatched at its virtual moment instead.
+const READY = ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "playing", "load", "error"]
+const readyTarget = (t) => t instanceof HTMLMediaElement || t instanceof HTMLImageElement
+const delivered = new WeakMap() // element -> Set of types already given from the recording
+
+function onReady(e) {
+  if (!e.isTrusted || !rec || !readyTarget(e.target)) return
+  const el = e.target
+  const given = delivered.get(el)
+  if (hasFuture() || clock.seeking) {
+    e.stopImmediatePropagation() // the recording delivers it at its moment
+    return
+  }
+  if (given && given.has(e.type)) {
+    // Already delivered from the recording before we reached the live edge.
+    given.delete(e.type)
+    e.stopImmediatePropagation()
+    return
+  }
+  const path = pathOf(el)
+  if (path) recordEvent({ type: "ready", ev: e.type, path })
+}
+// On the document, not window: element load/error events don't reach window.
+for (const type of READY) document.addEventListener(type, onReady, true)
+
+function deliverReady(ev) {
+  const el = resolvePath(ev.path)
+  if (!el || !readyTarget(el)) return
+  if (!delivered.has(el)) delivered.set(el, new Set())
+  delivered.get(el).add(ev.ev)
+  el.dispatchEvent(new Event(ev.ev))
+}

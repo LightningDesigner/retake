@@ -100,3 +100,9 @@ pad.addEventListener("wheel", (e) => { wheel += e.deltaY; L("wheel", Math.round(
 const page = () => new URLSearchParams(location.search).get("p") || "0"
 addEventListener("popstate", () => L("page", page()))
 document.getElementById("next").addEventListener("click", () => { const u = new URL(location.href); u.searchParams.set("p", Number(page()) + 1); history.pushState({ p: Number(page()) + 1 }, "", u); L("page", page()) })
+
+// A background media file gates part of the UI (like Sherpa's onboarding video).
+const gated = document.getElementById("gated")
+document.getElementById("aud").addEventListener("loadeddata", () => { L("media", "loadeddata"); gated.hidden = false })
+document.getElementById("pic").addEventListener("load", () => L("img", "load"))
+gated.addEventListener("input", () => L("gated", gated.value))

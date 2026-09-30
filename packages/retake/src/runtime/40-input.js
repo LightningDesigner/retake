@@ -272,6 +272,7 @@ function dispatchRecorded(ev) {
   if (ev.type === "async") return settleAsync(ev)
   if (ev.type === "obs") return deliverObserved(ev)
   if (ev.type === "worker") return deliverWorker(ev)
+  if (ev.type === "ready") return deliverReady(ev)
   const target = findTarget(ev)
   if (!target) {
     // The DOM came out different (code changed?). Say so a few times, not 10,000.

@@ -37,6 +37,16 @@ export default {
           const t = setInterval(() => { res.write(words[i]); if (++i === words.length) { clearInterval(t); res.end() } }, 120)
           return
         }
+        if (u.pathname === "/api/tone.wav") {
+          // 0.2s of silence, served slowly like a big background video
+          const rate = 8000, n = rate / 5, b = Buffer.alloc(44 + n)
+          b.write("RIFF", 0); b.writeUInt32LE(36 + n, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22)
+          b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write("data", 36); b.writeUInt32LE(n, 40); b.fill(128, 44)
+          return setTimeout(() => { res.setHeader("content-type", "audio/wav"); res.end(b) }, 700)
+        }
+        if (u.pathname === "/api/pic.svg") {
+          return setTimeout(() => { res.setHeader("content-type", "image/svg+xml"); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>') }, 600)
+        }
         if (u.pathname === "/api/xhr") { hits++; return res.end("xhr-" + hits) }
         if (u.pathname === "/api/slow") { return setTimeout(() => res.end("slow"), 2500) }
         if (u.pathname === "/api/stream") {
