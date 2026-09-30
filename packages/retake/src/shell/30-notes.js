@@ -4,22 +4,16 @@
 //    the prototype and tags on the timeline, and copy as a prompt.
 //  - Select: pick one component; scrubbing then rewinds only that component.
 
-let picking = null // "comment" | "select" | null (button tools)
-let metaHeld = false
 let hovered = null
 let lastPointer = null
-let scopeEl = null
-let notes = [] // { id, t, branchId, text, el }
-let noteSeq = 0
 let draft = null
 let openNote = null
 const hl = $("#wb-hl")
 const scopeBox = $("#wb-scope")
 const card = $("#wb-note")
-const panel = $("#wb-notes")
 // Select and Comment only work on a still moment: paused, or dragged back.
-const isStill = () => !!(last && last.started && !last.recording)
-const mode = () => (!isStill() ? null : metaHeld ? "comment" : picking)
+const isStill = () => !!(D.last && D.last.started && !D.last.recording)
+const mode = () => (!isStill() ? null : D.metaHeld ? "comment" : D.picking)
 
 const shell = window.__waybackShell
 shell.inspecting = false
@@ -41,11 +35,11 @@ shell.appPointerDown = () => {
 }
 shell.pointer = (x, y, meta) => {
   lastPointer = { x, y }
-  if (meta !== undefined && meta !== metaHeld) shell.meta(meta)
+  if (meta !== undefined && meta !== D.metaHeld) shell.meta(meta)
 }
 shell.meta = (down) => {
-  if (metaHeld === down) return
-  metaHeld = down
+  if (D.metaHeld === down) return
+  D.metaHeld = down
   syncPicking()
 }
 
@@ -55,7 +49,7 @@ const usable = (el) => (el && el.tagName !== "HTML" && el.tagName !== "BODY" ? e
 // Leaving the Select tool lets go of the selected component.
 function setPicking(m) {
   if (m !== "select") setScope(null)
-  picking = m
+  D.picking = m
   syncPicking()
 }
 
@@ -63,7 +57,7 @@ function syncPicking() {
   shell.inspecting = !!mode()
   hovered = null
   try {
-    const doc = frame.contentDocument
+    const doc = D.frame.contentDocument
     doc.documentElement.style.cursor = mode() ? "crosshair" : ""
     if (mode() && lastPointer) hovered = usable(doc.elementFromPoint(lastPointer.x, lastPointer.y))
   } catch {}
@@ -71,8 +65,8 @@ function syncPicking() {
 
 // Selecting the same component again clears it.
 function setScope(el) {
-  scopeEl = el && el === scopeEl ? null : el
-  if (PT && last && last.previewing) PT.preview(last.previewAt, scopeEl)
+  D.scopeEl = el && el === D.scopeEl ? null : el
+  if (D.PT && D.last && D.last.previewing) D.PT.preview(D.last.previewAt, D.scopeEl)
 }
 
 // ---- describing an element ------------------------------------------------------
@@ -114,7 +108,7 @@ function describe(el) {
   const r = el.getBoundingClientRect()
   let page = "/"
   try {
-    const u = new URL(frame.contentWindow.location.href)
+    const u = new URL(D.frame.contentWindow.location.href)
     u.searchParams.delete("__wb")
     page = u.pathname + u.search
   } catch {}
@@ -129,9 +123,9 @@ function describe(el) {
 }
 
 function prompt(n) {
-  const b = branches.find((x) => x.id === n.branchId)
-  const start = last ? last.start : 0
-  const parent = b && branches.find((x) => x.id === b.parentId)
+  const b = D.branches.find((x) => x.id === n.branchId)
+  const start = D.last ? D.last.start : 0
+  const parent = b && D.branches.find((x) => x.id === b.parentId)
   const lines = [
     `## Prototype note (${fmt(n.t - start)}, on timeline "${b ? b.name : "Main"}")`,
     parent ? `Timeline "${b.name}" branched from "${parent.name}" at ${fmt(b.forkAt - start)}. Make the change for this timeline.` : null,
@@ -165,7 +159,7 @@ async function copy(text, btn) {
 // ---- the note card -----------------------------------------------------------------
 
 function placeCard(rect) {
-  const f = frame.getBoundingClientRect()
+  const f = D.frame.getBoundingClientRect()
   const x = Math.min(Math.max(8, f.left + rect.x), innerWidth - 308)
   let y = f.top + rect.y + rect.h + 10
   if (y + 170 > dock.getBoundingClientRect().top) y = Math.max(8, f.top + rect.y - 180)
@@ -173,15 +167,15 @@ function placeCard(rect) {
   card.style.top = y + "px"
 }
 
-function meta(t, el, branchId = activeId) {
-  const start = last ? last.start : 0
-  const b = branches.find((x) => x.id === branchId)
+function meta(t, el, branchId = D.activeId) {
+  const start = D.last ? D.last.start : 0
+  const b = D.branches.find((x) => x.id === branchId)
   return `<div class="note-meta"><span class="tl">${esc(b ? b.name : "")}</span><span>·</span><span>${fmt(t - start)}</span><span>·</span><span class="el">${esc(el.label)}</span></div>`
 }
 
 function openComposer(el) {
-  const s = last
-  if (!PT || !s || !isStill()) return
+  const s = D.last
+  if (!D.PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
   draft = { el: describe(el), t }
   openNote = null
@@ -203,7 +197,7 @@ function openComposer(el) {
 
 function saveDraft() {
   const text = card.querySelector("textarea").value.trim()
-  if (draft && text) notes.push({ id: ++noteSeq, t: draft.t, branchId: activeId, text, el: draft.el })
+  if (draft && text) D.notes.push({ id: ++D.noteSeq, t: draft.t, branchId: D.activeId, text, el: draft.el })
   closeCard()
   // Back to the Hand so the next click is on the prototype, not another note.
   setPicking(null)
@@ -224,16 +218,6 @@ function closeCard() {
   openNote = null
 }
 
-function toggleNotesPanel() {
-  panel.hidden = !panel.hidden
-  if (panel.hidden) return
-  const start = last ? last.start : 0
-  panel.innerHTML = notes.length
-    ? `<div class="panel-head"><span>Notes</span><button data-note-a="copy-all">Copy all</button></div>` +
-      notes.map((n) => `<button class="panel-row" data-note="${n.id}"><span class="t">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span></button>`).join("")
-    : `<div class="panel-empty">No notes yet. Hold ⌘ and click anything in the prototype.</div>`
-}
-
 // Returns true when the click was one of ours.
 function handleNoteClick(b) {
   const act = b.dataset.noteA
@@ -244,19 +228,17 @@ function handleNoteClick(b) {
     // Copied: fold the note back to its pin.
     setTimeout(closeCard, 700)
   }
-  if (act === "copy-all") copy(notes.map(prompt).join("\n\n---\n\n"), b)
   if (act === "delete" && openNote) {
-    notes = notes.filter((n) => n !== openNote)
+    D.notes = D.notes.filter((n) => n !== openNote)
     closeCard()
   }
   if (b.dataset.note) {
-    const n = notes.find((x) => x.id === Number(b.dataset.note))
+    const n = D.notes.find((x) => x.id === Number(b.dataset.note))
     if (!n) return true
-    panel.hidden = true
     // From the timeline or the list, go to the note's moment too.
     if (!b.classList.contains("canvas-pin")) {
-      if (n.branchId !== activeId) switchTo(n.branchId, n.t)
-      else if (PT && Math.abs((last.previewing ? last.previewAt : last.now) - n.t) > 5) PT.seek(n.t)
+      if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
+      else if (D.PT && Math.abs((D.last.previewing ? D.last.previewAt : D.last.now) - n.t) > 5) D.PT.seek(n.t)
     }
     showNote(n)
   }
@@ -267,14 +249,14 @@ function handleNoteClick(b) {
 
 const pinEls = new Map()
 const boxAt = (el, box) => {
-  const f = frame.getBoundingClientRect()
+  const f = D.frame.getBoundingClientRect()
   const r = el.getBoundingClientRect()
   Object.assign(box.style, { display: "block", left: f.left + r.left + "px", top: f.top + r.top + "px", width: r.width + "px", height: r.height + "px" })
 }
 
 function renderExtras(s) {
   // Leaving a still moment (recording) drops back to the Hand.
-  if (picking && !isStill()) setPicking(null)
+  if (D.picking && !isStill()) setPicking(null)
   for (const t of document.querySelectorAll('[data-tool="select"], [data-tool="comment"]')) {
     t.disabled = !isStill()
     t.classList.toggle("disabled", !isStill())
@@ -292,18 +274,18 @@ function renderExtras(s) {
     hl.className = mode() === "select" ? "select" : ""
     hl.dataset.label = describe(target).label
   }
-  if (scopeEl && scopeEl.isConnected) boxAt(scopeEl, scopeBox)
+  if (D.scopeEl && D.scopeEl.isConnected) boxAt(D.scopeEl, scopeBox)
   else scopeBox.style.display = "none"
 
   // Numbered pins on the notes of the branch in view.
   let doc = null
   try {
-    doc = frame.contentDocument
+    doc = D.frame.contentDocument
   } catch {}
-  const f = frame.getBoundingClientRect()
+  const f = D.frame.getBoundingClientRect()
   const seen = new Set()
-  notes.forEach((n, i) => {
-    if (n.branchId !== activeId || !doc || s.seeking) return
+  D.notes.forEach((n, i) => {
+    if (n.branchId !== D.activeId || !doc || s.seeking) return
     let r = null
     try {
       const el = doc.querySelector(n.el.selector)

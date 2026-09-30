@@ -1,51 +1,22 @@
 // The dock. Lives in the top window; the prototype runs in a frame on the
-// stage above it, with the time runtime inside. Nothing is on the timeline
-// until Record. Going to another moment builds it in a second frame behind the
-// visible one and swaps it in when it's ready, so there's no flash.
-const $ = (s) => document.querySelector(s)
+// stage above it, with the time runtime inside. Going to another moment builds
+// it in a second frame behind the visible one and swaps it in when it's ready,
+// so there's no flash.
 const stage = $("#wb-stage")
 const dock = $("#wb-dock")
 const track = $(".track")
 const svg = $(".lines")
-const KEY = "wayback:"
-const store = {
-  get(k, fallback) {
-    try {
-      const v = localStorage.getItem(KEY + k)
-      return v == null ? fallback : JSON.parse(v)
-    } catch {
-      return fallback
-    }
-  },
-  set(k, v) {
-    try {
-      localStorage.setItem(KEY + k, JSON.stringify(v))
-    } catch {}
-  },
-}
 
-let height = store.get("height", 104)
-let frame = null // the visible prototype frame
-let PT = null // its runtime
-let building = null // { frame, pt } being built behind it
-let last = null // last state seen
-let stash = null
-
-// Branches live for the session. The active one's history is in the frame;
-// the others keep a serialized copy here.
-let branches = []
-let activeId = 0
-let branchSeq = 0
 const newBranch = (forkAt, parentId = null) => {
-  const b = { id: ++branchSeq, name: `Timeline ${branchSeq}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
-  branches.push(b)
+  const id = ++D.branchSeq
+  const b = { id, name: `Timeline ${id}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
+  D.branches.push(b)
   return b
 }
-const activeBranch = () => branches.find((b) => b.id === activeId)
 function resetBranches() {
-  branches = []
-  branchSeq = 0
-  activeId = newBranch(0).id
+  D.branches = []
+  D.branchSeq = 0
+  D.activeId = newBranch(0).id
 }
 resetBranches()
 
@@ -65,35 +36,32 @@ function makeFrame(src) {
 }
 
 function swapIn(f, pt) {
-  if (frame && frame !== f) frame.remove()
-  frame = f
-  frame.className = "live"
-  PT = pt
-  building = null
+  if (D.frame && D.frame !== f) D.frame.remove()
+  D.frame = f
+  D.frame.className = "live"
+  D.PT = pt
+  D.building = null
   window.__waybackShell.rebuilding = false
 }
 
 window.__waybackShell = {
   rebuilding: false,
-  stash(p) {
-    stash = p
-  },
   take() {
-    const p = stash
-    stash = null
+    const p = D.stash
+    D.stash = null
     return p
   },
   attach(pt) {
-    if (building && building.frame.contentWindow.__wayback === pt) building.pt = pt
-    else if (!frame || frame.contentWindow.__wayback === pt) PT = pt
+    if (D.building && D.building.frame.contentWindow.__wayback === pt) D.building.pt = pt
+    else if (!D.frame || D.frame.contentWindow.__wayback === pt) D.PT = pt
   },
   // Build a moment (a history and a time) in a fresh frame, swap when ready.
   rebuild(payload) {
-    if (building) building.frame.remove()
-    stash = payload
+    if (D.building) D.building.frame.remove()
+    D.stash = payload
     window.__waybackShell.rebuilding = true
     const url = new URL(JSON.parse(payload.rec).url)
-    building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null }
+    D.building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null }
   },
   // The runtime is about to cut off its future at `at`: keep it as a branch.
   branchOff(json, end, at) {
@@ -102,116 +70,119 @@ window.__waybackShell = {
     old.end = end
     const b = newBranch(at, old.id)
     b.version = old.version // a new timeline starts on its parent's code
-    activeId = b.id
+    D.activeId = b.id
   },
 }
 
-// A fresh prototype: no history, not recording.
+// A fresh prototype: no history.
 function freshFrame() {
-  if (building) building.frame.remove()
-  stash = null
-  building = { frame: makeFrame(appUrl), pt: null }
+  if (D.building) D.building.frame.remove()
+  D.stash = null
+  D.building = { frame: makeFrame(appUrl), pt: null }
   window.__waybackShell.rebuilding = true
 }
 
-frame = makeFrame(appUrl)
-frame.className = "live"
+D.frame = makeFrame(appUrl)
+D.frame.className = "live"
 
 // The frame being built is ready once its runtime has booted and reached its
 // moment.
 function checkBuilding() {
-  if (!building || !building.pt) return
+  const b = D.building
+  if (!b || !b.pt) return
   let s
   try {
-    s = building.pt.state()
+    s = b.pt.state()
   } catch {
     return
   }
-  if (s.booted && s.target == null && !s.seeking) swapIn(building.frame, building.pt)
+  if (s.booted && s.target == null && !s.seeking) swapIn(b.frame, b.pt)
 }
 
-let switching = false
+// Returns true only if the switch happened.
 async function switchTo(id, t) {
-  const target = branches.find((b) => b.id === id)
-  if (!PT || !target || !target.json || switching) return
-  switching = true
+  const target = branchById(id)
+  if (!D.PT || !target || !target.json || D.switching) return false
+  D.switching = true
   try {
     const cur = activeBranch()
-    cur.json = JSON.stringify(PT.history())
-    cur.end = PT.state().end
-    // A branch made by a code change runs on its own version of the code.
-    if (target.version && cur.version && target.version !== cur.version) await checkoutCode(target.version)
-    activeId = id
-    PT.load(target.json, Math.min(Math.max(t, target.forkAt), target.end))
+    if (cur) {
+      cur.json = JSON.stringify(D.PT.history())
+      cur.end = D.PT.state().end
+    }
+    // A timeline made on other code runs on its own version of the code.
+    if (target.version && cur && cur.version && target.version !== cur.version) await checkoutCode(target.version)
+    D.activeId = id
+    D.PT.load(target.json, clamp(t, target.forkAt, target.end))
+    return true
   } finally {
-    switching = false
+    D.switching = false
   }
 }
 
-// Markers: flags dropped on a timeline at a moment, to come back to.
-let markers = [] // { id, t, branchId }
-let markerSeq = 0
+// Bookmarks: dropped on a timeline at a moment, to come back to.
 function addFlag() {
   const s = state()
   if (!s || !s.started) return
-  const t = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
-  markers.push({ id: ++markerSeq, t, branchId: activeId })
+  const t = D.dragT != null ? D.dragT : s.previewing ? s.previewAt : s.now
+  D.markers.push({ id: ++D.markerSeq, t, branchId: D.activeId })
 }
 
 // Keep the address bar and title in step with the prototype's own route.
 setInterval(() => {
   try {
-    const inner = new URL(frame.contentWindow.location.href)
+    const inner = new URL(D.frame.contentWindow.location.href)
     inner.searchParams.delete("__wb")
     const next = inner.pathname + inner.search + inner.hash
     if (next !== location.pathname + location.search + location.hash) history.replaceState(null, "", next)
-    if (frame.contentDocument.title) document.title = frame.contentDocument.title
+    if (D.frame.contentDocument.title) document.title = D.frame.contentDocument.title
   } catch {}
 }, 400)
 
-const fmt = (ms) => {
-  const s = Math.max(0, ms) / 1000
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(2).padStart(5, "0")}`
-}
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
-
 const state = () => {
   try {
-    if (PT) last = PT.state()
+    if (D.PT) D.last = D.PT.state()
   } catch {
-    PT = null
+    D.PT = null
   }
-  return last
+  return D.last
 }
 
 function render() {
   checkBuilding()
+  // The active timeline can vanish under us (a delete racing a switch); stand
+  // on the first one rather than draw nothing.
+  if (!activeBranch()) D.activeId = D.branches[0].id
   const s = state()
-  dock.style.height = Math.max(height, neededHeight()) + "px"
+  dock.style.height = Math.max(D.height, neededHeight()) + "px"
   if (!s) return
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
-  $(".rec").classList.toggle("on", !!s.recording)
   // Dragging the playhead pauses, and the Pause button says so straight away.
-  $('[data-a="pause"]').classList.toggle("on", !!s.started && (!s.recording || dragT != null))
-  $(".rec").classList.toggle("on", !!s.recording && dragT == null)
-  const shownT = dragT != null ? dragT : s.previewing ? s.previewAt : s.now
+  $('[data-a="pause"]').classList.toggle("on", !!s.started && (!s.recording || D.dragT != null))
+  $(".rec").classList.toggle("on", !!s.recording && D.dragT == null)
+  const shownT = D.dragT != null ? D.dragT : s.previewing ? s.previewAt : s.now
   renderTimeline(s, shownT)
   renderExtras(s)
 }
-// First frame after every module has loaded.
+// One bad frame must never stop the dock: log it and keep going.
+let renderErrors = 0
 requestAnimationFrame(function loop() {
-  render()
+  try {
+    render()
+  } catch (err) {
+    if (renderErrors++ < 5) console.error("[retake] dock render failed", err)
+  }
   requestAnimationFrame(loop)
 })
 
-const refocus = () => frame && frame.contentWindow && frame.contentWindow.focus()
+const refocus = () => D.frame && D.frame.contentWindow && D.frame.contentWindow.focus()
 
 function toggleRecord() {
   const s = state()
-  if (!PT || !s) return
-  if (s.recording) PT.pause()
-  else PT.record()
+  if (!D.PT || !s) return
+  if (s.recording) D.PT.pause()
+  else D.PT.record()
 }
 
 document.addEventListener("click", (e) => {
@@ -221,8 +192,8 @@ document.addEventListener("click", (e) => {
     return
   }
   const a = b.dataset.a
-  if (a === "record" && PT && !(last && last.recording)) PT.record()
-  if (a === "pause" && PT) PT.pause()
+  if (a === "record" && D.PT && !(D.last && D.last.recording)) D.PT.record()
+  if (a === "pause" && D.PT) D.PT.pause()
   if (a === "flag") addFlag()
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
@@ -243,13 +214,13 @@ divider.addEventListener("pointerdown", (e) => {
   const startY = e.clientY
   const startH = dock.offsetHeight
   const move = (ev) => {
-    height = Math.round(Math.min(innerHeight * 0.6, Math.max(44, startH + startY - ev.clientY)))
+    D.height = Math.round(Math.min(innerHeight * 0.6, Math.max(44, startH + startY - ev.clientY)))
   }
   const up = () => {
     document.body.classList.remove("dragging")
     divider.removeEventListener("pointermove", move)
     divider.removeEventListener("pointerup", up)
-    store.set("height", height)
+    store.set("height", D.height)
   }
   divider.addEventListener("pointermove", move)
   divider.addEventListener("pointerup", up)

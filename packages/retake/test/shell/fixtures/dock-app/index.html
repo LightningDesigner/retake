@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Dock fixture</title>
+<style>
+  body { font: 14px system-ui; background: #111; color: #eee; margin: 24px; }
+  button { font: inherit; padding: 6px 12px; }
+  .card { width: 160px; height: 60px; margin: 16px 0; background: #2d6cdf; border-radius: 8px;
+    transition: opacity 300ms ease, transform 600ms cubic-bezier(.2,.8,.2,1); }
+  .card.off { opacity: .2; transform: translateX(240px); }
+  #spin { width: 24px; height: 24px; background: #e3546a; }
+  #spin.go { animation: spin 800ms linear 2; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #\:r1\: { padding: 4px; border: 1px dashed #666; }
+</style></head>
+<body>
+  <button id="toggle">Toggle</button>
+  <button id="spinner">Spin</button>
+  <button id="wave">Wave</button>
+  <form id="f"><input id="q" autocomplete="off" placeholder="type"></form>
+  <div class="card primary-card" id="card"></div>
+  <div id="spin"></div>
+  <div id=":r1:">useId box</div>
+  <div id="1st">digit id</div>
+  <p id="count">0</p>
+  <script type="module" src="/main.js"></script>
+</body></html>

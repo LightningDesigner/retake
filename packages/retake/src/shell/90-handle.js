@@ -1,7 +1,10 @@
-// A read-only handle for tests and debugging.
+// A handle for tests and debugging. `state` is the live dock state object.
 window.__waybackDock = {
-  notes: () => notes,
+  state: D,
+  notes: () => D.notes,
   prompt: (n) => prompt(n),
-  branches: () => branches.map((b) => ({ ...b, json: undefined, active: b.id === activeId })),
-  scope: () => scopeEl,
+  branches: () => D.branches.map((b) => ({ ...b, json: undefined, active: b.id === D.activeId })),
+  scope: () => D.scopeEl,
+  deleteTimeline: (id) => deleteTimeline(id),
+  switchTo: (id, t) => switchTo(id, t),
 }

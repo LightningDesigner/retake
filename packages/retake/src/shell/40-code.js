@@ -11,7 +11,7 @@ async function checkoutCode(version) {
 
 if (CODE_BRANCHES) {
   setInterval(async () => {
-    if (switching || !PT || building) return
+    if (D.switching || !D.PT || D.building) return
     let version
     try {
       version = (await (await fetch("/__wayback/version")).json()).version
@@ -23,17 +23,17 @@ if (CODE_BRANCHES) {
       cur.version = version
       return
     }
-    if (version === cur.version || switching || !PT) return
+    if (version === cur.version || D.switching || !D.PT) return
     // Not recording yet: just show the new code.
-    if (!PT.state().started) {
+    if (!D.PT.state().started) {
       cur.version = version
       return freshFrame()
     }
     // The code changed: the timeline you're on takes it (no new timeline;
     // those only come from the +). Rebuild this moment on the new code.
-    const st = PT.state()
+    const st = D.PT.state()
     const t = st.previewing ? st.previewAt : st.now
     cur.version = version
-    PT.load(JSON.stringify(PT.history()), t)
+    D.PT.load(JSON.stringify(D.PT.history()), t)
   }, 500)
 }

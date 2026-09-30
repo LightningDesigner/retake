@@ -12,23 +12,21 @@ const TOP = 22 // room for the time chip
 const BEND = 26 // how far a branch travels to reach its row
 const timeChip = $(".time")
 const plus = $(".plus")
-let dragT = null
 let liveNow = null
 let pendingT = null
 let pendingFork = null
-let hoverT = null
 let svgKey = ""
 let shownSpan = null
 
 // The view spans the recording, with headroom so the playhead has room to run.
 function targetSpan(s) {
-  const end = Math.max(...branches.map((b) => (b.id === activeId ? Math.max(b.end, s.end) : b.end)))
+  const end = Math.max(...D.branches.map((b) => (b.id === D.activeId ? Math.max(b.end, s.end) : b.end)))
   const len = Math.max(end - s.start, 600)
   return { from: s.start, to: s.start + len * (s.recording ? 1.08 : 1) }
 }
 function easeSpan(s) {
   const t = targetSpan(s)
-  if (!shownSpan || shownSpan.from !== t.from || dragT != null) shownSpan = t
+  if (!shownSpan || shownSpan.from !== t.from || D.dragT != null) shownSpan = t
   // Settle exactly once close, so a still timeline stops redrawing.
   else if (Math.abs(t.to - shownSpan.to) < 1) shownSpan = t
   else shownSpan = { from: t.from, to: shownSpan.to + (t.to - shownSpan.to) * 0.18 }
@@ -47,11 +45,11 @@ function timeAt(clientX) {
   const { from, to } = span()
   return from + Math.min(1, Math.max(0, (clientX - g.left - PAD) / (g.w - 2 * PAD))) * (to - from)
 }
-const rowY = (b) => TOP + branches.indexOf(b) * ROW + BAR / 2
+const rowY = (b) => TOP + D.branches.indexOf(b) * ROW + BAR / 2
 
 function ribbon(b, s, g, until) {
   const y = rowY(b)
-  const parent = branches.find((p) => p.id === b.parentId)
+  const parent = D.branches.find((p) => p.id === b.parentId)
   const x1 = xOf(until, g)
   if (!parent) return `M${xOf(s.start, g)} ${y} L${Math.max(x1, xOf(s.start, g) + 0.5)} ${y}`
   // The curve leads into the fork moment, so from its first instant a new
@@ -88,8 +86,8 @@ function renderTimeline(s, shownT) {
   const activeEnd = Math.max(active.end, s.end)
   const xNow = xOf(shownT, g)
   let out = `<clipPath id="wb-past"><rect x="0" y="0" width="${xNow}" height="${g.h}"/></clipPath>`
-  for (const b of branches) {
-    if (b.id === activeId) continue
+  for (const b of D.branches) {
+    if (b.id === D.activeId) continue
     const young = performance.now() - b.born < 800 ? ' grow" pathLength="1' : ""
     out += `<path class="ribbon other${young}" data-branch="${b.id}" stroke-width="${BAR}" d="${ribbon(b, s, g, b.end)}"><title>${esc(b.name)}</title></path>`
   }
@@ -97,8 +95,8 @@ function renderTimeline(s, shownT) {
   const young = active.parentId && performance.now() - active.born < 800 ? ' grow" pathLength="1' : ""
   out += `<path class="ribbon ahead${young}" data-branch="${active.id}" stroke-width="${BAR}" d="${d}"/>`
   out += `<path class="ribbon past${young}" data-branch="${active.id}" stroke-width="${BAR}" clip-path="url(#wb-past)" d="${d}"/>`
-  for (const m of markers) {
-    const b = branches.find((x) => x.id === m.branchId)
+  for (const m of D.markers) {
+    const b = D.branches.find((x) => x.id === m.branchId)
     if (!b) continue
     const x = xOf(m.t, g)
     const y = rowY(b) - BAR / 2
@@ -120,19 +118,19 @@ function renderTimeline(s, shownT) {
   }
   const xEnd = xOf(activeEnd, g)
   if (xEnd - xNow > 8) out += `<circle class="stop" cx="${xEnd}" cy="${yA}" r="4.5"><title>Last recorded</title></circle>`
-  out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="${TOP - 6}" y2="${TOP + (branches.length - 1) * ROW + BAR + 4}"/>`
+  out += `<line class="head" x1="${xNow}" x2="${xNow}" y1="${TOP - 6}" y2="${TOP + (D.branches.length - 1) * ROW + BAR + 4}"/>`
   out += `<circle class="knob-hit" cx="${xNow}" cy="${yA}" r="12"/><circle class="knob" cx="${xNow}" cy="${yA}" r="6.5"/>`
   // Drawn last so they sit above the playhead and stay clickable.
   // Every comment, from every timeline, as a small speech bubble sitting on
   // the ribbon that covers its moment (a note made before its timeline split
   // off sits on the parent's ribbon, where that moment is drawn).
-  notes.forEach((n, i) => {
-    let b = branches.find((x) => x.id === n.branchId)
-    while (b && b.parentId && n.t < b.forkAt - 30) b = branches.find((x) => x.id === b.parentId)
+  D.notes.forEach((n, i) => {
+    let b = D.branches.find((x) => x.id === n.branchId)
+    while (b && b.parentId && n.t < b.forkAt - 30) b = D.branches.find((x) => x.id === b.parentId)
     if (!b) return
     const x = xOf(n.t, g)
     const y = rowY(b) - BAR / 2 - 3
-    out += `<g class="note-mark${n.branchId === activeId ? " here" : ""}" data-note="${n.id}" transform="translate(${x} ${y})">
+    out += `<g class="note-mark${n.branchId === D.activeId ? " here" : ""}" data-note="${n.id}" transform="translate(${x} ${y})">
       <path d="M-6 -13 h12 a2.5 2.5 0 0 1 2.5 2.5 v5 a2.5 2.5 0 0 1 -2.5 2.5 h-3.5 l-2.5 3 l-2.5 -3 h-3.5 a2.5 2.5 0 0 1 -2.5 -2.5 v-5 a2.5 2.5 0 0 1 2.5 -2.5z"/>
       <text x="0" y="-5.6" text-anchor="middle">${i + 1}</text>
       <title>${esc(n.text)}</title></g>`
@@ -141,10 +139,10 @@ function renderTimeline(s, shownT) {
   timeChip.textContent = fmt(shownT - s.start)
   timeChip.style.left = xNow + "px"
   // The + that starts a new timeline, offered only while time is still.
-  const showPlus = hoverT != null && !s.recording && dragT == null && pendingFork == null
+  const showPlus = D.hoverT != null && !s.recording && D.dragT == null && pendingFork == null
   plus.hidden = !showPlus
   if (showPlus) {
-    plus.style.left = xOf(hoverT, g) + "px"
+    plus.style.left = xOf(D.hoverT, g) + "px"
     plus.style.top = yA + 17 + "px"
   }
   checkPendingFork(s)
@@ -157,30 +155,30 @@ function setSvg(markup) {
 }
 
 // Rows set the dock's height.
-const neededHeight = () => Math.max(104, TOP + branches.length * ROW + 28)
+const neededHeight = () => Math.max(104, TOP + D.branches.length * ROW + 28)
 
 // ---- a new timeline from a chosen moment -------------------------------------------
 
 function newTimelineAt(t) {
   const s = state()
-  if (!PT || !s || !s.started) return
+  if (!D.PT || !s || !s.started) return
   const here = s.previewing ? s.previewAt : s.now
   if (!s.previewing && Math.abs(t - here) < 25) {
-    PT.pause()
-    PT.forkHere()
+    D.PT.pause()
+    D.PT.forkHere()
     return
   }
   // Go to that moment first; the fork happens once it's built.
   pendingFork = t
-  PT.seek(t)
+  D.PT.seek(t)
 }
 
 function checkPendingFork(s) {
-  if (pendingFork == null || building || !PT || s.seeking || s.previewing) return
+  if (pendingFork == null || D.building || !D.PT || s.seeking || s.previewing) return
   if (Math.abs(s.now - pendingFork) > 40) return
   pendingFork = null
-  PT.pause()
-  PT.forkHere()
+  D.PT.pause()
+  D.PT.forkHere()
 }
 
 // ---- pointer ----------------------------------------------------------------------
@@ -188,15 +186,15 @@ function checkPendingFork(s) {
 function applyDrag() {
   const t = pendingT
   pendingT = null
-  if (t == null || !PT) return
-  const s = PT.state()
+  if (t == null || !D.PT) return
+  const s = D.PT.state()
   if (t < liveNow - 1) {
-    PT.preview(t, scopeEl)
+    D.PT.preview(t, D.scopeEl)
   } else {
-    if (s.previewing) PT.endPreview()
+    if (s.previewing) D.PT.endPreview()
     // Ahead of the live moment there may be recorded future to walk into.
     if (t > liveNow + 1 && s.future) {
-      PT.seek(t)
+      D.PT.seek(t)
       liveNow = t
     }
   }
@@ -204,11 +202,11 @@ function applyDrag() {
 
 let activityMemo = { at: 0, value: { inputs: [], bands: [] } }
 function activityNow() {
-  if (!PT || !PT.activity) return activityMemo.value
+  if (!D.PT || !D.PT.activity) return activityMemo.value
   const now = performance.now()
   if (now - activityMemo.at > 120) {
     try {
-      activityMemo = { at: now, value: PT.activity() }
+      activityMemo = { at: now, value: D.PT.activity() }
     } catch {}
   }
   return activityMemo.value
@@ -242,60 +240,60 @@ const nearKnob = (clientX) => {
 // Where on the active timeline a new one could start.
 function hoverTime(clientX) {
   const b = activeBranch()
-  const s = last
+  const s = D.last
   const t = timeAt(clientX)
   return Math.min(Math.max(t, Math.max(s.start, b.forkAt)), Math.max(b.end, s.end))
 }
 
 track.addEventListener("pointerdown", (e) => {
-  const s = last
-  if (!PT || !s || !s.started) return
+  const s = D.last
+  if (!D.PT || !s || !s.started) return
   if (e.target === plus) return
   const branchEl = e.target.closest("[data-branch]")
   if (e.button === 2) return
-  if (branchEl && Number(branchEl.dataset.branch) !== activeId) {
+  if (branchEl && Number(branchEl.dataset.branch) !== D.activeId) {
     switchTo(Number(branchEl.dataset.branch), timeAt(e.clientX))
     return
   }
   const markerEl = e.target.closest("[data-marker]")
   if (markerEl) {
-    const m = markers.find((x) => x.id === Number(markerEl.dataset.marker))
+    const m = D.markers.find((x) => x.id === Number(markerEl.dataset.marker))
     if (!m) return
     // Right-click removes a marker; a click goes to it.
-    if (e.button === 2) markers = markers.filter((x) => x !== m)
-    else if (m.branchId !== activeId) switchTo(m.branchId, m.t)
-    else PT.seek(m.t)
+    if (e.button === 2) D.markers = D.markers.filter((x) => x !== m)
+    else if (m.branchId !== D.activeId) switchTo(m.branchId, m.t)
+    else D.PT.seek(m.t)
     return
   }
   if (e.target.closest("[data-note]") || !nearKnob(e.clientX)) return
   track.setPointerCapture(e.pointerId)
   document.body.classList.add("scrubbing")
-  if (s.recording) PT.pause()
+  if (s.recording) D.PT.pause()
   liveNow = s.now
-  dragT = s.previewing ? s.previewAt : s.now
-  hoverT = null
+  D.dragT = s.previewing ? s.previewAt : s.now
+  D.hoverT = null
 })
 
 track.addEventListener("pointermove", (e) => {
-  if (dragT == null) {
-    const s = last
+  if (D.dragT == null) {
+    const s = D.last
     const branchEl = e.target.closest && e.target.closest("[data-branch]")
-    const onBranch = branchEl && Number(branchEl.dataset.branch) !== activeId
+    const onBranch = branchEl && Number(branchEl.dataset.branch) !== D.activeId
     // Near the playhead the + snaps to it: that's where you'd branch from after
     // dragging back. It sits below the ribbon so the handle stays draggable.
     if (e.target === plus) return
     if (!s || !s.started || s.recording || onBranch) {
-      hoverT = null
+      D.hoverT = null
       return
     }
-    hoverT = nearKnob(e.clientX) ? (s.previewing ? s.previewAt : s.now) : hoverTime(e.clientX)
+    D.hoverT = nearKnob(e.clientX) ? (s.previewing ? s.previewAt : s.now) : hoverTime(e.clientX)
     return
   }
-  const s = last
+  const s = D.last
   const b = activeBranch()
-  dragT = snap(Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end)))
+  D.dragT = snap(Math.min(Math.max(timeAt(e.clientX), Math.max(s.start, b.forkAt)), Math.max(b.end, s.end)))
   if (pendingT == null) requestAnimationFrame(applyDrag)
-  pendingT = dragT
+  pendingT = D.dragT
 })
 // Right-click a timeline: delete it (with anything grown from it, its notes
 // and its code). The first timeline stays.
@@ -303,7 +301,7 @@ const menuEl = $("#wb-menu")
 track.addEventListener("contextmenu", (e) => {
   if (e.target.closest("[data-marker]")) return e.preventDefault()
   const el = e.target.closest("[data-branch]")
-  const b = el && branches.find((x) => x.id === Number(el.dataset.branch))
+  const b = el && D.branches.find((x) => x.id === Number(el.dataset.branch))
   if (!b) return
   e.preventDefault()
   menuEl.innerHTML = b.parentId
@@ -318,12 +316,12 @@ document.addEventListener("pointerdown", (e) => {
 })
 
 async function deleteTimeline(id) {
-  const b = branches.find((x) => x.id === id)
-  if (!b || !b.parentId) return
+  const b = D.branches.find((x) => x.id === id)
+  if (!b || !b.parentId) return false
   const doomed = new Set([id])
   for (let grew = true; grew; ) {
     grew = false
-    for (const x of branches) {
+    for (const x of D.branches) {
       if (x.parentId && doomed.has(x.parentId) && !doomed.has(x.id)) {
         doomed.add(x.id)
         grew = true
@@ -332,32 +330,33 @@ async function deleteTimeline(id) {
   }
   // Standing on it? Step back onto its parent first (that restores the
   // parent's code too).
-  if (doomed.has(activeId)) await switchTo(b.parentId, b.forkAt)
-  branches = branches.filter((x) => !doomed.has(x.id))
-  notes = notes.filter((n) => !doomed.has(n.branchId))
-  markers = markers.filter((m) => !doomed.has(m.branchId))
+  if (doomed.has(D.activeId) && !(await switchTo(b.parentId, b.forkAt))) return false
+  D.branches = D.branches.filter((x) => !doomed.has(x.id))
+  D.notes = D.notes.filter((n) => !doomed.has(n.branchId))
+  D.markers = D.markers.filter((m) => !doomed.has(m.branchId))
+  return true
 }
 track.addEventListener("pointerleave", () => {
-  if (dragT == null) hoverT = null
+  if (D.dragT == null) D.hoverT = null
 })
 
 plus.addEventListener("click", (e) => {
   e.stopPropagation()
-  if (hoverT != null) newTimelineAt(hoverT)
-  hoverT = null
+  if (D.hoverT != null) newTimelineAt(D.hoverT)
+  D.hoverT = null
 })
 
 function endDrag() {
-  if (dragT == null) return
-  const t = dragT
-  dragT = null
+  if (D.dragT == null) return
+  const t = D.dragT
+  D.dragT = null
   document.body.classList.remove("scrubbing")
-  if (!PT) return
+  if (!D.PT) return
   pendingT = t
   applyDrag()
   // Unscoped, build the moment for real so it can be used straight away; a
   // scoped preview stays a picture until you act on it or press record.
-  if (t < liveNow - 1 && !scopeEl) PT.seek(t)
+  if (t < liveNow - 1 && !D.scopeEl) D.PT.seek(t)
   refocus()
 }
 track.addEventListener("pointerup", endDrag)
@@ -366,5 +365,5 @@ track.addEventListener("pointercancel", endDrag)
 // Acting on a scoped preview builds that moment for real.
 window.__waybackShell.wake = () => {
   const s = state()
-  if (s && s.previewing) PT.seek(s.previewAt)
+  if (s && s.previewing) D.PT.seek(s.previewAt)
 }

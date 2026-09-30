@@ -50,7 +50,7 @@ button:focus-visible { outline: 1px solid rgba(255,255,255,.5); outline-offset: 
 
 /* ---- timeline ---- */
 .timeline { flex: 1; min-width: 0; display: flex; }
-@media (hover: hover) { @media (hover: hover) { .track { position: relative; flex: 1; min-width: 80px; }
+.track { position: relative; flex: 1; min-width: 80px; }
 .lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 /* Timelines are ribbons: thick round strokes. A branch curves out of its parent. */
 .lines .ribbon { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255,255,255,.2); }
