@@ -122,14 +122,16 @@ function packClips(items, g, s) {
 
 // Where each lane sits. Folded lanes are thin; the active one has room under
 // it for its clips.
+// Lanes sit in the middle of the room they have (the dock doesn't change
+// height for them: that would resize the app mid-recording).
 function layoutLanes(g, clipRows) {
-  const top = RULER + 6
-  const avail = g.h - top - 4
+  const avail = g.h - RULER - 10
   const activeH = LANE + clipRows * CLIP_ROW
   const full = D.branches.length * LANE + clipRows * CLIP_ROW
   const fold = D.branches.length > 4 || full > avail
+  const used = D.branches.reduce((h, b) => h + (b.id === D.activeId ? activeH : fold ? THIN : LANE), 0)
   const lanes = new Map()
-  let y = top
+  let y = RULER + 6 + Math.max(0, Math.floor((avail - used) / 2))
   for (const b of D.branches) {
     const active = b.id === D.activeId
     const thin = fold && !active
@@ -164,7 +166,7 @@ function lanePath(b, g, lanes, s, until) {
 
 const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000]
 
-function ruler(g, s) {
+function ruler(g, s, xNow) {
   const ppm = pxPerMs(g)
   const major = STEPS.find((st) => st * ppm >= 72) || STEPS[STEPS.length - 1]
   const minor = STEPS.slice().reverse().find((st) => st < major && major % st === 0 && st * ppm >= 7) || major
@@ -182,7 +184,8 @@ function ruler(g, s) {
     const x = r1(xOf(t, g)) + 0.5
     const isMajor = rel % major === 0
     out += `<line class="tick${isMajor ? " major" : ""}" x1="${x}" x2="${x}" y1="${RULER - (isMajor ? 7 : 3)}" y2="${RULER - 0.5}"/>`
-    if (isMajor) out += `<text class="tlabel" x="${x + 3}" y="${RULER - 8}">${label(t)}</text>`
+    // A label the playhead's cap would sit on is left out.
+    if (isMajor && !(xNow != null && x + 3 < xNow + 8 && x + 36 > xNow - 8)) out += `<text class="tlabel" x="${x + 3}" y="${RULER - 8}">${label(t)}</text>`
   }
   return out
 }
@@ -219,8 +222,8 @@ function renderTimeline(s, shownT) {
   const xNow = r1(xOf(shownT, g))
 
   let out = `<clipPath id="wb-past"><rect x="-4000" y="0" width="${xNow + 4000}" height="${g.h}"/></clipPath>`
-  out += ruler(g, s)
-  if (D.hoverX != null && D.dragT == null) out += `<line class="hover-line" x1="${D.hoverX}" x2="${D.hoverX}" y1="${RULER}" y2="${g.h}"/>`
+  out += ruler(g, s, xNow)
+  if (D.hoverX != null && D.dragT == null) out += `<line class="hover-line" x1="${D.hoverX}" x2="${D.hoverX}" y1="${RULER + 1}" y2="${g.h}"/>`
 
   // Lanes: the others first, then the active one on top.
   for (const b of D.branches) {
@@ -292,7 +295,7 @@ function renderTimeline(s, shownT) {
     const label = String(i + 1)
     const w = 6 + label.length * 5
     out += `<g class="note-mark" data-note="${n.id}" transform="translate(${x} ${L.y - 7})">
-      <rect x="${-w / 2}" y="-6" width="${w}" height="11" rx="2" fill="${fill}" stroke="var(--bg)"/>
+      <rect x="${-w / 2}" y="-6" width="${w}" height="11" rx="4" fill="${fill}" stroke="var(--bg)"/>
       <text x="0" y="2.5" text-anchor="middle" fill="var(--bg)">${label}</text><title>${esc(n.text)}</title></g>`
   })
   setSvg(out)
@@ -303,8 +306,7 @@ function renderTimeline(s, shownT) {
   plus.hidden = !showPlus
   if (showPlus) {
     plus.style.left = xOf(D.hoverT, g) + "px"
-    // Below the clip rows, so it never covers a clip.
-    plus.style.top = A.y + 16 + packed.rows * CLIP_ROW + "px"
+    plus.style.top = A.y + "px"
   }
   checkPendingFork(s)
 }

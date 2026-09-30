@@ -145,6 +145,7 @@ function startScrub(e, s) {
 }
 
 function endScrub() {
+  plusPress = null
   if (D.dragT == null) return
   const t = D.dragT
   D.dragT = null
@@ -180,10 +181,21 @@ track.addEventListener("pointerdown", (e) => {
   startScrub(e, s)
 })
 
+// The + sits on the lane, so a press on it that moves is a drag along the
+// lane (scrubbing), and only a click makes a new timeline.
+let plusPress = null
+plus.addEventListener("pointerdown", (e) => {
+  if (e.button === 0) plusPress = { x: e.clientX, dragged: false }
+})
+
 track.addEventListener("pointermove", (e) => {
   const s = D.last
   if (!s || !s.started) return
   const g = geom()
+  if (plusPress && !plusPress.dragged && e.buttons & 1 && Math.abs(e.clientX - plusPress.x) > 4) {
+    plusPress.dragged = true
+    return startScrub(e, s)
+  }
   if (D.dragT != null) {
     const [lo, hi] = bounds(s)
     D.dragT = clamp(snapped(timeAt(e.clientX, g), s, e.altKey), lo, hi)
@@ -234,8 +246,7 @@ function hover(e, s, g) {
   // when it's close: that's where you'd most often start from.
   const A = D.lanes && D.lanes.get(D.activeId)
   const y = e.clientY - g.top
-  const below = 16 + (D.clipRows || 0) * CLIP_ROW + 9
-  if (!A || isInteractive(s) || y < A.y - 9 || y > A.y + below) {
+  if (!A || isInteractive(s) || Math.abs(y - A.y) > 4) {
     if (!plusHeld) D.hoverT = null
     return
   }
@@ -246,23 +257,40 @@ function hover(e, s, g) {
   D.snapT = null
 }
 
+const KIND_WORD = { transition: "transition", "css-animation": "animation", waapi: "animation" }
+
+// The component that wrote the clip's element, found the way notes find it
+// (owner chain, library wrappers skipped); else the runtime's guess.
+function clipComponent(c) {
+  try {
+    const el = c.selector && D.frame.contentDocument.querySelector(c.selector)
+    const names = el ? reactComponents(el) : []
+    if (names.length) return names[0]
+  } catch {}
+  return c.component && !INTERNAL.test(c.component) ? c.component : ""
+}
+
 function clipLabel(c, s) {
   const end = c.end == null ? null : c.end
   const dur = end == null ? "running" : `${Math.round(end - c.start)}ms`
-  const what = c.label || c.property || c.kind
-  const where = c.component || c.selector || ""
-  return `<span class="k">${esc(c.kind || "clip")}</span> ${esc(what)} · ${dur}${where ? ` · ${esc(where)}` : ""}`
+  const what = c.property || c.label || c.kind
+  const where = clipComponent(c) || c.selector || ""
+  return `<span class="k">${esc(KIND_WORD[c.kind] || "animation")}</span> ${esc(what)} · ${dur}${where ? ` · ${esc(where)}` : ""}`
 }
 
 function setHot(h) {
   D.hot = h
 }
+// Below the pointer, so it never covers the ruler; above only when there's
+// no room below (and then never higher than the ruler's bottom edge).
 function showTip(e, g, html) {
   tip.innerHTML = html
   tip.hidden = false
   const w = tip.offsetWidth
+  const h = tip.offsetHeight
+  const y = e.clientY - g.top
   tip.style.left = clamp(e.clientX - g.left, w / 2 + 4, g.w - w / 2 - 4) + "px"
-  tip.style.top = Math.max(e.clientY - g.top - 6, 18) + "px"
+  tip.style.top = (y + 12 + h <= g.h - 2 ? y + 12 : Math.max(RULER + 2, y - 10 - h)) + "px"
 }
 function hideTip() {
   tip.hidden = true
@@ -270,6 +298,9 @@ function hideTip() {
 
 plus.addEventListener("click", (e) => {
   e.stopPropagation()
+  const dragged = plusPress && plusPress.dragged
+  plusPress = null
+  if (dragged) return
   if (D.hoverT != null) newTimelineAt(D.hoverT)
   D.hoverT = null
   D.hoverX = null

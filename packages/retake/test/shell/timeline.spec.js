@@ -190,3 +190,17 @@ test("a slow rebuild shows its progress in the readout while the preview stays u
   expect(seen.some((p) => /^BUILDING( \d+%)?$/.test(p))).toBe(true)
   await expect(page.locator(".readout .phase")).toHaveText("PAUSED")
 })
+
+test("P10: the readout follows a forward seek straight away", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.3)
+  const t = s.now + 51
+  await dock(page, (D, t) => D.PT.seek(t), t)
+  await expect.poll(() => h.state().then((x) => x.now)).toBeGreaterThanOrEqual(t - 0.5)
+  const want = (ms) => {
+    const v = Math.max(0, ms) / 1000
+    return `T ${String(Math.floor(v / 60)).padStart(2, "0")}:${(v % 60).toFixed(2).padStart(5, "0")} · PAUSED`
+  }
+  const st = await h.state()
+  await expect(page.locator(".readout")).toHaveText(want(st.now - st.start), { timeout: 300 })
+})

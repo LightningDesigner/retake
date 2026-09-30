@@ -274,8 +274,9 @@ function summariseTransition(v) {
 
 function describe(el) {
   const tag = el.tagName.toLowerCase()
+  // Tag plus its id or first class: short enough to read whole.
   const id = el.id ? `#${el.id}` : ""
-  const cls = [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")
+  const cls = id ? "" : [...el.classList].slice(0, 1).map((c) => `.${c}`).join("")
   const text = (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80)
   const r = el.getBoundingClientRect()
   let page = "/"
@@ -410,7 +411,7 @@ function placeCard(rect) {
 function meta(t, el, branchId = D.activeId) {
   const start = D.last ? D.last.start : 0
   const b = D.branches.find((x) => x.id === branchId)
-  return `<div class="note-meta"><span class="tl">${esc(b ? b.name : "")}</span><span>·</span><span>${fmt(t - start)}</span><span>·</span><span class="el">${esc(el.label)}</span></div>`
+  return `<div class="note-meta"><span class="tl">${esc(b ? b.name : "")}</span><span>·</span><span>${fmt(t - start)}</span><span>·</span><span class="el" title="${esc(el.selector)}">${esc(el.label)}</span></div>`
 }
 
 function openComposer(el) {
