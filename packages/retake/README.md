@@ -46,16 +46,36 @@ Prefer it in the config? `import { retake } from "retake-dev"` and add
   a timeline checks its code out on disk, so use it on prototypes.
 - Opt out for one load with `?retake=0`.
 
+## Notes for your coding agent (MCP)
+
+Notes you leave in the dock can go straight to a coding agent. Add Retake's MCP
+server once:
+
+```sh
+claude mcp add retake -- npx -y retake-dev mcp
+```
+
+Run it from the project folder, the same place you ran `retake`: it finds the
+running dev server from `.retake/server.json` (or pass `--url
+http://localhost:3014`). The agent gets `list_notes`, `get_note`,
+`get_active_timeline`, `acknowledge`, `resolve`, `reply` and `watch_notes`.
+Acknowledging and resolving show up on the note's pin in the dock right away.
+
 ## How going back works
 
-It doesn't snapshot the DOM. It records every input (clicks, keys, server
-responses), runs time on a virtual clock (timers, rAF, `Date`, animations) and
-seeds randomness. Going back reloads the app and replays those inputs at full
-speed up to the chosen moment, with the app's own code rebuilding the screen.
-`fetch` calls are answered from the saved copy.
+It doesn't snapshot the DOM. It records every input (pointer, keys, typing,
+scrolling, back/forward), runs time on a virtual clock (timers, rAF, `Date`,
+idle callbacks, CSS and Web Animations) and seeds randomness (`Math.random`,
+`crypto`). Going back reloads the app and replays those inputs at full speed up
+to the chosen moment, with the app's own code rebuilding the screen.
 
-It rewinds what the browser holds in memory and web storage, not a server, so it
-suits prototypes whose backends don't remember state. See `AUDIT.md` at the repo
-root for what isn't covered yet (XHR/WebSocket/SSE, IndexedDB, workers).
+Server traffic is answered from the recording: `fetch` (streamed replies too,
+chunk by chunk at the pace they arrived), `XMLHttpRequest`, `EventSource` and
+`WebSocket`. So are observer callbacks and worker messages. Web storage,
+cookies and IndexedDB go back to how they were when the recording began.
+
+It rewinds the browser, not your server, so it suits prototypes whose backends
+don't remember state. Not covered: the Cache API / service workers, and
+cross-origin iframes.
 
 Requires Node 18+ and Vite 5 or newer.

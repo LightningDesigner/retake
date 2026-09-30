@@ -59,6 +59,7 @@ export function parseArgs(argv) {
       const n = Number(v)
       if (v == null || v === "" || !Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`--port needs a number between 1 and 65535 (got ${v == null ? "nothing" : JSON.stringify(v)})`)
       out.port = n
+      out.portSet = true
     } else if (a === "--url" || a.startsWith("--url=")) {
       out.url = a.includes("=") ? a.split("=")[1] : own[++i]
       if (!out.url) throw new Error("--url needs a value, like http://localhost:3014")
@@ -165,7 +166,8 @@ async function main() {
   if (opts.cmd === "init") return init()
   if (opts.cmd === "mcp") {
     const { runMcp } = await import(pathToFileURL(path.join(HOME, "src", "server", "mcp.js")).href)
-    return runMcp({ url: opts.url || process.env.RETAKE_URL || `http://localhost:${opts.port}` })
+    // Without --url/--port it finds the server from <cwd>/.retake/server.json.
+    return runMcp({ url: opts.url || process.env.RETAKE_URL || (opts.portSet ? `http://localhost:${opts.port}` : null) })
   }
 }
 
