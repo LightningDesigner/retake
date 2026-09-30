@@ -3,7 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 const dist = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "dist")
-const needles = ["__wayback", "__wb", "wb-dock", "data-wayback", "__retake", "/api/reply"]
+const needles = ["__wayback", "__wb", "wb-dock", "data-wayback", "__retake", "retake-site-demo-api"]
 const hits = []
 const walk = (d) => {
   for (const f of fs.readdirSync(d)) {
