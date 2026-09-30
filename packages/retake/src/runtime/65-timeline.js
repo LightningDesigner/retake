@@ -59,17 +59,17 @@ function markersOf() {
   let lastInput = null
   for (const ev of rec.events) {
     if (ev.t < (rec.start || 0)) continue
-    if (ev.type === "click") out.push({ t: ev.t, kind: "click", label: ev.label || "click", selector: ev.sel || undefined })
-    else if (ev.type === "keydown" && !ev.inField) out.push({ t: ev.t, kind: "key", label: ev.key, selector: ev.sel || undefined })
-    else if (ev.type === "submit") out.push({ t: ev.t, kind: "submit", label: ev.label || "submit", selector: ev.sel || undefined })
+    if (ev.type === "click") out.push({ t: ev.t, kind: "click", label: ev.label || "click", selector: ev.css || undefined })
+    else if (ev.type === "keydown" && !ev.inField) out.push({ t: ev.t, kind: "key", label: ev.key, selector: ev.css || undefined })
+    else if (ev.type === "submit") out.push({ t: ev.t, kind: "submit", label: ev.label || "submit", selector: ev.css || undefined })
     else if (ev.type === "input") {
       // A burst of typing in one field is one marker.
-      if (lastInput && lastInput.selector === ev.sel && ev.t - lastInput.last < 1500) {
+      if (lastInput && lastInput.selector === ev.css && ev.t - lastInput.last < 1500) {
         lastInput.last = ev.t
         lastInput.label = ev.label || lastInput.label
         continue
       }
-      lastInput = { t: ev.t, kind: "input", label: ev.label || "typing", selector: ev.sel || undefined, last: ev.t }
+      lastInput = { t: ev.t, kind: "input", label: ev.label || "typing", selector: ev.css || undefined, last: ev.t }
       out.push(lastInput)
     }
   }

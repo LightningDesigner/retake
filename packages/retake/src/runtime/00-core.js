@@ -84,6 +84,18 @@ W.clearTimeout = W.clearInterval = function (id) {
   else real.clearTimeout(id)
 }
 
+// requestIdleCallback runs on the virtual clock too: "idle" is right after
+// the current moment's work.
+if (W.requestIdleCallback) {
+  W.requestIdleCallback = function (cb, opts) {
+    if (typeof cb !== "function" || isExempt()) return real.setTimeout(cb, 1)
+    return addTimer(() => cb({ didTimeout: false, timeRemaining: () => 50 }), 1, [], false)
+  }
+  W.cancelIdleCallback = function (id) {
+    W.clearTimeout(id)
+  }
+}
+
 // ---- animation frames -----------------------------------------------------
 
 let rafQueue = new Map()
@@ -131,8 +143,10 @@ W.Date = VDate
 // ---- seeded randomness ----------------------------------------------------
 
 let seed = 0
+let byteState = 0
 function seedRandom(s) {
   seed = s >>> 0
+  byteState = (seed ^ 0x9e3779b9) >>> 0
   let state = seed
   Math.random = function () {
     state = (state + 0x6d2b79f5) >>> 0
@@ -140,6 +154,28 @@ function seedRandom(s) {
     x = Math.imul(x ^ (x >>> 15), x | 1)
     x ^= x + Math.imul(x ^ (x >>> 7), x | 61)
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+  }
+}
+// crypto.getRandomValues from its own seeded stream, so ids made with it
+// (nanoid, uuid v4) come out the same on replay without shifting Math.random.
+function nextByteWord() {
+  byteState = (byteState + 0x6d2b79f5) >>> 0
+  let x = byteState
+  x = Math.imul(x ^ (x >>> 15), x | 1)
+  x ^= x + Math.imul(x ^ (x >>> 7), x | 61)
+  return (x ^ (x >>> 14)) >>> 0
+}
+if (W.crypto && crypto.getRandomValues) {
+  const realGetRandomValues = crypto.getRandomValues.bind(crypto)
+  crypto.getRandomValues = function (arr) {
+    if (!arr || !ArrayBuffer.isView(arr) || isExempt()) return realGetRandomValues(arr)
+    if (arr.byteLength > 65536) throw new DOMException("The ArrayBufferView's byte length exceeds 65536", "QuotaExceededError")
+    const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)
+    for (let i = 0; i < bytes.length; i += 4) {
+      const w = nextByteWord()
+      for (let j = 0; j < 4 && i + j < bytes.length; j++) bytes[i + j] = (w >>> (j * 8)) & 255
+    }
+    return arr
   }
 }
 if (W.crypto && crypto.randomUUID) {
@@ -197,14 +233,25 @@ Object.defineProperty(MPP, "onmessage", {
   },
 })
 
-const stats = { settles: 0, stuck: 0, yields: 0 }
+const stats = { settles: 0, stuck: 0, yields: 0, idbWaits: 0 }
+// Wait until the app is idle: no pending MessageChannel work (React's
+// scheduler) and no IndexedDB work in flight (it answers in real time).
 async function settle() {
   stats.settles++
-  for (let i = 0; i < 60; i++) {
-    await yieldTask()
-    stats.yields++
-    if (appMessages === 0) return
+  const deadline = real.perfNow() + 2000
+  for (let round = 0; round < 20; round++) {
+    let i = 0
+    for (; i < 60; i++) {
+      await yieldTask()
+      stats.yields++
+      if (appMessages === 0) break
+    }
+    if (i === 60) {
+      stats.stuck++
+      appMessages = 0 // lost count (a port we can't see); don't stall forever
+    }
+    if (typeof idbBusy === "undefined" || idbBusy <= 0 || real.perfNow() > deadline) return
+    stats.idbWaits++
+    while (idbBusy > 0 && real.perfNow() < deadline) await new Promise((r) => real.setTimeout(r, 0))
   }
-  stats.stuck++
-  appMessages = 0 // lost count (a port we can't see); don't stall forever
 }

@@ -13,12 +13,29 @@ const futureFrame = () => (cursor.frame < rec.frames.length ? rec.frames[cursor.
 
 // Input recorded at exactly a seek target happened just *after* that moment,
 // so a seek stops short of it.
+let timersBefore = 0
 async function dispatchUpTo(B) {
   const exclusive = clock.seeking && B === seekTarget
+  timersBefore = timers.size
   while (exclusive ? nextEventT() < B : nextEventT() <= B) {
+    const before = domLog.length
     dispatchRecorded(rec.events[cursor.event++])
     await settle()
+    // An event that changed the DOM may have started CSS transitions, which
+    // the next frame adopts; one that changed nothing leaves nothing behind.
+    if (observer && !previewing) logMutations(observer.takeRecords())
+    if (domLog.length !== before || timers.size !== timersBefore || rafQueue.size) appRan = true
   }
+}
+
+// Did any app code run since the last settle? While rebuilding, a boundary
+// where nothing ran (no input, timer, frame callback, animation, pending
+// work) has nothing to wait for, so it's skipped through. That's most frames
+// of a long session, and it gives the same result as waiting.
+let appRan = true
+const animating = () => {
+  for (const st of managed.values()) if (!st.done && !st.userPaused) return true
+  return false
 }
 
 async function processBoundary(B) {
@@ -28,12 +45,17 @@ async function processBoundary(B) {
     clock.now = Math.max(clock.now, t.due)
     runTimer(t)
   }
+  if (ran) appRan = true
   clock.now = B
+  if (rafQueue.size) appRan = true
   runRaf()
   while (futureFrame() != null && futureFrame() <= B) cursor.frame++
   recordFrame(B)
-  syncAnimations()
-  await settle()
+  if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || animating()) {
+    syncAnimations()
+    await settle()
+    appRan = false
+  }
   await dispatchUpTo(B)
 }
 
@@ -53,6 +75,7 @@ function nextBoundary(limit, skipping) {
 }
 
 async function runSeek() {
+  const seekStart = real.perfNow()
   clock.seeking = true
   syncMedia()
   PT.emit()
@@ -64,16 +87,18 @@ async function runSeek() {
       break
     }
     await processBoundary(B)
-    if (real.perfNow() - lastPaint > 60) {
+    if (real.perfNow() - lastPaint > 250) {
       PT.emit()
       await new Promise((r) => real.raf(r))
       lastPaint = real.perfNow()
     }
   }
+  stats.seekMs = Math.round(real.perfNow() - seekStart)
   seekTarget = null
   clock.seeking = false
   pace = clock.now
   syncAnimations()
+  alignMedia()
   syncMedia()
   const then = afterSeek
   afterSeek = null

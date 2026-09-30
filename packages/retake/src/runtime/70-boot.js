@@ -26,16 +26,26 @@ function takeResume() {
 }
 const pending = (shell && shell.take()) || takeResume()
 
+// Time doesn't start until state is in place (IndexedDB is async).
+let stateReady
 if (pending) {
   rec = JSON.parse(pending.rec)
-  // Web storage goes back to how it was when the history began.
+  // Web storage, cookies and IndexedDB go back to how they were when the
+  // history began.
   restoreStorage(real.local, rec.storage.local)
   restoreStorage(real.session, rec.storage.session)
+  restoreCookies(rec.cookies)
+  stateReady = rec.idb != null ? withIDBGate(() => restoreIDB(rec.idb)) : Promise.resolve()
   clock.rate = pending.rate || 1
 } else {
   rec = newRecording()
   // Recording is always on from page load (CONTRACT.md).
   rec.start = 0
+  rec.cookies = snapshotCookies()
+  stateReady = withIDBGate(async () => {
+    const snap = await snapshotIDB()
+    if (snap) rec.idb = snap // empty too: a replay then clears databases made later
+  })
 }
 epoch = rec.epoch
 seedRandom(rec.seed)
@@ -125,7 +135,8 @@ function boot() {
   if (shell) W.addEventListener("blur", () => shell.meta && shell.meta(false))
   // Let the first render settle on real frames before time starts moving.
   real.raf(() =>
-    real.raf(() => {
+    real.raf(async () => {
+      await stateReady
       clock.booted = true
       if (pending) {
         seekTarget = pending.target

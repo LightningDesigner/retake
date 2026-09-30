@@ -15,6 +15,9 @@ MP.play = function () {
     return mediaOrig.play.call(el)
   }).then(() => {
     el.__ptWants = true
+    // Where the media was when it started, on the virtual clock.
+    el.__ptAt = clock.now
+    el.__ptFrom = el.currentTime || 0
   })
 }
 MP.pause = function () {
@@ -32,5 +35,18 @@ function syncMedia() {
     if (!live && !el.paused) mediaOrig.pause.call(el)
     else if (live && el.__ptWants && el.paused) mediaOrig.play.call(el).catch(() => {})
     if (live && el.playbackRate !== clock.rate) el.playbackRate = clock.rate
+  }
+}
+
+// After a seek, media the app had playing jumps to where it would be at this
+// moment on the virtual clock.
+function alignMedia() {
+  for (const el of media) {
+    if (!el.__ptWants || el.__ptAt == null) continue
+    const t = el.__ptFrom + ((clock.now - el.__ptAt) / 1000) * (el.playbackRate || 1)
+    const end = Number.isFinite(el.duration) ? el.duration : Infinity
+    try {
+      el.currentTime = el.loop && Number.isFinite(end) && end > 0 ? t % end : Math.min(t, end)
+    } catch {}
   }
 }

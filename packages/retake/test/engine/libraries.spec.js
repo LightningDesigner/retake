@@ -25,7 +25,6 @@ test("Framer Motion, GSAP, React Spring and Lottie replay frame-exact", async ({
 })
 
 test("F11 browser Back inside a React Router app replays", async ({ page }) => {
-  test.fail()
   const h = await openDock(page, `http://localhost:${PORTS.react}/`)
   await h.record(); await page.waitForTimeout(300)
   await h.click("#nav-anim"); await page.waitForTimeout(300)

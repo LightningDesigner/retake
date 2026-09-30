@@ -95,3 +95,8 @@ document.getElementById("llm").addEventListener("click", async () => {
   for (;;) { const { done, value } = await reader.read(); if (done) break; text += value; L("token", text) }
   L("llm-done", text)
 })
+let wheel = 0
+pad.addEventListener("wheel", (e) => { wheel += e.deltaY; L("wheel", Math.round(wheel)) }, { passive: true })
+const page = () => new URLSearchParams(location.search).get("p") || "0"
+addEventListener("popstate", () => L("page", page()))
+document.getElementById("next").addEventListener("click", () => { history.pushState({ p: Number(page()) + 1 }, "", "?__wb=app&p=" + (Number(page()) + 1)); L("page", page()) })
