@@ -85,13 +85,14 @@ test("F10: timelines, notes and recordings are saved and come back after a reloa
   const savedEnd = JSON.parse(fake.store.recordings["2"]).end
 
   await page.reload()
-  await expect.poll(() => D(page, (d) => d.branches.map((b) => b.name)).catch(() => null)).toEqual(["Timeline 1", "Try B"])
-  expect(await D(page, (d) => d.activeId)).toBe(2)
+  // The timelines and notes come back (the reload itself opens live, see
+  // reload.spec.js).
+  await expect.poll(() => D(page, (d) => d.branches.slice(0, 2).map((b) => b.name)).catch(() => null)).toEqual(["Timeline 1", "Try B"])
   expect(await D(page, (d) => d.notes.map((n) => n.text))).toEqual(["hello"])
-  // The active timeline's recording is loaded back into the frame, at its end.
-  await expect.poll(async () => (await h.state().catch(() => ({ end: 0 }))).end).toBeGreaterThanOrEqual(savedEnd - 1)
-  await expect.poll(async () => (await h.state().catch(() => ({ now: 0 }))).now, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 50)
   expect(await D(page, (d) => d.branches[1].end)).toBeGreaterThanOrEqual(savedEnd - 1)
+  // Selecting the saved timeline brings its recording back, at its end.
+  await D(page, () => window.__waybackDock.switchTo(2, 1e9))
+  await expect.poll(async () => (await h.state().catch(() => ({ end: 0 }))).end, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 1)
   expect(h.dockErrors).toEqual([])
 })
 
@@ -219,7 +220,7 @@ test("the dock never takes focus away from a frame being rebuilt (replayed keys 
   expect(h.dockErrors).toEqual([])
 })
 
-test("reopening a one-timeline session lands where it was (its end), not at 0", async ({ page }) => {
+test("a reload keeps the saved timeline whole, and opens the app live", async ({ page }) => {
   const fake = await fakeServer(page)
   const h = await openDock(page, DOCK_URL)
   await recordSome(h, ["#toggle", "#toggle"])
@@ -227,7 +228,11 @@ test("reopening a one-timeline session lands where it was (its end), not at 0", 
   await expect.poll(() => fake.store.recordings["1"] && JSON.parse(fake.store.recordings["1"]).end, { timeout: 8000 }).toBeGreaterThan(500)
   const savedEnd = JSON.parse(fake.store.recordings["1"]).end
   await page.reload()
-  await expect.poll(async () => (await h.state().catch(() => ({ now: 0 }))).now, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 50)
+  await expect.poll(() => D(page, (d) => !!d.PT && d.last && d.last.booted).catch(() => false)).toBe(true)
   expect(await D(page, (d) => d.branches[0].end)).toBeGreaterThanOrEqual(savedEnd - 1)
+  expect(await D(page, (d) => d.last.playing)).toBe(true)
+  // The saved recording on the server is untouched by the new visit.
+  await page.waitForTimeout(1000)
+  expect(JSON.parse(fake.store.recordings["1"]).end).toBeGreaterThanOrEqual(savedEnd - 1)
   expect(h.dockErrors).toEqual([])
 })
