@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 3301",
-    "check:build": "vite build && node scripts/check-dist.js"
+    "check:build": "vite build && node scripts/check-dist.js",
+    "walkthrough": "node scripts/walkthrough.mjs"
   },
   "devDependencies": {
     "retake-dev": "workspace:*",
