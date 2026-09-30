@@ -73,7 +73,10 @@ window.__waybackShell = {
   // Build a moment (a history and a time) in a fresh frame, swap when ready.
   rebuild(payload) {
     if (D.building) D.building.frame.remove()
-    D.stash = payload
+    // Copied into this window: the payload object was made in the old frame,
+    // and the new frame keeps what take() gives it for its whole life, so
+    // passing it on would keep every earlier frame alive in a chain.
+    D.stash = own(payload)
     window.__waybackShell.rebuilding = true
     const rec = JSON.parse(payload.rec)
     const url = new URL(rec.url)
@@ -95,6 +98,16 @@ window.__waybackShell = {
     b.version = old.version // a new timeline starts on its parent's code
     D.activeId = b.id
   },
+}
+
+// A plain copy made in the dock's realm (values only).
+function own(payload) {
+  const out = {}
+  for (const k of Object.keys(payload)) {
+    const v = payload[k]
+    out[k] = v !== null && typeof v === "object" ? JSON.parse(JSON.stringify(v)) : v
+  }
+  return out
 }
 
 // The viewport a recording was made at: the recording says, or the runtime's
@@ -187,6 +200,7 @@ const state = () => {
 
 function render() {
   checkBuilding()
+  dropStaleResume()
   // The active timeline can vanish under us (a delete racing a switch); stand
   // on the first one rather than draw nothing.
   if (!activeBranch()) D.activeId = D.branches[0].id
@@ -203,11 +217,21 @@ function render() {
   renderExtras(s)
 }
 
+// A frame that reloads itself leaves shell.__resume for its next document.
+// A frame we removed can leave one too (pagehide runs as it goes), and that
+// object, made in its realm, would keep the whole old window alive.
+function dropStaleResume() {
+  const r = window.__waybackShell.__resume
+  if (r && (!r.frame || !r.frame.isConnected)) window.__waybackShell.__resume = null
+}
+
 // Recording is always on from page load: a runtime that waits for Record gets
 // it once, as soon as it has booted.
+// (A WeakSet, so a runtime we've moved on from can be collected.)
+const autoStarted = new WeakSet()
 function autoStart(s) {
-  if (s.started || !s.booted || D.building || D.autoStarted === D.PT) return
-  D.autoStarted = D.PT
+  if (s.started || !s.booted || D.building || autoStarted.has(D.PT)) return
+  autoStarted.add(D.PT)
   D.PT.record()
 }
 
