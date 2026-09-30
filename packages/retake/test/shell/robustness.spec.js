@@ -83,3 +83,22 @@ test("F9: deleting a timeline mid-switch leaves the branches alone", async ({ pa
 test("the timeline mock is never part of the dock", () => {
   expect(shellScript()).not.toMatch(/MOCK/)
 })
+
+// S4 (Sherpa): pausing at the live edge took focus off the app's field and
+// play never gave it back, so the next keys went nowhere (Sherpa's idea box
+// lost its Enter). Pause → play must leave focus and caret where they were.
+test("pause then play keeps the app's focused field and caret", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await page.waitForTimeout(400)
+  await h.click("#idea")
+  await page.keyboard.type("abc")
+  const play = page.locator('#wb-dock [data-a="play"]')
+  await play.click() // pause
+  await page.waitForTimeout(300)
+  await play.click() // play
+  await page.waitForTimeout(300)
+  await page.keyboard.type("d")
+  const r = await h.rt(() => ({ v: document.querySelector("#idea").value, active: document.activeElement && document.activeElement.id }))
+  expect(r.active).toBe("idea")
+  expect(r.v).toBe("abcd")
+})

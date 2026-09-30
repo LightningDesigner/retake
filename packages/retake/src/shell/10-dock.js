@@ -301,6 +301,40 @@ function renderShield(s) {
     D.frame.blur()
     window.focus()
   }
+  if (!block) {
+    if (wasBlocked) restoreFocus()
+    else noteFocus(D.frame)
+  }
+  wasBlocked = block
+}
+// Pausing takes focus off the app's field (clicking the dock alone does);
+// playing again gives it back, with the caret where it was. Remembered while
+// the app is interactive, and only given back to that same document: a
+// rebuilt frame's focus is its replay's business.
+let wasBlocked = false
+let lastFocus = null
+function noteFocus(frame) {
+  try {
+    const doc = frame && frame.contentDocument
+    const el = doc && doc.activeElement
+    // Focus on the page itself: the user left the field (keep what we had
+    // only if focus went out to the dock instead).
+    if (!el || el === doc.body) {
+      if (doc.hasFocus()) lastFocus = null
+      return
+    }
+    lastFocus = { frame, doc, el, sel: typeof el.selectionStart === "number" ? [el.selectionStart, el.selectionEnd] : null }
+  } catch {}
+}
+function restoreFocus() {
+  const f = lastFocus
+  lastFocus = null
+  try {
+    if (!f || f.frame !== D.frame || f.frame.contentDocument !== f.doc || !f.el.isConnected) return
+    D.frame.focus()
+    f.el.focus({ preventScroll: true })
+    if (f.sel && f.el.setSelectionRange) f.el.setSelectionRange(f.sel[0], f.sel[1])
+  } catch {}
 }
 // One bad frame must never stop the dock: log it and keep going.
 let renderErrors = 0
