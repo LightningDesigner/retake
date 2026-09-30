@@ -22,7 +22,7 @@ shell.inspect = (e) => {
   if (e.type === "pointermove" || e.type === "pointerover") hovered = usable(el)
   else if (e.type === "click" && usable(el)) {
     if (mode() === "select") setScope(usable(el))
-    else openComposer(usable(el))
+    else openComposer(usable(el), { x: e.clientX, y: e.clientY })
   } else if (e.type === "keydown" && e.key === "Escape") {
     setPicking(null)
     setScope(null)
@@ -403,32 +403,91 @@ function mergeNote(n) {
 
 // ---- the note card -----------------------------------------------------------------
 
-function placeCard(rect) {
+// Where a note points, on screen: the spot that was clicked, kept relative to
+// its element (so it follows the element if that moved), else to where the
+// element was.
+function anchorOf(el) {
   const f = D.frame.getBoundingClientRect()
-  const x = Math.min(Math.max(8, f.left + rect.x), innerWidth - 308)
-  let y = f.top + rect.y + rect.h + 10
-  if (y + 170 > dock.getBoundingClientRect().top) y = Math.max(8, f.top + rect.y - 180)
-  card.style.left = x + "px"
-  card.style.top = y + "px"
+  let r = null
+  try {
+    const node = el.selector && D.frame.contentDocument.querySelector(el.selector)
+    if (node) r = node.getBoundingClientRect()
+  } catch {}
+  if (!r || (!r.width && !r.height)) r = { x: el.rect.x, y: el.rect.y, width: el.rect.w, height: el.rect.h }
+  const at = el.at || { dx: 0.5, dy: 0.5 }
+  return { x: f.left + r.x + at.dx * r.width, y: f.top + r.y + at.dy * r.height }
 }
 
+// Next to its spot, with the arrow on it: below if it fits, else above,
+// right, left; always kept on screen and clear of the dock.
+function placeCard(point) {
+  card.insertAdjacentHTML("afterbegin", '<i class="arrow"></i>')
+  const arrow = card.querySelector(".arrow")
+  const w = card.offsetWidth
+  const h = card.offsetHeight
+  const M = 8
+  const GAP = 14
+  const bottom = dock.getBoundingClientRect().top - M
+  const right = innerWidth - M
+  const cx = clamp(point.x - w / 2, M, right - w)
+  const cy = clamp(point.y - 32, M, bottom - h)
+  const sides = [
+    { side: "below", left: cx, top: point.y + GAP, fits: (p) => p.top + h <= bottom },
+    { side: "above", left: cx, top: point.y - GAP - h, fits: (p) => p.top >= M },
+    { side: "right", left: point.x + GAP, top: cy, fits: (p) => p.left + w <= right },
+    { side: "left", left: point.x - GAP - w, top: cy, fits: (p) => p.left >= M },
+  ]
+  const pick = sides.find((p) => p.fits(p)) || { side: "below", left: cx, top: clamp(point.y + GAP, M, bottom - h) }
+  card.dataset.side = pick.side
+  card.style.left = pick.left + "px"
+  card.style.top = pick.top + "px"
+  if (pick.side === "below" || pick.side === "above") {
+    arrow.style.left = clamp(point.x - pick.left - 6, 12, w - 24) + "px"
+    arrow.style.top = ""
+  } else {
+    arrow.style.top = clamp(point.y - pick.top - 6, 12, h - 24) + "px"
+    arrow.style.left = ""
+  }
+}
+
+// The card's header: the timeline's colour, the moment, the element.
 function meta(t, el, branchId = D.activeId) {
   const start = D.last ? D.last.start : 0
-  const b = D.branches.find((x) => x.id === branchId)
-  return `<div class="note-meta"><span class="tl">${esc(b ? b.name : "")}</span><span>·</span><span>${fmt(t - start)}</span><span>·</span><span class="el" title="${esc(el.selector)}">${esc(el.label)}</span></div>`
+  const b = branchById(branchId)
+  return `<div class="note-meta"><span class="dot" style="background:${colorOf(b)}" title="${esc(b ? b.name : "")}"></span><span class="time">${fmt(t - start)}</span><span class="el" title="${esc(el.selector)}">${esc(el.label)}</span></div>`
 }
 
-function openComposer(el) {
+// "140ms into the opacity transition", "2.3s into fm-note-rise (opacity, transform)".
+function shortClip(c) {
+  const at = msWord(Math.max(0, c.offset || 0))
+  if (c.kind === "transition") return `${at} into the ${c.property ? c.property + " " : ""}transition`
+  const name = c.label || "an animation"
+  return `${at} into ${name}${c.property && c.property !== name ? ` (${c.property})` : ""}`
+}
+
+// Everything else about the element, folded away.
+function details(el) {
+  const rows = [["Selector", el.selector]]
+  if (el.components && el.components.length) rows.push(["Component", el.components.join(" < ")])
+  if (el.source) rows.push(["Source", `${el.source.file}${el.source.line ? ":" + el.source.line : ""}`])
+  if (el.classes && el.classes.length) rows.push(["Classes", el.classes.join(" ")])
+  return `<details class="details"><summary>Details</summary><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></details>`
+}
+
+function openComposer(el, point) {
   const s = D.last
   if (!D.PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
   const desc = describe(el)
+  // The spot that was clicked, as a fraction of the element.
+  const r = el.getBoundingClientRect()
+  desc.at = point && r.width && r.height ? { dx: clamp((point.x - r.x) / r.width, 0, 1), dy: clamp((point.y - r.y) / r.height, 0, 1) } : { dx: 0.5, dy: 0.5 }
   draft = { el: desc, t, clip: clipFor(t, desc.selector, el) }
   openNote = null
   card.innerHTML = `${meta(t, draft.el)}<textarea rows="3" placeholder="What should change here?"></textarea>
     <div class="note-actions"><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
   card.hidden = false
-  placeCard(draft.el.rect)
+  placeCard(anchorOf(draft.el))
   const ta = card.querySelector("textarea")
   setTimeout(() => ta.focus())
   // Enter saves and folds the note down to its pin; Shift+Enter is a new line.
@@ -450,6 +509,8 @@ function saveDraft() {
 }
 
 function showNote(n) {
+  // Re-showing the same note (a reply came in) keeps Details as it was.
+  const keepOpen = openNote === n && !!card.querySelector(".details[open]")
   openNote = n
   draft = null
   const replies = (n.replies || [])
@@ -457,14 +518,16 @@ function showNote(n) {
     .join("")
   const status = n.status || "pending"
   card.innerHTML = `${meta(n.t, n.el, n.branchId)}<p class="note-text">${esc(n.text)}</p>
-    ${n.clip ? `<div class="note-clip">${esc(clipPhrase(n.clip))}</div>` : ""}
+    ${n.clip ? `<div class="note-clip">${esc(shortClip(n.clip))}</div>` : ""}
+    ${details(n.el)}
     ${replies ? `<div class="replies">${replies}</div>` : ""}
-    <div class="note-actions"><span class="status s-${esc(status)}">${esc(status)}</span>
-      <button data-note-a="delete">Delete</button>
+    <div class="note-actions"><span class="status s-${esc(status)}">${esc(status[0].toUpperCase() + status.slice(1))}</span>
+      <button data-note-a="delete" class="quiet">Delete</button>
       <button data-note-a="resolve">${status === "resolved" ? "Reopen" : "Resolve"}</button>
       <button data-note-a="copy" class="primary">Copy for Claude</button></div>`
+  if (keepOpen) card.querySelector(".details").open = true
   card.hidden = false
-  placeCard(n.el.rect)
+  placeCard(anchorOf(n.el))
 }
 
 // Tell the server about a status change (the session save carries it too).
@@ -553,12 +616,7 @@ function renderExtras(s) {
   const seen = new Set()
   D.notes.forEach((n, i) => {
     if (n.branchId !== D.activeId || !doc || s.seeking) return
-    let r = null
-    try {
-      const el = doc.querySelector(n.el.selector)
-      if (el) r = el.getBoundingClientRect()
-    } catch {}
-    if (!r) r = { right: n.el.rect.x + n.el.rect.w, top: n.el.rect.y }
+    const p = anchorOf(n.el)
     let pin = pinEls.get(n.id)
     if (!pin) {
       pin = document.createElement("button")
@@ -573,8 +631,8 @@ function renderExtras(s) {
     pin.classList.toggle("away", Math.abs(n.t - shownTime(s)) > 60)
     pin.style.background = NOTE_FILL[n.status] || NOTE_FILL.pending
     pin.title = n.text
-    pin.style.left = f.left + r.right - 10 + "px"
-    pin.style.top = f.top + r.top - 10 + "px"
+    pin.style.left = p.x + "px"
+    pin.style.top = p.y + "px"
     seen.add(n.id)
   })
   renderList()

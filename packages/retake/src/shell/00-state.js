@@ -49,7 +49,7 @@ const D = {
   metaHeld: false,
   scopeEl: null, // the element the Select tool scoped scrubbing to
   // dock size
-  height: store.get("height", 150),
+  height: store.get("height", 200),
   view: null, // the window of time on the timeline (20-timeline.js)
 }
 

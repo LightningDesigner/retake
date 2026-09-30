@@ -27,12 +27,23 @@ test("the dock sits below the app, never over it, and the divider resizes both",
     return { stage, dock }
   }
   let { stage, dock } = await box()
-  expect(stage.y + stage.height).toBeLessThanOrEqual(dock.y + 0.5)
-  expect(dock.y + dock.height).toBeCloseTo(800, 0)
+  // A floating drawer: 16px off the left, right and bottom; the app ends 16px above it.
+  expect(stage.y + stage.height).toBeLessThanOrEqual(dock.y - 16 + 0.5)
+  expect(dock.y + dock.height).toBeCloseTo(800 - 16, 0)
+  expect(dock.x).toBeCloseTo(16, 0)
+  expect(dock.x + dock.width).toBeCloseTo(1280 - 16, 0)
+  const look = await page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector("#wb-dock"))
+    return { radius: cs.borderTopLeftRadius, blur: cs.backdropFilter || cs.webkitBackdropFilter, bg: cs.backgroundColor, body: getComputedStyle(document.body).backgroundColor }
+  })
+  expect(look.radius).toBe("18px")
+  expect(look.blur).toContain("blur(24px)")
+  expect(look.bg).toMatch(/rgba\(22, 22, 26, 0\.72\)/)
+  expect(look.body).not.toBe("rgb(0, 0, 0)")
   const div = await page.locator(".divider").boundingBox()
-  await page.mouse.move(div.x + 200, div.y + div.height / 2)
+  await page.mouse.move(div.x + div.width / 2, div.y + div.height / 2)
   await page.mouse.down()
-  await page.mouse.move(div.x + 200, div.y - 100, { steps: 5 })
+  await page.mouse.move(div.x + div.width / 2, div.y + div.height / 2 - 100, { steps: 5 })
   await page.mouse.up()
   await page.waitForTimeout(100)
   const after = await box()

@@ -332,7 +332,7 @@ document.addEventListener("click", (e) => {
 
 // The dock never grows by itself (that would resize the app mid-recording);
 // only the divider changes it.
-const MIN_H = 96
+const MIN_H = 150
 const dockHeight = () => Math.round(clamp(D.height, MIN_H, Math.max(MIN_H, innerHeight * 0.7)))
 
 // Start fresh asks once: the first click arms it for three seconds.

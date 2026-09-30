@@ -1,23 +1,28 @@
-// The timeline. A ruler on top; under it one lane per timeline. A timeline made
-// with + grows out of its parent's lane at the moment it split, along a short
-// curve. The active lane is white (bright up to the playhead, dimmer over the
-// recorded future), the others grey; with more than four, the inactive ones
-// fold down to thin lines. Under the active lane, every animation or
-// transition is a thin bar from its start to its end (overlaps stack); above
-// it, small ticks mark what happened: clicks, keys, routes, fetches.
+// The timeline. A ruler on top; under it one lane per timeline, each in its
+// own colour. A timeline made with + grows out of its parent's lane at the
+// moment it split, along a short curve in its colour. The active lane is in
+// full colour (dimmer over its recorded future); the others are the same hue,
+// faint; with more than four, the inactive ones fold down to thin lines.
+// On the active lane: a faint, thicker block wherever something was
+// animating (overlaps merged), and a small blue dot for each thing you did.
 //
-// The view is a window of time [from, to]. It follows the whole recording
-// until you zoom (⌘-scroll or pinch, anchored on the cursor); F fits all again.
+// The view is a window of time [from, to], with the start of the recording
+// never right of the left edge. It follows the whole recording until you zoom
+// (⌘-scroll or pinch, anchored on the cursor); F fits all again.
 
 const PAD_L = 12
 const PAD_R = 18
-const RULER = 18 // ruler height
-const LANE = 20 // lane pitch
-const THIN = 7 // pitch of a folded lane
-const CLIP_ROW = 3 // clip bar pitch
-const MAX_CLIP_ROWS = 4
-const BEND = 16 // how far a new lane travels to reach its row
+const RULER = 20 // ruler height
+const LANE = 28 // lane pitch
+const THIN = 8 // pitch of a folded lane
+const BEND = 18 // how far a new lane travels to reach its row
 const GROW_MS = 250
+const BAND_GAP = 30 // animations closer than this merge into one block
+
+// One colour per timeline, by id: distinct on dark glass, none of them the
+// blue of interaction dots or the amber of notes.
+const TL_COLORS = ["#a78bfa", "#2dd4bf", "#f472b6", "#bef264", "#fb923c", "#f87171"]
+const colorOf = (b) => TL_COLORS[((b ? b.id : 1) - 1) % TL_COLORS.length]
 
 const plus = $(".plus")
 const tip = $(".tip")
@@ -34,7 +39,7 @@ let svgKey = ""
 let pendingFork = null
 let flashUntil = 0
 
-// Everything recorded, on every timeline.
+// Everything recorded, on every timeline, from its first moment.
 function fullRange(s) {
   let end = s.end
   for (const b of D.branches) end = Math.max(end, b.id === D.activeId ? Math.max(b.end, s.end) : b.end)
@@ -43,10 +48,16 @@ function fullRange(s) {
   return { from: s.start, to: s.start + len * (live ? 1.08 : 1.03) }
 }
 
+// The start of the recording is pinned: the view never begins before it.
+function pinStart(v, s) {
+  if (!s || v.from >= s.start) return v
+  return { from: s.start, to: s.start + (v.to - v.from) }
+}
+
 function setView(from, to, { animate = true } = {}) {
   const span = Math.max(to - from, 20)
   const mid = (from + to) / 2
-  const r = { from: mid - span / 2, to: mid + span / 2 }
+  const r = pinStart({ from: mid - span / 2, to: mid + span / 2 }, D.last)
   D.view.follow = false
   if (animate) D.view.target = r
   else {
@@ -71,7 +82,12 @@ function stepView(s) {
   D.view.at = now
   if (D.view.follow) D.view.target = fullRange(s)
   const t = D.view.target
-  if (!t) return
+  if (!t) {
+    const p = pinStart(D.view, s)
+    D.view.from = p.from
+    D.view.to = p.to
+    return
+  }
   const span = D.view.to - D.view.from
   if (D.dragT != null && D.view.follow) {
     D.view.from = t.from
@@ -100,43 +116,36 @@ const r1 = (n) => Math.round(n * 10) / 10
 
 // ---- lanes ------------------------------------------------------------------------
 
-// Rows for the active lane's clips: overlapping clips stack.
-// `items` are { c, i }: a clip and its index in timeline().clips.
-function packClips(items, g, s) {
-  const rows = []
-  const out = []
-  const sorted = items.slice().sort((a, b) => a.c.start - b.c.start)
-  for (const { c, i } of sorted) {
-    const x0 = xOf(c.start, g)
-    const x1 = Math.max(x0 + 2, xOf(c.end == null ? s.end : c.end, g))
-    let row = rows.findIndex((end) => end + 2 <= x0)
-    if (row < 0) {
-      row = rows.length < MAX_CLIP_ROWS ? rows.length : MAX_CLIP_ROWS - 1
-      if (row === rows.length) rows.push(0)
-    }
-    rows[row] = Math.max(rows[row], x1)
-    out.push({ c, i, x0, x1, row })
+// Animation blocks: the active recording's clips merged where they overlap.
+// Each keeps the clips it's made of, for its tooltip.
+function animationBands(clips, s, active) {
+  const items = clips
+    .map((c, i) => ({ c, i, a: c.start, b: c.end == null ? s.end : c.end }))
+    .filter((x) => x.b >= active.forkAt && x.a <= Math.max(active.end, s.end))
+    .sort((x, y) => x.a - y.a)
+  const bands = []
+  for (const it of items) {
+    const last = bands[bands.length - 1]
+    if (last && it.a <= last.b + BAND_GAP) {
+      last.b = Math.max(last.b, it.b)
+      last.clips.push(it.i)
+    } else bands.push({ a: Math.max(it.a, active.forkAt), b: it.b, clips: [it.i] })
   }
-  return { bars: out, rows: rows.length }
+  return bands
 }
 
-// Where each lane sits. Folded lanes are thin; the active one has room under
-// it for its clips.
-// Lanes sit in the middle of the room they have (the dock doesn't change
+// Where each lane sits, centred in the room the dock has (it doesn't change
 // height for them: that would resize the app mid-recording).
-function layoutLanes(g, clipRows) {
-  const avail = g.h - RULER - 10
-  const activeH = LANE + clipRows * CLIP_ROW
-  const full = D.branches.length * LANE + clipRows * CLIP_ROW
-  const fold = D.branches.length > 4 || full > avail
-  const used = D.branches.reduce((h, b) => h + (b.id === D.activeId ? activeH : fold ? THIN : LANE), 0)
+function layoutLanes(g) {
+  const avail = g.h - RULER - 4
+  const fold = D.branches.length > 4 || D.branches.length * LANE > avail
+  const used = D.branches.reduce((h, b) => h + (b.id === D.activeId || !fold ? LANE : THIN), 0)
   const lanes = new Map()
-  let y = RULER + 6 + Math.max(0, Math.floor((avail - used) / 2))
+  let y = RULER + 4 + Math.max(0, Math.floor((avail - used) / 2))
   for (const b of D.branches) {
-    const active = b.id === D.activeId
-    const thin = fold && !active
-    const pitch = thin ? THIN : active ? activeH : LANE
-    lanes.set(b.id, { y: Math.round(thin ? y + THIN / 2 : y + 11) + 0.5, thin })
+    const thin = fold && b.id !== D.activeId
+    const pitch = thin ? THIN : LANE
+    lanes.set(b.id, { y: Math.round(y + pitch / 2), thin })
     y += pitch
   }
   return lanes
@@ -183,7 +192,7 @@ function ruler(g, s, xNow) {
     if (rel < 0) continue
     const x = r1(xOf(t, g)) + 0.5
     const isMajor = rel % major === 0
-    out += `<line class="tick${isMajor ? " major" : ""}" x1="${x}" x2="${x}" y1="${RULER - (isMajor ? 7 : 3)}" y2="${RULER - 0.5}"/>`
+    out += `<line class="tick${isMajor ? " major" : ""}" x1="${x}" x2="${x}" y1="${RULER - (isMajor ? 6 : 3)}" y2="${RULER - 0.5}"/>`
     // A label the playhead's cap would sit on is left out.
     if (isMajor && !(xNow != null && x + 3 < xNow + 8 && x + 36 > xNow - 8)) out += `<text class="tlabel" x="${x + 3}" y="${RULER - 8}">${label(t)}</text>`
   }
@@ -192,18 +201,11 @@ function ruler(g, s, xNow) {
 
 // ---- drawing ----------------------------------------------------------------------
 
-const MARK_GLYPH = {
-  click: (x, y) => `<line class="mk" x1="${x}" x2="${x}" y1="${y - 5}" y2="${y}"/>`,
-  key: (x, y) => `<line class="mk" x1="${x}" x2="${x}" y1="${y - 5}" y2="${y}"/><circle class="mk-dot" cx="${x}" cy="${y - 6.5}" r="1"/>`,
-  input: (x, y) => `<line class="mk" x1="${x}" x2="${x}" y1="${y - 3}" y2="${y}"/>`,
-  submit: (x, y) => `<rect class="mk-dot" x="${x - 1.5}" y="${y - 5}" width="3" height="3"/>`,
-  route: (x, y) => `<path class="mk-dot" d="M${x} ${y - 6} l2 2 -2 2 -2 -2z"/>`,
-  fetch: (x, y) => `<circle class="mk-dot" cx="${x}" cy="${y - 3.5}" r="1.5"/>`,
-  reload: (x, y) => `<line class="mk" x1="${x}" x2="${x}" y1="${y - 8}" y2="${y}"/>`,
-}
+// Things you did are blue dots on the lane; what the app did on its own
+// (routes, fetches, reloads) is a small grey tick above it.
+const INPUT_KINDS = new Set(["click", "key", "input", "submit"])
 
 const NOTE_FILL = { pending: "var(--amber)", acknowledged: "var(--blue)", resolved: "var(--green)", dismissed: "var(--dim)" }
-
 
 function renderTimeline(s, shownT) {
   const g = geom()
@@ -212,55 +214,56 @@ function renderTimeline(s, shownT) {
   const active = activeBranch()
   const activeEnd = Math.max(active.end, s.end)
   const tl = timeline()
-  const clips = tl.clips.map((c, i) => ({ c, i })).filter(({ c }) => (c.end == null ? s.end : c.end) >= active.forkAt && c.start <= activeEnd)
-  const packed = packClips(clips, g, s)
-  D.clipBars = packed.bars
-  const lanes = layoutLanes(g, packed.rows)
+  const lanes = layoutLanes(g)
   D.lanes = lanes
-  D.clipRows = packed.rows
+  const bands = animationBands(tl.clips, s, active)
+  D.bands = bands
   const A = lanes.get(active.id)
   const xNow = r1(xOf(shownT, g))
 
   let out = `<clipPath id="wb-past"><rect x="-4000" y="0" width="${xNow + 4000}" height="${g.h}"/></clipPath>`
   out += ruler(g, s, xNow)
-  if (D.hoverX != null && D.dragT == null) out += `<line class="hover-line" x1="${D.hoverX}" x2="${D.hoverX}" y1="${RULER + 1}" y2="${g.h}"/>`
 
-  // Lanes: the others first, then the active one on top.
+  // Lanes: the others first, faint in their colours; then the active one.
   for (const b of D.branches) {
     if (b.id === D.activeId) continue
     const L = lanes.get(b.id)
     const d = lanePath(b, g, lanes, s, b.end)
     const p = growth(b)
     const grow = p < 0.999 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
-    out += `<path class="lane${L.thin ? " thin" : ""}"${grow} d="${d}"/>`
-    out += `<path class="lane hit" data-branch="${b.id}" d="${d}"><title>${esc(b.name)}</title></path>`
+    out += `<path class="lane${L.thin ? " thin" : ""}" style="stroke:${colorOf(b)}"${grow} d="${d}"/>`
+    out += `<path class="lane hit" data-branch="${b.id}" d="${d}"/>`
   }
+  const color = colorOf(active)
   const d = lanePath(active, g, lanes, s, activeEnd)
   const p = growth(active)
   const grow = p < 0.999 ? ` pathLength="1" stroke-dasharray="${p.toFixed(3)} 2"` : ""
-  out += `<path class="lane active ahead"${grow} d="${d}"/>`
-  out += `<path class="lane active"${grow} clip-path="url(#wb-past)" d="${d}"/>`
+  // Animation blocks sit on the lane, under its line.
+  bands.forEach((band, i) => {
+    const x0 = r1(xOf(band.a, g))
+    const w = r1(Math.max(3, xOf(band.b, g) - x0))
+    const isHot = D.hot && D.hot.kind === "band" && D.hot.i === i
+    out += `<rect class="band${isHot ? " hot" : ""}" style="fill:${color}" x="${x0}" y="${A.y - 4}" width="${w}" height="8" rx="4"/>`
+  })
+  out += `<path class="lane active ahead" style="stroke:${color}"${grow} d="${d}"/>`
+  out += `<path class="lane active" style="stroke:${color}"${grow} clip-path="url(#wb-past)" d="${d}"/>`
   out += `<path class="lane hit" data-branch="${active.id}" data-active="1" d="${d}"/>`
   const xEnd = r1(xOf(activeEnd, g))
-  if (xEnd - xNow > 6) out += `<circle class="lane-end active" cx="${xEnd}" cy="${A.y}" r="2.5"><title>Last recorded</title></circle>`
+  if (xEnd - xNow > 6) out += `<circle class="lane-end" style="stroke:${color}" cx="${xEnd}" cy="${A.y}" r="3"><title>Last recorded</title></circle>`
+  bands.forEach((band, i) => {
+    const x0 = r1(xOf(band.a, g))
+    out += `<rect class="band-hit" data-band="${i}" x="${x0}" y="${A.y - 6}" width="${r1(Math.max(6, xOf(band.b, g) - x0))}" height="12"/>`
+  })
 
-  // Clips under the active lane.
-  for (const bar of packed.bars) {
-    const y = A.y + 5 + bar.row * CLIP_ROW
-    const isHot = D.hot && D.hot.kind === "clip" && D.hot.i === bar.i
-    const cls = `clip${bar.c.end == null ? " running" : ""}${isHot ? " hot" : ""}`
-    out += `<rect class="${cls}" x="${r1(bar.x0)}" y="${y}" width="${r1(bar.x1 - bar.x0)}" height="2"/>`
-    out += `<rect class="clip-hit" data-clip="${bar.i}" x="${r1(bar.x0)}" y="${y - 0.5}" width="${r1(Math.max(4, bar.x1 - bar.x0))}" height="${CLIP_ROW}"/>`
-  }
-
-  // Markers above it.
+  // Markers.
   tl.markers.forEach((m, i) => {
     if (m.t < active.forkAt - 1 || m.t > activeEnd + 1) return
-    const x = r1(xOf(m.t, g)) + 0.5
-    const glyph = (MARK_GLYPH[m.kind] || MARK_GLYPH.click)(x, A.y - 3)
+    const x = r1(xOf(m.t, g))
     const isHot = D.hot && D.hot.kind === "mark" && D.hot.i === i
-    out += isHot ? glyph.replace(/class="(mk[-\w]*)"/g, 'class="$1 hot"') : glyph
-    out += `<rect class="mk-hit" data-mark="${i}" x="${x - 3.5}" y="${A.y - 11}" width="7" height="9"/>`
+    out += INPUT_KINDS.has(m.kind)
+      ? `<circle class="mk-dot${isHot ? " hot" : ""}" cx="${x}" cy="${A.y}" r="${isHot ? 3.5 : 2.5}"/>`
+      : `<line class="mk-tick${isHot ? " hot" : ""}" x1="${x + 0.5}" x2="${x + 0.5}" y1="${A.y - 11}" y2="${A.y - 6}"/>`
+    out += `<rect class="mk-hit" data-mark="${i}" x="${x - 4}" y="${A.y - 12}" width="8" height="16"/>`
   })
 
   // Bookmarks, on the ruler.
@@ -270,7 +273,12 @@ function renderTimeline(s, shownT) {
     out += `<path class="bookmark" data-bookmark="${m.id}" d="M${x - 3} ${RULER - 1} l3 -4 3 4z"><title>Bookmark · ${fmt(m.t - s.start)}</title></path>`
   }
 
-  // Playhead.
+  // The + guide, then the playhead.
+  const showPlus = D.hoverT != null && D.dragT == null && pendingFork == null
+  if (showPlus) {
+    const xg = r1(xOf(D.hoverT, g)) + 0.5
+    out += `<line class="guide" x1="${xg}" x2="${xg}" y1="${RULER}" y2="${g.h}"/>`
+  }
   out += `<line class="head" x1="${xNow + 0.5}" x2="${xNow + 0.5}" y1="0" y2="${g.h}"/>`
   out += `<path class="head-cap" d="M${xNow - 4} 0 h9 v4 l-4.5 4 l-4.5 -4z"/>`
   if (D.snapT != null && D.dragT != null) {
@@ -289,24 +297,25 @@ function renderTimeline(s, shownT) {
     const x = r1(xOf(n.t, g))
     const fill = NOTE_FILL[n.status] || NOTE_FILL.pending
     if (L.thin) {
-      out += `<g class="note-mark" data-note="${n.id}"><circle cx="${x}" cy="${L.y}" r="2" fill="${fill}"/><title>${esc(n.text)}</title></g>`
+      out += `<g class="note-mark" data-note="${n.id}"><circle cx="${x}" cy="${L.y}" r="2.5" fill="${fill}"/><title>${esc(n.text)}</title></g>`
       return
     }
     const label = String(i + 1)
-    const w = 6 + label.length * 5
-    out += `<g class="note-mark" data-note="${n.id}" transform="translate(${x} ${L.y - 7})">
-      <rect x="${-w / 2}" y="-6" width="${w}" height="11" rx="4" fill="${fill}" stroke="var(--bg)"/>
-      <text x="0" y="2.5" text-anchor="middle" fill="var(--bg)">${label}</text><title>${esc(n.text)}</title></g>`
+    const w = 8 + label.length * 5
+    out += `<g class="note-mark" data-note="${n.id}" transform="translate(${x} ${L.y - 11})">
+      <rect x="${-w / 2}" y="-6" width="${w}" height="12" rx="6" fill="${fill}"/>
+      <text x="0" y="3" text-anchor="middle">${label}</text><title>${esc(n.text)}</title></g>`
   })
   setSvg(out)
   renderGutter(lanes)
 
-  // The + that starts a new timeline, offered on the active lane in the past.
-  const showPlus = D.hoverT != null && D.dragT == null && pendingFork == null && !isInteractive(s)
+  // The + to start a new timeline: only ever on the active lane, right where
+  // the pointer is on it.
   plus.hidden = !showPlus
   if (showPlus) {
     plus.style.left = xOf(D.hoverT, g) + "px"
     plus.style.top = A.y + "px"
+    plus.style.setProperty("--c", color)
   }
   checkPendingFork(s)
 }
@@ -317,7 +326,7 @@ function setSvg(markup) {
   svg.innerHTML = markup
 }
 
-// Lane names, in the gutter beside their lanes.
+// Lane names, in the gutter beside their lanes, each with its colour.
 let gutterKey = ""
 const invalidateGutter = () => (gutterKey = "")
 function renderGutter(lanes) {
@@ -328,8 +337,10 @@ function renderGutter(lanes) {
   gutter.innerHTML = D.branches
     .map((b) => {
       const L = lanes.get(b.id)
-      const cls = `lane-name${b.id === D.activeId ? " active" : ""}${L.thin ? " thin" : ""}`
-      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px" title="${esc(b.name)} · double-click to rename">${esc(b.name)}</div>`
+      const on = b.id === D.activeId
+      const cls = `lane-name${on ? " active" : ""}${L.thin ? " thin" : ""}`
+      const title = on ? `${b.name} · double-click to rename` : `${b.name} · click to select`
+      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;--c:${colorOf(b)}" title="${esc(title)}"><i></i><span>${esc(b.name)}</span></div>`
     })
     .join("")
 }
@@ -337,11 +348,11 @@ function renderGutter(lanes) {
 // ---- the header ---------------------------------------------------------------------
 
 function phaseOf(s) {
-  if (D.dragT != null || s.previewing) return "SCRUBBING"
-  if (D.building) return `BUILDING${buildProgress()}`
-  if (s.seeking) return "LOADING"
-  if (s.playing) return s.future ? "PLAYING" : "LIVE"
-  return "PAUSED"
+  if (D.dragT != null || s.previewing) return "Scrubbing"
+  if (D.building) return `Building${buildProgress()}`
+  if (s.seeking) return "Loading"
+  if (s.playing) return s.future ? "Playing" : "Live"
+  return "Paused"
 }
 
 // How far the frame being built behind the visible one has got: " 43%".
@@ -360,19 +371,14 @@ function buildProgress() {
 function renderHead(s, shownT) {
   readoutT.textContent = fmt(shownT - s.start)
   const phase = phaseOf(s)
-  readoutPhase.textContent = phase
-  readoutPhase.classList.toggle("past", phase !== "LIVE" && !isInteractive(s))
+  if (readoutPhase.textContent !== phase) readoutPhase.textContent = phase
+  readoutPhase.dataset.phase = phase.split(" ")[0].toLowerCase()
   playBtn.classList.toggle("playing", !!s.playing && D.dragT == null)
   playBtn.setAttribute("aria-label", s.playing ? "Pause" : "Play")
   if (performance.now() < flashUntil) return
   hintEl.classList.remove("warn")
-  const past = s.started && !isInteractive(s)
-  const text = past
-    ? s.future || s.previewing || D.dragT != null
-      ? "Viewing the past · press <kbd>+</kbd> to try something else from here"
-      : "Paused · press <kbd>space</kbd> to go on"
-    : ""
-  if (hintEl.innerHTML !== text) hintEl.innerHTML = text
+  const text = s.started && !s.playing && D.dragT == null ? "Paused · + to branch" : ""
+  if (hintEl.textContent !== text) hintEl.textContent = text
   hintEl.classList.toggle("show", !!text)
 }
 
@@ -395,11 +401,11 @@ function newTimelineAt(t) {
   D.PT.seek(t)
 }
 
+// The new timeline is made and selected, paused at the moment it split off.
+// Nothing plays until you press play.
 function forkNow() {
   D.PT.pause()
   D.PT.forkHere()
-  // The new timeline is live from here.
-  D.PT.record()
 }
 
 function checkPendingFork(s) {

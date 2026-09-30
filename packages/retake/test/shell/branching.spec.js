@@ -17,7 +17,7 @@ async function plusAt(h, t) {
   return pb
 }
 
-test("+ in the past grows a new, live lane out of that moment", async ({ page }) => {
+test("+ on the active lane grows a new lane in its own colour, selected and paused at the fork", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.8)
   await expect(page.locator(".plus")).toBeHidden()
@@ -34,19 +34,45 @@ test("+ in the past grows a new, live lane out of that moment", async ({ page })
   expect(b).toMatchObject({ id: 2, parentId: 1 })
   expect(Math.abs(b.forkAt - hoverT)).toBeLessThan(40)
   expect(await dock(page, (D) => D.activeId)).toBe(2)
-  // Live from there: recording, and the app takes input again.
-  await expect.poll(() => h.state().then((s) => s.playing && !s.future)).toBe(true)
-  await expect(page.locator("#wb-shield")).toBeHidden()
-  await page.waitForTimeout(300)
+  // Selected and paused right at the fork: nothing plays until Play.
+  await expect.poll(() => h.state().then((x) => !x.playing && !x.future && Math.abs(x.now - b.forkAt) < 5)).toBe(true)
+  await page.waitForTimeout(500)
+  const later = await h.state()
+  expect(later.playing).toBe(false)
+  expect(Math.abs(later.now - b.forkAt)).toBeLessThan(5)
   expect(await page.locator(".lines path.lane.active").first().getAttribute("stroke-dasharray")).toBe(null)
-  // Active is white, the other grey.
-  const strokes = await page.evaluate(() => ({
-    active: getComputedStyle(document.querySelector(".lines path.lane.active:not(.ahead)")).stroke,
-    other: getComputedStyle(document.querySelector(".lines path.lane:not(.active):not(.hit)")).stroke,
-  }))
-  expect(strokes.active).toBe("rgb(255, 255, 255)")
-  expect(strokes.other).not.toBe("rgb(255, 255, 255)")
+  // Each timeline its colour: the active one full, the other the same hue, faint.
+  const look = await page.evaluate(() => {
+    const act = document.querySelector(".lines path.lane.active:not(.ahead)")
+    const other = document.querySelector(".lines path.lane:not(.active):not(.hit)")
+    return { active: getComputedStyle(act).stroke, activeOp: getComputedStyle(act).opacity, other: getComputedStyle(other).stroke, otherOp: getComputedStyle(other).opacity }
+  })
+  expect(look.active).toBe("rgb(45, 212, 191)") // Timeline 2
+  expect(look.other).toBe("rgb(167, 139, 250)") // Timeline 1
+  expect(Number(look.activeOp)).toBe(1)
+  expect(Number(look.otherOp)).toBeLessThan(0.5)
+  await expect(page.locator('.lane-name.active[data-lane="2"]')).toBeVisible()
   expect(a.id).toBe(1)
+  expect(h.dockErrors).toEqual([])
+})
+
+test("+ only ever shows on the active lane; an inactive lane says 'Click to select'", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.8)
+  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
+  await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
+  await h.settle()
+  const x = await xOfTime(page, s.start + (s.end - s.start) * 0.2)
+  await page.mouse.move(x, await laneY(page, 1))
+  await expect(page.locator(".tip")).toHaveText("Click to select")
+  await expect(page.locator(".plus")).toBeHidden()
+  // Clicking it selects it, paused: nothing starts playing.
+  await page.mouse.click(x, await laneY(page, 1))
+  await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
+  await page.waitForTimeout(300)
+  expect((await h.state()).playing).toBe(false)
+  await page.mouse.move(x, await laneY(page, 1))
+  await expect(page.locator(".plus")).toBeVisible()
   expect(h.dockErrors).toEqual([])
 })
 
@@ -180,6 +206,8 @@ test("switching back to a shorter timeline keeps its own end (not the frame it's
   await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   // Timeline 2 runs on well past Timeline 1's end.
+  await h.settle()
+  await h.record()
   await page.waitForTimeout(1500)
   await h.pause()
   expect((await h.state()).end).toBeGreaterThan(t1End + 500)

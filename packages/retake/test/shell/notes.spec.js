@@ -64,7 +64,7 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   // Open it from the pin: the card shows the note and its clip.
   await page.locator(".canvas-pin").click()
   await expect(page.locator("#wb-note")).toContainText("Make this slide slower")
-  await expect(page.locator("#wb-note .note-clip")).toContainText(/ms into a/)
+  await expect(page.locator("#wb-note .note-clip")).toContainText(/\d+(ms|\.\ds) into /)
   await expect(page.locator("#wb-note")).toBeVisible()
   await page.waitForTimeout(250)
   const cb = await page.locator("#wb-note").boundingBox()

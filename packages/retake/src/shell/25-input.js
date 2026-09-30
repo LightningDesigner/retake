@@ -168,7 +168,6 @@ track.addEventListener("pointerdown", (e) => {
     if (b) switchTo(b.id, clamp(timeAt(e.clientX), b.forkAt, b.end)).then((ok) => ok || flash("Couldn't switch to that timeline"))
     return
   }
-  if (fitClipAt(e)) return
   const bm = e.target.closest("[data-bookmark]")
   if (bm) {
     const m = D.markers.find((x) => String(x.id) === bm.dataset.bookmark)
@@ -222,31 +221,30 @@ plus.addEventListener("pointerleave", () => (plusHeld = false))
 // Hovering: a tooltip for clips, markers and folded lanes; on the active lane
 // in the past, a + to start a new timeline there.
 function hover(e, s, g) {
-  const clip = e.target.closest && e.target.closest("[data-clip]")
+  const band = e.target.closest && e.target.closest("[data-band]")
   const mark = e.target.closest && e.target.closest("[data-mark]")
   const lane = e.target.closest && e.target.closest("[data-branch]")
   const tl = timeline()
-  if (clip) {
-    const c = tl.clips[Number(clip.dataset.clip)]
-    setHot({ kind: "clip", i: Number(clip.dataset.clip) })
-    if (c) showTip(e, g, clipLabel(c, s))
-  } else if (mark) {
+  if (mark) {
     const m = tl.markers[Number(mark.dataset.mark)]
     setHot({ kind: "mark", i: Number(mark.dataset.mark) })
-    if (m) showTip(e, g, `<span class="k">${esc(m.kind)}</span>${m.label ? " " + esc(m.label) : ""} · ${fmt(m.t - s.start)}`)
+    if (m) showTip(e, g, `<span class="k">${esc(MARK_WORD[m.kind] || m.kind)}</span>${m.label ? " " + esc(m.label) : ""} <span class="n">${fmt(m.t - s.start)}</span>`)
+  } else if (band) {
+    const i = Number(band.dataset.band)
+    setHot({ kind: "band", i })
+    if (D.bands && D.bands[i]) showTip(e, g, bandLabel(D.bands[i], tl, s))
   } else if (lane && !lane.dataset.active) {
     setHot(null)
-    const b = branchById(Number(lane.dataset.branch))
-    if (b) showTip(e, g, `${esc(b.name)} <span class="k">click to switch</span>`)
+    showTip(e, g, "Click to select")
   } else {
     setHot(null)
     hideTip()
   }
-  // The + follows the pointer along the active lane, and snaps to the playhead
-  // when it's close: that's where you'd most often start from.
+  // The + follows the pointer along the active lane (and only that one), and
+  // snaps to the playhead when it's close: that's where you'd most often start.
   const A = D.lanes && D.lanes.get(D.activeId)
   const y = e.clientY - g.top
-  if (!A || isInteractive(s) || Math.abs(y - A.y) > 4) {
+  if (!A || Math.abs(y - A.y) > 6) {
     if (!plusHeld) D.hoverT = null
     return
   }
@@ -257,7 +255,7 @@ function hover(e, s, g) {
   D.snapT = null
 }
 
-const KIND_WORD = { transition: "transition", "css-animation": "animation", waapi: "animation" }
+const MARK_WORD = { click: "Click", key: "Key", input: "Typing", submit: "Submit", route: "Route", fetch: "Fetch", reload: "Reload" }
 
 // The component that wrote the clip's element, found the way notes find it
 // (owner chain, library wrappers skipped); else the runtime's guess.
@@ -270,12 +268,21 @@ function clipComponent(c) {
   return c.component && !INTERNAL.test(c.component) ? c.component : ""
 }
 
-function clipLabel(c, s) {
-  const end = c.end == null ? null : c.end
-  const dur = end == null ? "running" : `${Math.round(end - c.start)}ms`
-  const what = c.property || c.label || c.kind
-  const where = clipComponent(c) || c.selector || ""
-  return `<span class="k">${esc(KIND_WORD[c.kind] || "animation")}</span> ${esc(what)} · ${dur}${where ? ` · ${esc(where)}` : ""}`
+const clipName = (c) => (c.kind === "transition" ? c.property || "transition" : c.label || c.property || "animation")
+const msWord = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s` : `${Math.round(ms)}ms`)
+
+// An animation block's tooltip: what was animating in it (name, element,
+// duration), a few lines at most.
+function bandLabel(band, tl, s) {
+  const rows = band.clips.slice(0, 5).map((i) => {
+    const c = tl.clips[i]
+    if (!c) return ""
+    const dur = c.end == null ? "running" : msWord(c.end - c.start)
+    const where = clipComponent(c) || c.selector || ""
+    return `<div class="row"><b>${esc(clipName(c))}</b>${where ? `<span>${esc(where)}</span>` : ""}<span class="n">${dur}</span></div>`
+  })
+  const more = band.clips.length > 5 ? `<div class="more">+${band.clips.length - 5} more</div>` : ""
+  return `<div class="k">${band.clips.length} animation${band.clips.length > 1 ? "s" : ""}</div>${rows.join("")}${more}`
 }
 
 function setHot(h) {
@@ -296,32 +303,42 @@ function hideTip() {
   tip.hidden = true
 }
 
+let plusClick = null
 plus.addEventListener("click", (e) => {
   e.stopPropagation()
   const dragged = plusPress && plusPress.dragged
   plusPress = null
   if (dragged) return
-  if (D.hoverT != null) newTimelineAt(D.hoverT)
-  D.hoverT = null
+  if (plusClick) {
+    clearTimeout(plusClick.timer)
+    const t = plusClick.t
+    plusClick = null
+    fitBandAt(t)
+    return
+  }
+  if (D.hoverT == null) return
+  const t = D.hoverT
+  plusClick = {
+    t,
+    timer: setTimeout(() => {
+      plusClick = null
+      D.hoverT = null
+      newTimelineAt(t)
+    }, 220),
+  }
   D.hoverX = null
   plusHeld = false
   setHot(null)
   hideTip()
 })
 
-// Double-click a clip: fit it. Told apart here, from two quick presses on the
-// same clip: the first one starts a scrub and captures the pointer, so no
-// dblclick event would name the clip.
-let lastPress = { clip: null, at: 0 }
-function fitClipAt(e) {
-  const el = e.target.closest("[data-clip]")
-  const id = el && el.dataset.clip
-  const double = id != null && lastPress.clip === id && e.timeStamp - lastPress.at < 400
-  lastPress = { clip: id, at: e.timeStamp }
-  const c = double && timeline().clips[Number(id)]
-  if (!c) return false
-  lastPress = { clip: null, at: 0 }
-  fitRange(c.start, c.end == null ? D.last.end : c.end)
+// Double-click an animation block: fit it. A block sits under the active
+// lane's +, so the + waits a moment before branching: a second click in that
+// time fits the block instead.
+function fitBandAt(t) {
+  const band = (D.bands || []).find((b) => b.a - 5 <= t && t <= b.b + 5)
+  if (!band) return false
+  fitRange(band.a, band.b)
   return true
 }
 
@@ -459,7 +476,7 @@ function dockKey(e) {
     fitAll()
     return true
   }
-  if ((e.key === "+" || e.key === "=") && !isInteractive(s)) {
+  if (e.key === "+" || e.key === "=") {
     newTimelineAt(shownTime(s))
     return true
   }

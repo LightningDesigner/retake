@@ -1,7 +1,7 @@
 // M3: the timeline. Ruler, zoom, clips, markers, snapping, keys, readout, and
 // a view-only past.
 import { test, expect } from "@playwright/test"
-import { openDock, DOCK_URL, dock, recordAndRewind, xOfTime } from "./helpers.js"
+import { openDock, DOCK_URL, dock, recordAndRewind, xOfTime, shot } from "./helpers.js"
 
 // Runs against the runtime's real timeline API (engine-timeline.done). The
 // labelled mock in src/shell/mock/ stays for specs that want fixed data.
@@ -52,45 +52,71 @@ test("zoom: ⌘-scroll zooms around the cursor, ticks get finer, F fits all", as
   expect(h.dockErrors).toEqual([])
 })
 
-test("clips: one bar per clip, overlaps stack, hover shows a label, double-click fits", async ({ page }) => {
+test("animation blocks: overlapping clips merge into one block on the lane, hover lists them, double-click fits", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordAndRewind(h, ["#toggle", "#toggle"])
   const clips = await h.rt(() => __wayback.timeline().clips)
-  // Two toggles, ~400ms apart, each starting a 600ms transition.
+  // Two toggles, ~400ms apart, each starting a 600ms transition: they overlap.
   expect(clips.length).toBeGreaterThanOrEqual(2)
-  const bars = await dock(page, (D) => D.clipBars.map((b) => ({ i: b.i, row: b.row })))
-  expect(bars).toHaveLength(clips.length)
-  await expect(page.locator(".lines rect.clip")).toHaveCount(clips.length)
-  // Clips that overlap in time sit on different rows.
-  const rowOf = Object.fromEntries(bars.map((b) => [b.i, b.row]))
-  const end = (c) => (c.end == null ? Infinity : c.end)
-  let overlaps = 0
-  clips.forEach((a, i) =>
-    clips.forEach((b, j) => {
-      if (j <= i || a.start >= end(b) || b.start >= end(a)) return
-      overlaps++
-      if (Object.keys(rowOf).length <= 4 * 1) expect(rowOf[i]).not.toBe(rowOf[j])
-    }),
-  )
-  expect(overlaps).toBeGreaterThan(0)
-
-  // The longest finished clip: hover it, then double-click to fit it.
-  const idx = clips.reduce((best, c, i) => (c.end != null && c.end - c.start > (clips[best].end ?? 0) - clips[best].start ? i : best), 0)
-  const c = clips[idx]
-  const hit = page.locator(`.lines [data-clip="${idx}"]`)
-  const box = await hit.boundingBox()
-  await page.mouse.move(box.x + Math.min(box.width / 2, 20), box.y + box.height / 2)
+  // No stacked grey bars any more: blocks on the lane.
+  await expect(page.locator(".lines rect.clip")).toHaveCount(0)
+  const bands = await dock(page, (D) => D.bands.map((b) => ({ a: b.a, b: b.b, n: b.clips.length })))
+  expect(bands.length).toBeGreaterThanOrEqual(1)
+  expect(bands.length).toBeLessThan(clips.length)
+  const big = bands.reduce((x, y) => (y.n > x.n ? y : x))
+  expect(big.n).toBeGreaterThanOrEqual(2)
+  // The block sits on the active lane.
+  const laneYv = await laneY(page)
+  const i = bands.indexOf(big)
+  const box = await page.locator(`.lines [data-band="${i}"]`).boundingBox()
+  expect(Math.abs(box.y + box.height / 2 - laneYv)).toBeLessThan(2)
+  await page.mouse.move(box.x + Math.min(box.width / 2, 30), laneYv)
   await expect(page.locator(".tip")).toBeVisible()
-  await expect(page.locator(".tip")).toContainText(String(c.property || c.label || c.kind).slice(0, 12))
-  await expect(page.locator(".lines rect.clip.hot")).toHaveCount(1)
+  await expect(page.locator(".tip")).toContainText(/\d+ animations/)
+  await expect(page.locator(".tip .row")).toHaveCount(Math.min(big.n, 5))
+  await expect(page.locator(".tip")).toContainText(/\d+ms|\ds/)
+  await expect(page.locator(".lines rect.band.hot")).toHaveCount(1)
 
-  await page.mouse.dblclick(box.x + Math.min(box.width / 2, 20), box.y + box.height / 2)
-  await expect.poll(() => view(page).then((v) => v.to - v.from)).toBeLessThan((c.end - c.start) * 1.6)
+  await page.mouse.dblclick(box.x + Math.min(box.width / 2, 30), laneYv)
+  await expect.poll(() => view(page).then((v) => v.to - v.from)).toBeLessThan((big.b - big.a) * 1.6)
   const v = await view(page)
-  expect(v.from).toBeLessThanOrEqual(c.start)
-  expect(v.to).toBeGreaterThanOrEqual(c.end)
-  expect(v.to - v.from).toBeLessThan((c.end - c.start) * 1.6)
+  expect(v.from).toBeLessThanOrEqual(big.a)
+  expect(v.to).toBeGreaterThanOrEqual(big.b)
+  // A double-click fits; it doesn't make a timeline.
+  await page.waitForTimeout(400)
+  expect(await dock(page, (D) => D.branches.length)).toBe(1)
   expect(h.dockErrors).toEqual([])
+})
+
+test("user interactions are blue dots on the lane", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordAndRewind(h, ["#toggle", "#spinner"], 0.95)
+  const clicks = (await h.rt(() => __wayback.timeline().markers)).filter((m) => m.kind === "click")
+  await expect(page.locator(".lines circle.mk-dot")).toHaveCount(clicks.length)
+  const fill = await page.evaluate(() => getComputedStyle(document.querySelector(".lines circle.mk-dot")).fill)
+  expect(fill).toBe("rgb(96, 165, 250)")
+  const cy = await page.evaluate(() => Number(document.querySelector(".lines circle.mk-dot").getAttribute("cy")))
+  expect(cy).toBe(await dock(page, (D) => D.lanes.get(D.activeId).y))
+})
+
+test("zoomed out, time 0 stays pinned to the left edge", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.5)
+  const y = await laneY(page)
+  const box = await page.locator(".lines").boundingBox()
+  await page.mouse.move(box.x + box.width * 0.7, y - 30)
+  await page.keyboard.down("Meta")
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 60)
+  await page.keyboard.up("Meta")
+  await page.waitForTimeout(300)
+  const v = await view(page)
+  expect(v.from).toBeGreaterThanOrEqual(s.start - 0.01)
+  expect(v.from).toBeLessThan(s.start + 1)
+  // And a pan left can't go before it either.
+  await page.mouse.wheel(-400, 0)
+  await page.waitForTimeout(200)
+  expect((await view(page)).from).toBeGreaterThanOrEqual(s.start - 0.01)
+  await shot(page, "dock-v2-zoomed-out.png")
 })
 
 test("markers: a tick per click with a tooltip", async ({ page }) => {
@@ -153,9 +179,10 @@ test("keys: arrows step a frame, shift+arrows jump edge to edge, space plays", a
   expect(t).toBeCloseTo(Math.min(...candidates), 1)
   await h.settle()
 
-  await expect(page.locator(".readout")).toHaveText(/^T \d\d:\d\d\.\d\d · PAUSED$/)
+  await expect(page.locator(".readout")).toHaveText(/^\d\d:\d\d\.\d\dPaused$/)
+  await expect(page.locator(".readout .t")).toHaveText(/^\d\d:\d\d\.\d\d$/)
   await page.keyboard.press("Space")
-  await expect(page.locator(".readout .phase")).toHaveText(/PLAYING|LIVE|LOADING/)
+  await expect(page.locator(".readout .phase")).toHaveText(/Playing|Live|Loading/)
   expect(edges).toBe(null)
   expect(h.dockErrors).toEqual([])
 })
@@ -163,7 +190,7 @@ test("keys: arrows step a frame, shift+arrows jump edge to edge, space plays", a
 test("the past is view-only, with a quiet hint", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordAndRewind(h, ["#toggle", "#toggle"], 0.5)
-  await expect(page.locator(".hint")).toHaveText("Viewing the past · press + to try something else from here")
+  await expect(page.locator(".hint")).toHaveText("Paused · + to branch")
   await expect(page.locator(".hint")).toHaveClass(/show/)
   await expect(page.locator("#wb-shield")).toBeVisible()
   const before = await h.rt(() => document.querySelector("#count").textContent)
@@ -187,8 +214,8 @@ test("a slow rebuild shows its progress in the readout while the preview stays u
   await h.seek(s.start + (s.end - s.start) * 0.2)
   const phases = await page.evaluate(() => window.__phases)
   seen.push(...phases)
-  expect(seen.some((p) => /^BUILDING( \d+%)?$/.test(p))).toBe(true)
-  await expect(page.locator(".readout .phase")).toHaveText("PAUSED")
+  expect(seen.some((p) => /^Building( \d+%)?$/.test(p))).toBe(true)
+  await expect(page.locator(".readout .phase")).toHaveText("Paused")
 })
 
 test("P10: the readout follows a forward seek straight away", async ({ page }) => {
@@ -199,7 +226,7 @@ test("P10: the readout follows a forward seek straight away", async ({ page }) =
   await expect.poll(() => h.state().then((x) => x.now)).toBeGreaterThanOrEqual(t - 0.5)
   const want = (ms) => {
     const v = Math.max(0, ms) / 1000
-    return `T ${String(Math.floor(v / 60)).padStart(2, "0")}:${(v % 60).toFixed(2).padStart(5, "0")} · PAUSED`
+    return `${String(Math.floor(v / 60)).padStart(2, "0")}:${(v % 60).toFixed(2).padStart(5, "0")}Paused`
   }
   const st = await h.state()
   await expect(page.locator(".readout")).toHaveText(want(st.now - st.start), { timeout: 300 })
