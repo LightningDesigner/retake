@@ -35,7 +35,7 @@
         <div class="step">
           <div class="n mono">02</div>
           <h3>Drag back</h3>
-          <p>Timers, animations, random values and fetch replies rewind with it. Looking back is view-only, like a paused video.</p>
+          <p>Timers, animations, random values and replies rewind with it: fetch, streams, XHR, SSE, WebSockets. Looking back is view-only, like a paused video.</p>
           <svg viewBox="0 0 300 64" fill="none"><rect x="0" y="28" width="300" height="8" rx="4" fill="#1a1a1a"/><rect x="0" y="28" width="210" height="8" rx="4" fill="#52a8ff" opacity=".45"><animate attributeName="width" values="210;90;90;210" keyTimes="0;.4;.7;1" dur="3.2s" repeatCount="indefinite"/></rect><rect x="208" y="16" width="3" height="32" rx="1.5" fill="#fff"><animate attributeName="x" values="208;88;88;208" keyTimes="0;.4;.7;1" dur="3.2s" repeatCount="indefinite"/></rect></svg>
         </div>
         <div class="step">
@@ -93,7 +93,7 @@
           <ul class="mono">
             <li><b>01</b> The card handoff: a CSS exit, a Web Animations enter.</li>
             <li><b>02</b> The heart tap. 150ms, too quick to see live. Drag back and zoom in.</li>
-            <li><b>03</b> The reply streams in token by token from a dev-only endpoint.</li>
+            <li><b>03</b> The reply streams in token by token. Drag back and it streams again at the same pace.</li>
             <li><b>04</b> The check springs in on requestAnimationFrame.</li>
             <li><b>05</b> Order number and times come from Math.random and Date. Rewind and they match.</li>
           </ul>
@@ -119,6 +119,7 @@
         <div class="row"><code><span data-run>npx retake</span> . <span class="dim">--port 4000</span></code><span>Pick the port.</span></div>
         <div class="row"><code><span data-run>npx retake</span> . <span class="dim">--code-branches</span></code><span>Each timeline keeps its own version of the code. Rewrites files on disk, so use it on prototypes.</span></div>
         <div class="row"><code><span data-run>npx retake</span> init</code><span>Prefer it in the repo? Prints the two lines for vite.config.</span></div>
+        <div class="row"><code>claude mcp add retake <span class="dim">-- npx -y retake-dev mcp</span></code><span>Your notes reach a coding agent over MCP. It can reply, acknowledge and resolve.</span></div>
       </div>
       <div class="keys"><span><kbd>⌥P</kbd>Play / pause</span><span><kbd>+</kbd>New timeline from here</span><span><kbd>⌘</kbd>Hold and click to leave a note while looking back</span><span><kbd>?retake=0</kbd>Skip for one load</span></div>
     </div>
