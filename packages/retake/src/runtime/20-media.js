@@ -28,6 +28,7 @@ MP.pause = function () {
 function syncMedia() {
   const live = clock.playing && !clock.seeking
   for (const el of media) {
+    if (el.__ptAlign && el.readyState >= 1 && !clock.seeking && !previewing) alignMedia()
     if (!el.isConnected && el.paused) {
       media.delete(el)
       continue
@@ -40,10 +41,16 @@ function syncMedia() {
 
 // After a seek, media the app had playing jumps to where it would be at this
 // moment on the virtual clock.
-function alignMedia() {
+function alignMedia(at = clock.now) {
   for (const el of media) {
     if (!el.__ptWants || el.__ptAt == null) continue
-    const t = el.__ptFrom + ((clock.now - el.__ptAt) / 1000) * (el.playbackRate || 1)
+    // Too early to seek (no metadata yet): syncMedia does it once it can.
+    if (el.readyState < 1) {
+      el.__ptAlign = true
+      continue
+    }
+    el.__ptAlign = false
+    const t = el.__ptFrom + ((at - el.__ptAt) / 1000) * (el.playbackRate || 1)
     const end = Number.isFinite(el.duration) ? el.duration : Infinity
     try {
       el.currentTime = el.loop && Number.isFinite(end) && end > 0 ? t % end : Math.min(t, end)
@@ -75,8 +82,32 @@ function onReady(e) {
     return
   }
   const path = pathOf(el)
-  if (path) recordEvent({ type: "ready", ev: e.type, path })
+  if (e.type === "playing" && el instanceof HTMLMediaElement) startedAt(el, el.currentTime)
+  if (path) recordEvent(e.type === "playing" ? { type: "ready", ev: e.type, path, ct: el.currentTime || 0 } : { type: "ready", ev: e.type, path })
 }
+
+// Media that starts by itself (autoplay) never calls play(): it's taken in
+// when it starts, paused whenever the clock isn't playing at normal pace, and
+// placed at its virtual time after a seek, like media the app played.
+function startedAt(el, from) {
+  media.add(el)
+  el.__ptWants = true
+  if (el.__ptAt == null) {
+    el.__ptAt = clock.now
+    el.__ptFrom = from || 0
+  }
+}
+document.addEventListener(
+  "play",
+  (e) => {
+    const el = e.target
+    if (!(el instanceof HTMLMediaElement)) return
+    media.add(el)
+    el.__ptWants = true
+    if (!(clock.playing && !clock.seeking)) mediaOrig.pause.call(el)
+  },
+  true,
+)
 // On the document, not window: element load/error events don't reach window.
 for (const type of READY) document.addEventListener(type, onReady, true)
 
@@ -85,5 +116,10 @@ function deliverReady(ev) {
   if (!el || !readyTarget(el)) return
   if (!delivered.has(el)) delivered.set(el, new Set())
   delivered.get(el).add(ev.ev)
+  // The recorded moment it started playing (autoplay included).
+  if (ev.ev === "playing" && el instanceof HTMLMediaElement) {
+    el.__ptAt = null
+    startedAt(el, ev.ct)
+  }
   el.dispatchEvent(new Event(ev.ev))
 }

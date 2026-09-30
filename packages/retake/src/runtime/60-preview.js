@@ -142,6 +142,7 @@ function preview(t, scope) {
   }
   moveDom(t, previewScope)
   setHover(hoverAt(t))
+  alignMedia(t)
   placeAnimations(t, previewScope)
   previewAt = t
   PT.emit()
@@ -183,6 +184,7 @@ function endPreview() {
   previewAt = null
   if (hasFuture()) setHover(hoverAt(clock.now))
   else clearHover()
+  alignMedia()
   observe()
   syncAnimations()
   PT.emit()
