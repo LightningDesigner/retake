@@ -153,6 +153,11 @@ function serialize(e) {
     ev.viaClick = !!(last && last.type === "click" && last.t === clock.now)
   }
   // For the dock's markers: what was acted on, readably.
+  if (e.type === "focusin" && isEditable(e.target)) {
+    ev.css = selectorOf(e.target)
+    ev.label = labelOf(e.target)
+    ev.editable = 1
+  }
   if (e.type === "click" || e.type === "keydown" || e.type === "input" || e.type === "change" || e.type === "submit") {
     const el = e.target && e.target.nodeType === 1 ? e.target : null
     if (el) {

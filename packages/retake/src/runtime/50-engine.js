@@ -64,6 +64,7 @@ async function processBoundary(B) {
     appRan = false
   }
   await dispatchUpTo(B)
+  sampleActivity()
   if (hoverChain.length && !clock.seeking && !hasFuture()) clearHover()
 }
 

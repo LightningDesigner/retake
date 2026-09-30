@@ -28,10 +28,13 @@ test("timeline() has markers for what you did and clips for what animated", asyn
   expect(tl.end).toBeGreaterThanOrEqual(tl.now)
   const kinds = (k) => tl.markers.filter((m) => m.kind === k)
   expect(kinds("click").find((m) => m.selector === "#go")).toMatchObject({ label: "Go" })
-  expect(kinds("input")).toHaveLength(1) // one burst of typing is one marker
-  expect(kinds("input")[0].selector).toBe("#q")
-  expect(kinds("key").map((m) => m.label)).toEqual(["k"])
-  expect(kinds("fetch").map((m) => m.label)).toContain("GET /api/json?c=1")
+  // Markers are user actions only: one "type" marker per burst, no per-key or fetch markers.
+  expect(kinds("type")).toHaveLength(1)
+  expect(kinds("type")[0]).toMatchObject({ selector: "#q", label: "typed 3 chars" })
+  expect(kinds("type")[0].end).toBeGreaterThanOrEqual(kinds("type")[0].t)
+  expect(kinds("key")).toEqual([])
+  expect(kinds("fetch")).toEqual([])
+  expect(new Set(tl.markers.map((m) => m.kind))).toEqual(new Set(["click", "type"]))
   expect(tl.markers.map((m) => m.t)).toEqual([...tl.markers.map((m) => m.t)].sort((a, b) => a - b))
 
   const tr = tl.clips.find((c) => c.kind === "transition")
@@ -218,4 +221,57 @@ test("seek() ends a live preview", async ({ page }) => {
   const s = await h.state()
   expect(s.previewing).toBe(false)
   expect(s.now).toBeGreaterThanOrEqual(now)
+})
+
+test("typing bursts split on pauses of 800ms; focusing a field by keyboard is a marker", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(300)
+  await h.click("#q")
+  await page.keyboard.type("ab", { delay: 100 })
+  await page.waitForTimeout(1000)
+  await page.keyboard.type("cde", { delay: 100 })
+  await page.keyboard.press("Tab") // focus moves to the checkbox (not a text field)
+  await page.waitForTimeout(200)
+  const m = (await h.rt(() => __wayback.timeline())).markers.filter((x) => x.kind === "type")
+  expect(m.map((x) => x.label)).toEqual(["typed 2 chars", "typed 3 chars"])
+})
+
+test("activity: quiet page reads ~0, a panel appearing spikes, and it's stored with the recording", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(1500)
+  await h.click("#go") // reveals #late, starts the #box transition and WAAPI fade
+  await page.waitForTimeout(1500)
+  await h.pause()
+  const tl = await h.rt(() => __wayback.timeline())
+  expect(tl.activity.length).toBeGreaterThan(20)
+  expect(tl.activity[1].t - tl.activity[0].t).toBe(100)
+  const click = tl.markers.find((m) => m.kind === "click").t
+  const before = tl.activity.filter((s) => s.t < click - 200 && s.t > 1000).map((s) => s.v) // after the page's images came in
+  const after = tl.activity.filter((s) => s.t > click - 100 && s.t < click + 600).map((s) => s.v) // a sample's t is its window's start
+  expect(Math.max(...before)).toBeLessThan(0.02)
+  expect(Math.max(...after)).toBeGreaterThan(0.02)
+  const dbg = (await h.rt(() => __wayback.debug())).activity
+  expect(dbg.ms / dbg.samples).toBeLessThan(0.3) // budget per sample
+  // a rebuild shows the same samples (stored, not recomputed)
+  await h.seek(tl.now - 1)
+  const again = await h.rt(() => __wayback.timeline().activity)
+  expect(again.slice(0, tl.activity.length - 1)).toEqual(tl.activity.slice(0, tl.activity.length - 1))
+})
+
+test("clipsFor(element) finds the clips on it and inside it, fast", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(300)
+  await h.click("#go")
+  await page.waitForTimeout(800)
+  await h.pause()
+  const r = await h.rt(() => {
+    const t0 = performance.now ? 0 : 0
+    const box = __wayback.clipsFor("#box").map((c) => c.kind).sort()
+    const body = __wayback.clipsFor(document.body).length
+    const none = __wayback.clipsFor("#q").length
+    return { box, body, none }
+  })
+  expect(r.box).toEqual(["transition", "waapi"])
+  expect(r.body).toBeGreaterThanOrEqual(2)
+  expect(r.none).toBe(0)
 })

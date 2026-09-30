@@ -2,19 +2,21 @@
 Owners: S1 = src/runtime, src/plugin.js, src/code-versions.js, src/server, bin. S2 = src/shell. S3 = apps/site.
 
 ## Interaction model
-- Play/Pause is the ONLY way to start or stop playback/recording (the play button, space, ⌥P → PT.record()/PT.play() and PT.pause()). Nothing else resumes the clock: not clicks, keys, scrolling, +, or switching timelines.
+- Play/Pause is the ONLY way to start or stop playback/recording (the play button, space, ⌥P → PT.record()/PT.play() and PT.pause()). Nothing else resumes the clock: not clicks, keys, scrolling, Control-click branching, or switching timelines.
 - Playing at the live edge: the app is interactive and everything is recorded.
 - Paused (anywhere) or in the past: the app is view-only, like a paused video. Clicks, keys and pointer input are blocked and don't move time; the dock's comment/select tools still work.
 - Paused, the user CAN scroll the app (wheel, trackpad, scrollbar, keyboard scrolling). That scrolling is view-only: not recorded, not seen by the app, and time doesn't move. The recorded scroll position comes back when playback resumes or on a seek. The dock's shield must let scrolling through.
-- + creates a new timeline at the current moment, PAUSED there. Recording into it starts only when the user presses Play.
+- Control-click on the track creates a new timeline from the active one at that moment, PAUSED there. Recording into it starts only when the user presses Play.
 - Selecting (switching to) a timeline loads it at the current moment, PAUSED. Never auto-play.
 - Play from the past replays the recording; at its end it carries on live, recording.
 - Recording is on from page load. The dock has "Start fresh", which clears the session.
 
 ## Runtime API (window.__wayback in the app frame)
 timeline() → { now, end, viewport: {w,h},
-  markers: [{ t, kind: "click"|"key"|"input"|"submit"|"route"|"fetch"|"reload", label, selector? }],
-  clips:   [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi", label, selector, component?, property? }] }
+  markers:  [{ t, end?, kind: "click"|"submit"|"route"|"focus"|"type", label, selector? }],   // user actions only; "type" = one burst (<800ms gaps), label "typed 42 chars"
+  clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi", label, selector, component?, property?, path, iterations? ("infinite"|n), pseudoElement? }],
+  activity: [{ t, v }] }                               // 10 Hz, v 0..1 = share of the viewport that changed, baselined (rolling 5s median); t = window start
+clipsFor(elementOrSelector) → clips                   // on that element and its descendants, incl. looping ones
 clipAt(t, selector?) → { clip, offset } | null      // offset = ms into that clip
 isInteractive() → boolean                             // true only while playing at the live edge
 isPaused() → boolean

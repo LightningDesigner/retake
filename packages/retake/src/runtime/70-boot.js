@@ -142,10 +142,12 @@ Object.assign(PT, {
   }),
   timeline,
   clipAt,
+  clipsFor,
   isInteractive,
   setToolActive,
   debug: () => ({
     ...stats,
+    activity: { ...actStats },
     appMessages,
     timers: timers.size,
     dom: domLog.length,

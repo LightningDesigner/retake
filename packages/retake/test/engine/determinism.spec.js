@@ -29,8 +29,12 @@ test.beforeAll(async ({ browser }) => {
   await h.pause()
   const st = await h.state()
   live = await h.log()
-  T = st.now - 5
-  await h.seek(T)
+  // Seek to a recorded frame boundary: between frames the replay rests at the
+  // earlier frame's state (timers due in between ran live as part of the
+  // next frame, though they log their due time).
+  const frames = await h.rt(() => __wayback.history().frames)
+  T = frames.filter((f) => f <= st.now - 5).pop()
+  const after = await h.seek(T)
   replay = await h.log()
   T += 1000 // log times are performance.now(), which is clock + 1000
 })

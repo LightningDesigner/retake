@@ -54,30 +54,51 @@ function labelOf(el) {
 
 // ---- markers ------------------------------------------------------------------
 
+// Markers are the user's actions only (causes, not effects): clicks,
+// submits, route changes, focus into a field, and typing, one marker per
+// burst (keystrokes under 800ms apart in one field) with an end.
+const TYPE_GAP = 800
+let markerCache = null
 function markersOf() {
+  const key = rec.events.length + ":" + (rec.routes ? rec.routes.length : 0) + ":" + (rec.start || 0)
+  if (markerCache && markerCache.key === key) return markerCache.value
   const out = []
-  let lastInput = null
+  let burst = null
+  const start = rec.start || 0
   for (const ev of rec.events) {
-    if (ev.t < (rec.start || 0)) continue
-    if (ev.type === "click") out.push({ t: ev.t, kind: "click", label: ev.label || "click", selector: ev.css || undefined })
-    else if (ev.type === "keydown" && !ev.inField) out.push({ t: ev.t, kind: "key", label: ev.key, selector: ev.css || undefined })
+    if (ev.t < start) continue
+    if (ev.type === "click") {
+      // Clicking into a field focused it first (on mousedown): one marker, the click.
+      const prev = out[out.length - 1]
+      if (prev && prev.kind === "focus" && prev.selector === ev.css && ev.t - prev.t < 1000) out.pop()
+      out.push({ t: ev.t, kind: "click", label: ev.label || "click", selector: ev.css || undefined })
+    }
     else if (ev.type === "submit") out.push({ t: ev.t, kind: "submit", label: ev.label || "submit", selector: ev.css || undefined })
-    else if (ev.type === "input") {
-      // A burst of typing in one field is one marker.
-      if (lastInput && lastInput.selector === ev.css && ev.t - lastInput.last < 1500) {
-        lastInput.last = ev.t
-        lastInput.label = ev.label || lastInput.label
-        continue
+    else if (ev.type === "focusin" && ev.editable) {
+      // Clicking into a field already made a click marker there.
+      const prev = out[out.length - 1]
+      if (!(prev && prev.kind === "click" && prev.selector === ev.css && ev.t - prev.t < 50)) out.push({ t: ev.t, kind: "focus", label: ev.label || "field", selector: ev.css || undefined })
+    } else if (ev.type === "input") {
+      const typed = /^insert/.test(ev.inputType || "insertText") ? (ev.data ? ev.data.length : 1) : 0
+      if (burst && burst.selector === (ev.css || undefined) && ev.t - burst.end < TYPE_GAP) {
+        burst.end = ev.t
+        burst.chars += typed
+      } else {
+        burst = { t: ev.t, end: ev.t, kind: "type", chars: typed, selector: ev.css || undefined }
+        out.push(burst)
       }
-      lastInput = { t: ev.t, kind: "input", label: ev.label || "typing", selector: ev.css || undefined, last: ev.t }
-      out.push(lastInput)
     }
   }
-  for (const r of rec.routes || []) if (r.t >= (rec.start || 0)) out.push({ t: r.t, kind: "route", label: r.path })
-  for (const f of rec.fetches) if (f && f.t0 >= (rec.start || 0)) out.push({ t: f.t0, kind: "fetch", label: f.key })
-  for (const t of rec.reloads || []) out.push({ t, kind: "reload", label: "reload" })
-  for (const m of out) delete m.last
-  return out.sort((a, b) => a.t - b.t)
+  for (const m of out) {
+    if (m.kind === "type") {
+      m.label = `typed ${m.chars} char${m.chars === 1 ? "" : "s"}`
+      delete m.chars
+    }
+  }
+  for (const r of rec.routes || []) if (r.t >= start) out.push({ t: r.t, kind: "route", label: r.path })
+  out.sort((a, b) => a.t - b.t)
+  markerCache = { key, value: out }
+  return out
 }
 
 // ---- clips --------------------------------------------------------------------
@@ -110,7 +131,10 @@ function describeClip(e) {
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
   const clips = rec.clips || (rec.clips = [])
-  const c = { id: `c${clips.length + 1}`, start: e.vStart, end: clipEnd(e), ...describeClip(e) }
+  const c = { id: `c${clips.length + 1}`, start: e.vStart, end: clipEnd(e), ...describeClip(e), path: pathOf(e.target) }
+  const iters = e.timing && e.timing.iterations
+  if (iters === Infinity) c.iterations = "infinite"
+  else if (iters > 1) c.iterations = iters
   if (c.property === undefined) delete c.property
   if (c.component === undefined) delete c.component
   clips.push(c)
@@ -132,7 +156,34 @@ function timeline() {
     viewport: rec.viewport || { w: innerWidth, h: innerHeight },
     markers: markersOf(),
     clips: clipsOf(),
+    activity: activitySamples(),
   }
+}
+
+// Clips on an element and everything inside it (for the dock's ⌘-hover
+// lens). Clips carry the DOM path of their element from when they were
+// recorded, so this is a prefix match, in any frame.
+const clipKeys = new WeakMap()
+function clipsFor(target) {
+  let el = target
+  if (typeof target === "string") {
+    try {
+      el = document.querySelector(target)
+    } catch {
+      el = null
+    }
+  }
+  const path = el && pathOf(el)
+  if (!path || !Array.isArray(path)) return []
+  const key = path.join(",")
+  const out = []
+  for (const c of clipsOf()) {
+    if (!c.path) continue
+    let k = clipKeys.get(c)
+    if (k == null) clipKeys.set(c, (k = c.path.join(",")))
+    if (k === key || k.startsWith(key + ",")) out.push(c)
+  }
+  return out
 }
 
 function clipAt(t, selector) {
