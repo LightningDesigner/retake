@@ -231,7 +231,8 @@ function render() {
   const active = activeBranch()
   // Only the active timeline's own frame says how far it goes: mid-switch the
   // visible frame is still the timeline we're leaving.
-  if (s.started && D.frameBranch === D.activeId) active.end = Math.max(active.end, s.end)
+  // Its recording is the truth, which also mends an end saved wrongly before.
+  if (s.started && D.frameBranch === D.activeId && !s.seeking) active.end = s.end
   const shownT = shownTime(s)
   renderHead(s, shownT)
   renderShield(s)
