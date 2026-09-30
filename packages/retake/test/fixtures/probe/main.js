@@ -106,3 +106,13 @@ const gated = document.getElementById("gated")
 document.getElementById("aud").addEventListener("loadeddata", () => { L("media", "loadeddata"); gated.hidden = false })
 document.getElementById("pic").addEventListener("load", () => L("img", "load"))
 gated.addEventListener("input", () => L("gated", gated.value))
+
+document.getElementById("conf").addEventListener("click", () => {
+  const c = document.createElement("canvas")
+  c.width = 100; c.height = 50
+  document.body.appendChild(c)
+  const off = c.transferControlToOffscreen()
+  const w = new Worker(new URL("./conf-worker.js", import.meta.url))
+  w.onmessage = (e) => L("conf", e.data)
+  w.postMessage({ canvas: off }, [off])
+})

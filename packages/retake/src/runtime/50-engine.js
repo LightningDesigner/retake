@@ -49,6 +49,7 @@ async function processBoundary(B) {
   clock.now = B
   if (rafQueue.size) appRan = true
   runRaf()
+  tickWorkers(B)
   while (futureFrame() != null && futureFrame() <= B) cursor.frame++
   recordFrame(B)
   if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || animating()) {
