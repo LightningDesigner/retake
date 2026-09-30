@@ -26,8 +26,12 @@ function adopt(a) {
   if (managed.has(a)) return managed.get(a)
   const ps = stateOf(a)
   if (ps === "idle") return null
+  // A running animation seen for the first time starts from 0 at this
+  // boundary, whatever real time the browser gave it before we saw it: live,
+  // a CSS transition has usually run a few real ms by then, in a rebuild
+  // none, and the two must agree.
   const s = {
-    t: Number(orig.currentTime.get.call(a)) || 0,
+    t: ps === "running" ? 0 : Number(orig.currentTime.get.call(a)) || 0,
     v: clock.now,
     userPaused: ps === "paused",
     done: ps === "finished",

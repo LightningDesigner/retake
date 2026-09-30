@@ -38,6 +38,7 @@ function logMutations(records) {
   for (let i = 0; i < records.length; i++) {
     const r = records[i]
     const later = (pred) => records.slice(i + 1).find(pred)
+    if (r.type === "attributes" && r.attributeName === HOVER_ATTR) continue // our :hover stand-in
     if (r.type === "attributes") {
       const next = later((x) => x.type === "attributes" && x.target === r.target && x.attributeName === r.attributeName)
       domLog.push({ t: clock.now, kind: "attr", node: r.target, name: r.attributeName, old: r.oldValue, now: next ? next.oldValue : r.target.getAttribute(r.attributeName) })
@@ -140,6 +141,7 @@ function preview(t, scope) {
     previewScope = scope || null
   }
   moveDom(t, previewScope)
+  setHover(hoverAt(t))
   placeAnimations(t, previewScope)
   previewAt = t
   PT.emit()
@@ -179,6 +181,8 @@ function endPreview() {
   previewing = false
   previewScope = null
   previewAt = null
+  if (hasFuture()) setHover(hoverAt(clock.now))
+  else clearHover()
   observe()
   syncAnimations()
   PT.emit()

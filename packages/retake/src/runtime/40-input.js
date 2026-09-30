@@ -351,6 +351,7 @@ function withLegacyKeys(event, ev) {
 }
 
 function replayOne(ev, target) {
+  if (ev.type.startsWith("pointer") || ev.type.startsWith("mouse")) replayHover(ev, target)
   const init = { ...DEFAULTS, ...ev, view: W }
   if (ev.related) init.relatedTarget = resolvePath(ev.related)
   switch (true) {

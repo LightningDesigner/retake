@@ -57,6 +57,7 @@ async function processBoundary(B) {
     appRan = false
   }
   await dispatchUpTo(B)
+  if (hoverChain.length && !clock.seeking && !hasFuture()) clearHover()
 }
 
 // The next frame boundary at or before `limit`, or null if time should rest.
@@ -102,6 +103,7 @@ async function runSeek() {
   syncAnimations()
   alignMedia()
   syncMedia()
+  if (!hasFuture()) clearHover() // live again: the real :hover takes over
   // Put real focus back where the recording had it.
   const f = focused()
   if (f && realActive.call(document) !== f) {
