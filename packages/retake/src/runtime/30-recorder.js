@@ -41,7 +41,6 @@ function newRecording() {
 
 let rec = null
 const cursor = { event: 0, frame: 0 }
-const usedFetches = new Set()
 
 const hasFuture = () =>
   !!rec && (cursor.event < rec.events.length || cursor.frame < rec.frames.length)
@@ -51,11 +50,12 @@ const hasFuture = () =>
 function fork() {
   if (!hasFuture()) return
   if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
+  const cut = rec.events.slice(cursor.event)
   rec.events.length = cursor.event
   rec.frames.length = cursor.frame
   if (rec.routes) rec.routes = rec.routes.filter((r) => r.t <= clock.now)
   if (rec.reloads) rec.reloads = rec.reloads.filter((t) => t <= clock.now)
-  rec.fetches = rec.fetches.map((f, i) => (usedFetches.has(i) ? f : null))
+  netFork(cut)
   rec.end = clock.now
   PT.emit()
 }
@@ -81,66 +81,6 @@ function recordFrame(t) {
   if (t > rec.end) rec.end = t
 }
 
-// ---- fetch ------------------------------------------------------------------
-
-const pendingFetches = new Map() // recording index -> { resolve, reject }
-const deliveredEarly = new Set()
-
-function fetchKey(input, init) {
-  const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url, location.href)
-  const method = ((init && init.method) || (input && input.method) || "GET").toUpperCase()
-  return `${method} ${url.origin === location.origin ? url.pathname + url.search : url.href}`
-}
-
-function toResponse(f) {
-  if (f.error) return Promise.reject(new TypeError(f.error))
-  const noBody = [101, 204, 205, 304].includes(f.status)
-  return Promise.resolve(
-    new Response(noBody ? null : f.body, { status: f.status, statusText: f.statusText, headers: f.headers }),
-  )
-}
-
-function deliverFetch(i) {
-  const p = pendingFetches.get(i)
-  if (!p) return deliveredEarly.add(i)
-  pendingFetches.delete(i)
-  toResponse(rec.fetches[i]).then(p.resolve, p.reject)
-}
-
-W.fetch = function (input, init) {
-  if (isExempt()) return real.fetch(input, init)
-  const key = fetchKey(input, init)
-  const i = rec.fetches.findIndex((f, j) => f && f.key === key && !usedFetches.has(j))
-  if (i >= 0 && hasFuture()) {
-    usedFetches.add(i)
-    if (deliveredEarly.delete(i)) return toResponse(rec.fetches[i])
-    return new Promise((resolve, reject) => pendingFetches.set(i, { resolve, reject }))
-  }
-  // Paused (trying things out, unrecorded): just go live.
-  if (rec.start != null && !clock.playing) return real.fetch(input, init)
-  // Not in the recording (or nothing left to replay): go live and record it.
-  fork()
-  const idx = rec.fetches.length
-  const entry = { key, t0: clock.now }
-  rec.fetches.push(entry)
-  usedFetches.add(idx)
-  return real
-    .fetch(input, init)
-    .then(async (res) => {
-      entry.status = res.status
-      entry.statusText = res.statusText
-      entry.headers = [...res.headers]
-      entry.body = await res.text()
-    })
-    .catch((err) => {
-      entry.error = String((err && err.message) || err)
-    })
-    .then(() => {
-      recordEvent({ type: "fetch", i: idx })
-      return toResponse(entry)
-    })
-}
-
 // ---- other real-time promises (e.g. media.play()) ----------------------------
 // Their outcome and the moment they settle are recorded, keyed by call order,
 // and replayed identically.
@@ -156,8 +96,7 @@ function recordedAsync(realCall) {
     if (settledEarly.has(i)) return asyncOutcome(settledEarly.get(i))
     return new Promise((resolve, reject) => pendingAsync.set(i, { resolve, reject }))
   }
-  if (rec.start != null && !clock.playing) return realCall()
-  fork()
+  if (hasFuture() || (rec.start != null && !clock.playing)) return realCall()
   return realCall().then(
     (value) => {
       recordEvent({ type: "async", i, ok: true })

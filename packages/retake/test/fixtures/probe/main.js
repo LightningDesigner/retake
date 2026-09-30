@@ -70,3 +70,28 @@ let moves = 0
 const pad = document.getElementById("pad")
 pad.addEventListener("mousemove", () => moves++)
 pad.addEventListener("click", () => L("mousemoves", moves))
+
+document.getElementById("ws").addEventListener("click", () => {
+  const ws = new WebSocket(`ws://${location.host}/ws-probe`)
+  ws.onopen = () => L("ws-open", "")
+  ws.onmessage = (e) => L("ws", e.data)
+  ws.onclose = (e) => L("ws-close", e.code)
+})
+document.getElementById("bytes").addEventListener("click", async () => {
+  const buf = new Uint8Array(await (await fetch("/api/bytes")).arrayBuffer())
+  L("bytes", [buf.length, buf[0], buf[255], buf.reduce((a, b) => a + b, 0)])
+})
+let posts = 0
+document.getElementById("post").addEventListener("click", async () => {
+  posts++
+  const a = await (await fetch("/api/echo", { method: "POST", body: "first-" + posts })).json()
+  const b = await (await fetch("/api/echo", { method: "POST", body: "second-" + posts })).json()
+  L("post", [a.body, b.body])
+})
+document.getElementById("llm").addEventListener("click", async () => {
+  const res = await fetch("/api/llm")
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let text = ""
+  for (;;) { const { done, value } = await reader.read(); if (done) break; text += value; L("token", text) }
+  L("llm-done", text)
+})

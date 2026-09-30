@@ -35,7 +35,6 @@ test("F7 input while paused in the past is not silently lost", async ({ page }) 
 })
 
 test("F14 rewinding while a fetch is in flight doesn't hang that request later", async ({ page }) => {
-  test.fail()
   const h = await openDock(page, URL_)
   await h.record(); await page.waitForTimeout(300)
   await h.click("#go") // /api/stream takes ~1.5s

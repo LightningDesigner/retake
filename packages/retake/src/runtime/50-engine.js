@@ -115,6 +115,7 @@ function play() {
   clock.playing = true
   pace = clock.now
   syncMedia()
+  releaseHeld() // network arrivals held while paused at the live edge
   PT.emit()
 }
 

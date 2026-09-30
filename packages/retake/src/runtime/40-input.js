@@ -157,7 +157,8 @@ function findTarget(ev) {
 }
 
 function dispatchRecorded(ev) {
-  if (ev.type === "fetch") return deliverFetch(ev.i)
+  if (ev.type === "net") return deliverNet(ev)
+  if (ev.type === "fetch") return deliverNet({ list: "fetches", i: ev.i }) // older recordings
   if (ev.type === "async") return settleAsync(ev)
   const target = findTarget(ev)
   if (!target) return console.warn("[wayback] replay target missing", ev.type, ev.path)
