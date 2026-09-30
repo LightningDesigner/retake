@@ -8,4 +8,5 @@ window.__waybackDock = {
   deleteTimeline: (id) => deleteTimeline(id),
   switchTo: (id, t) => switchTo(id, t),
   newTimelineAt: (t) => newTimelineAt(t),
+  checkpoint: () => (D.cp ? { at: D.cp.at, branchId: D.cp.branchId, ready: checkpointReady(D.cp) } : null),
 }

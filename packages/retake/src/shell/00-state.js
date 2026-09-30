@@ -24,7 +24,7 @@ const D = {
   frame: null, // the visible prototype frame
   PT: null, // its runtime (window.__wayback inside it)
   building: null, // { frame, pt, viewport } being built behind it
-  stash: null, // the payload the building frame takes on boot
+  cp: null, // a hidden paused frame at an earlier moment, to rewind from (12-checkpoint.js)
   last: null, // the last runtime state seen
   // timelines
   branches: [], // { id, name, forkAt, parentId, json, end, born, version }

@@ -26,10 +26,11 @@ const appUrl = (() => {
   return u.pathname + u.search + u.hash
 })()
 
-function makeFrame(src) {
+function makeFrame(src, stash) {
   const f = document.createElement("iframe")
   f.title = "Prototype"
   f.className = "building"
+  if (stash) f.__retakeStash = stash
   f.src = src
   stage.prepend(f)
   return f
@@ -39,6 +40,7 @@ function swapIn(f, pt) {
   if (D.frame && D.frame !== f) D.frame.remove()
   D.frame = f
   D.frameBranch = D.building ? D.building.branchId : D.activeId
+  noteBuilt(D.building)
   D.frame.className = "live"
   // Built at the recorded size; the visible frame fills the stage again.
   D.frame.style.width = D.frame.style.height = ""
@@ -59,13 +61,25 @@ window.__waybackShell = {
       return false
     }
   },
+  // A booting runtime asks for the history it should build. Several frames
+  // can be booting (a rewind, a checkpoint), so each keeps its own; the one
+  // asking is the one whose runtime exists and hasn't taken it yet.
   take() {
-    const p = D.stash
-    D.stash = null
-    return p
+    for (const f of stage.querySelectorAll("iframe")) {
+      let mine = false
+      try {
+        mine = "__retakeStash" in f && !!f.contentWindow.__wayback
+      } catch {}
+      if (!mine) continue
+      const p = f.__retakeStash
+      delete f.__retakeStash
+      return p
+    }
+    return null
   },
   attach(pt) {
     if (D.building && D.building.frame.contentWindow.__wayback === pt) D.building.pt = pt
+    else if (D.cp && D.cp.frame.contentWindow.__wayback === pt) D.cp.pt = pt
     else if (!D.frame || D.frame.contentWindow.__wayback === pt) {
       D.PT = pt
       hookFrameKeys(D.frame.contentWindow)
@@ -74,16 +88,17 @@ window.__waybackShell = {
   // Build a moment (a history and a time) in a fresh frame, swap when ready.
   rebuild(payload) {
     if (D.building) D.building.frame.remove()
+    if (useCheckpoint(payload)) return
     // Copied into this window: the payload object was made in the old frame,
     // and the new frame keeps what take() gives it for its whole life, so
     // passing it on would keep every earlier frame alive in a chain.
-    D.stash = own(payload)
+    const stash = own(payload)
     window.__waybackShell.rebuilding = true
     const rec = JSON.parse(payload.rec)
     const url = new URL(rec.url)
     // It's built for whichever timeline is active now (a switch sets that
     // before it loads the target's recording).
-    D.building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null, branchId: D.activeId }
+    D.building = { frame: makeFrame(url.pathname + url.search + url.hash, stash), pt: null, branchId: D.activeId, target: payload.target, startedAt: performance.now() }
     // Replay at the size it was recorded at, or layout, media queries and
     // virtual lists come out differently (F18).
     const vp = recordedViewport(rec)
@@ -130,17 +145,17 @@ function recordedViewport(rec) {
 }
 
 function cancelBuild() {
+  dropCheckpoint()
   if (!D.building) return
   D.building.frame.remove()
   D.building = null
-  D.stash = null
   window.__waybackShell.rebuilding = false
 }
 
 // A fresh prototype: no history.
 function freshFrame() {
   if (D.building) D.building.frame.remove()
-  D.stash = null
+  dropCheckpoint()
   D.building = { frame: makeFrame(appUrl), pt: null, branchId: D.activeId }
   window.__waybackShell.rebuilding = true
 }
@@ -221,6 +236,7 @@ const state = () => {
 function render() {
   checkBuilding()
   dropStaleResume()
+  tendCheckpoint()
   // The active timeline can vanish under us (a delete racing a switch); stand
   // on the first one rather than draw nothing.
   if (!activeBranch()) D.activeId = D.branches[0].id
