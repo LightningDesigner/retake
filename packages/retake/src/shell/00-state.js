@@ -31,6 +31,7 @@ const D = {
   activeId: 0,
   branchSeq: 0,
   switching: false,
+  frameBranch: 0, // the timeline the visible frame is playing
   // what's been said about them
   notes: [],
   markers: [], // bookmarks dropped with M: { id, t, branchId }

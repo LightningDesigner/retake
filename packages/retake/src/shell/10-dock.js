@@ -38,6 +38,7 @@ function makeFrame(src) {
 function swapIn(f, pt) {
   if (D.frame && D.frame !== f) D.frame.remove()
   D.frame = f
+  D.frameBranch = D.building ? D.building.branchId : D.activeId
   D.frame.className = "live"
   // Built at the recorded size; the visible frame fills the stage again.
   D.frame.style.width = D.frame.style.height = ""
@@ -80,7 +81,9 @@ window.__waybackShell = {
     window.__waybackShell.rebuilding = true
     const rec = JSON.parse(payload.rec)
     const url = new URL(rec.url)
-    D.building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null }
+    // It's built for whichever timeline is active now (a switch sets that
+    // before it loads the target's recording).
+    D.building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null, branchId: D.activeId }
     // Replay at the size it was recorded at, or layout, media queries and
     // virtual lists come out differently (F18).
     const vp = recordedViewport(rec)
@@ -100,6 +103,7 @@ window.__waybackShell = {
     const b = newBranch(at, old.id)
     b.version = old.version // a new timeline starts on its parent's code
     D.activeId = b.id
+    D.frameBranch = b.id // the visible frame carries on as the new timeline
   },
 }
 
@@ -137,12 +141,13 @@ function cancelBuild() {
 function freshFrame() {
   if (D.building) D.building.frame.remove()
   D.stash = null
-  D.building = { frame: makeFrame(appUrl), pt: null }
+  D.building = { frame: makeFrame(appUrl), pt: null, branchId: D.activeId }
   window.__waybackShell.rebuilding = true
 }
 
 D.frame = makeFrame(appUrl)
 D.frame.className = "live"
+D.frameBranch = D.activeId
 
 // The frame being built is ready once its runtime has booted and reached its
 // moment.
@@ -224,7 +229,9 @@ function render() {
   if (!s) return
   autoStart(s)
   const active = activeBranch()
-  if (s.started) active.end = Math.max(active.end, s.end)
+  // Only the active timeline's own frame says how far it goes: mid-switch the
+  // visible frame is still the timeline we're leaving.
+  if (s.started && D.frameBranch === D.activeId) active.end = Math.max(active.end, s.end)
   const shownT = shownTime(s)
   renderHead(s, shownT)
   renderShield(s)

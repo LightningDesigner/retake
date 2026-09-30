@@ -121,7 +121,7 @@ async function persist() {
       net.savedRec.set(b.id, b.json)
     }
     const s = state()
-    if (D.PT && s && s.started && !D.building) {
+    if (D.PT && s && s.started && !D.building && D.frameBranch === D.activeId) {
       const sig = activeSig(s)
       const due = !s.recording || performance.now() - net.activeSavedAt > 5000
       if (sig !== net.activeSig && due) {

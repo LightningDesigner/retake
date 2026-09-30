@@ -169,3 +169,24 @@ test("+ at the visible moment while another moment is building doesn't let the s
   expect(r.frames).toBe(1)
   expect(h.dockErrors).toEqual([])
 })
+
+test("switching back to a shorter timeline keeps its own end (not the frame it's leaving)", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const { recordSome } = await import("./helpers.js")
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  const s = await h.state()
+  const t1End = s.end
+  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
+  await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
+  // Timeline 2 runs on well past Timeline 1's end.
+  await page.waitForTimeout(1500)
+  await h.pause()
+  expect((await h.state()).end).toBeGreaterThan(t1End + 500)
+  await dock(page, () => window.__waybackDock.switchTo(1, 0))
+  await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
+  await page.waitForTimeout(300)
+  const end = await dock(page, (D) => D.branches[0].end)
+  expect(end).toBeLessThan(t1End + 5)
+  expect(h.dockErrors).toEqual([])
+})
