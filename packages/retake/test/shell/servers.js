@@ -12,4 +12,4 @@ const serve = (dir, port) => ({
   stderr: "pipe",
   timeout: 60_000,
 })
-export const servers = [serve("dock-app", SHELL_PORTS.dock)]
+export const servers = [serve("dock-app", SHELL_PORTS.dock), serve("react-notes", SHELL_PORTS.reactNotes)]

@@ -72,16 +72,20 @@ function setScope(el) {
 
 // ---- describing an element ------------------------------------------------------
 
+const cssEsc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/[^\w-]/g, (c) => "\\" + c))
+
+// A valid selector for the element (ids like React's ":r1:" or "1st" are
+// escaped): an id if there is one, else tag.class chains with :nth-of-type.
 function cssPath(el) {
   const parts = []
   for (let n = el; n && n.nodeType === 1 && n.tagName !== "HTML"; n = n.parentElement) {
     if (n.id) {
-      parts.unshift(`#${n.id}`)
+      parts.unshift(`#${cssEsc(n.id)}`)
       break
     }
     let part = n.tagName.toLowerCase()
     const cls = [...n.classList].filter((c) => /^[a-z][\w-]*$/i.test(c)).slice(0, 2)
-    if (cls.length) part += "." + cls.join(".")
+    if (cls.length) part += "." + cls.map(cssEsc).join(".")
     const same = n.parentElement ? [...n.parentElement.children].filter((c) => c.tagName === n.tagName) : []
     if (same.length > 1) part += `:nth-of-type(${same.indexOf(n) + 1})`
     parts.unshift(part)
@@ -90,15 +94,71 @@ function cssPath(el) {
   return parts.join(" > ")
 }
 
+const fiberOf = (el) => {
+  const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"))
+  return key ? el[key] : null
+}
+
+// A component's name, through memo() and forwardRef() wrappers.
+function componentName(type) {
+  for (let t = type, i = 0; t && i < 4; i++) {
+    if (typeof t === "function") return t.displayName || t.name || null
+    if (typeof t !== "object") return null
+    if (t.displayName) return t.displayName
+    t = t.render || t.type // forwardRef keeps render, memo keeps type
+  }
+  return null
+}
+
+// Nearest components, innermost first.
 function reactComponents(el) {
-  const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"))
   const names = []
-  for (let f = key && el[key]; f && names.length < 4; f = f.return) {
-    const type = f.type
-    const name = typeof type === "function" ? type.displayName || type.name : null
-    if (name && !names.includes(name)) names.push(name)
+  for (let f = fiberOf(el); f && names.length < 4; f = f.return) {
+    const name = componentName(f.type)
+    if (name && /^[A-Z]/.test(name) && !names.includes(name)) names.push(name)
   }
   return names
+}
+
+// Where the element was written: React's debug info. React 18 and older keep
+// _debugSource; React 19 keeps a stack (_debugStack) whose first app frame is
+// the JSX. Lines are as the dev server serves the file, which for JSX is
+// usually the source line.
+function sourceOf(el) {
+  for (let f = fiberOf(el), i = 0; f && i < 12; f = f.return, i++) {
+    const src = f._debugSource
+    if (src && src.fileName) return { file: shortPath(src.fileName), line: src.lineNumber || null }
+    const stack = f._debugStack && (f._debugStack.stack || String(f._debugStack))
+    if (stack) {
+      for (const line of stack.split("\n").slice(1)) {
+        const m = line.match(/(\S+?):(\d+):\d+\)?\s*$/)
+        if (!m || /node_modules|\/\.vite\/deps\/|react-dom|react\.development|jsx-dev-runtime/.test(m[1])) continue
+        return { file: shortPath(m[1].replace(/^.*?\(/, "")), line: Number(m[2]) }
+      }
+    }
+  }
+  return null
+}
+function shortPath(p) {
+  try {
+    if (/^https?:/.test(p)) p = new URL(p).pathname
+  } catch {}
+  return p.replace(/\?.*$/, "").replace(/^\/@fs/, "")
+}
+
+// The computed styles an agent would ask about first. Defaults are left out.
+const KEY_STYLES = ["display", "position", "width", "height", "margin", "padding", "color", "background-color", "font-size", "font-weight", "border-radius", "opacity", "transform", "transition", "animation-name", "z-index", "gap"]
+const BORING = new Set(["none", "normal", "auto", "0px", "static", "visible", "rgba(0, 0, 0, 0)", "all 0s ease 0s", "0s", ""])
+function keyStyles(el) {
+  const out = {}
+  try {
+    const cs = el.ownerDocument.defaultView.getComputedStyle(el)
+    for (const p of KEY_STYLES) {
+      const v = cs.getPropertyValue(p)
+      if (!BORING.has(v) && !(p === "opacity" && v === "1")) out[p] = v
+    }
+  } catch {}
+  return out
 }
 
 function describe(el) {
@@ -118,25 +178,44 @@ function describe(el) {
     text,
     selector: cssPath(el),
     components: reactComponents(el),
+    source: sourceOf(el),
+    classes: [...el.classList],
+    styles: keyStyles(el),
     rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
     page,
   }
 }
 
+// What was moving on the element (or the nearest thing that was) at t.
+function clipFor(t, selector) {
+  const hit = clipAt(t, selector) || clipAt(t)
+  if (!hit || !hit.clip) return null
+  const c = hit.clip
+  const end = c.end == null ? null : c.end
+  return { id: c.id, offset: Math.round(hit.offset), duration: end == null ? null : Math.round(end - c.start), label: c.label || c.property || c.kind, kind: c.kind, property: c.property || null, selector: c.selector || null }
+}
+const clipPhrase = (c) =>
+  `${c.offset}ms into ${c.duration != null ? `a ${c.duration}ms` : "a running"} ${c.property ? `${c.property} ` : ""}${c.kind === "transition" ? "transition" : c.kind === "css-animation" ? `animation (${c.label})` : c.kind === "waapi" ? "animation" : c.label || "animation"}${c.selector ? ` on ${c.selector}` : ""}`
+
+// The note as a prompt for a coding agent: what to change, where it is in
+// the code, and the moment it's about.
 function prompt(n) {
-  const b = D.branches.find((x) => x.id === n.branchId)
+  const b = branchById(n.branchId)
   const start = D.last ? D.last.start : 0
-  const parent = b && D.branches.find((x) => x.id === b.parentId)
-  const lines = [
-    `## Prototype note (${fmt(n.t - start)}, on timeline "${b ? b.name : "Main"}")`,
-    parent ? `Timeline "${b.name}" branched from "${parent.name}" at ${fmt(b.forkAt - start)}. Make the change for this timeline.` : null,
-    `Page: ${n.el.page}`,
-    `Element: ${n.el.label}${n.el.text ? ` "${n.el.text}"` : ""}`,
-    `Selector: ${n.el.selector}`,
-  ]
-  if (n.el.components.length) lines.push(`React: ${n.el.components.join(" < ")}`)
-  lines.push(`Size: ${n.el.rect.w}×${n.el.rect.h} at (${n.el.rect.x}, ${n.el.rect.y})`, "", n.text)
-  return lines.filter((l) => l != null).join("\n")
+  const parent = b && branchById(b.parentId)
+  const el = n.el
+  const lines = [`## ${n.text}`, "", `Page: ${el.page}`, `Element: ${el.label}${el.text ? ` "${el.text}"` : ""}`, `Selector: ${el.selector}`]
+  if (el.components.length) lines.push(`Component: ${el.components.join(" < ")}`)
+  if (el.source) lines.push(`Source: ${el.source.file}${el.source.line ? `:${el.source.line}` : ""}`)
+  if (el.classes && el.classes.length) lines.push(`Classes: ${el.classes.join(" ")}`)
+  const st = el.styles || {}
+  if (Object.keys(st).length) lines.push(`Computed: ${Object.entries(st).map(([k, v]) => `${k}: ${v}`).join("; ")}`)
+  lines.push(`Size: ${el.rect.w}×${el.rect.h} at (${el.rect.x}, ${el.rect.y})`)
+  lines.push(`Moment: ${fmt(n.t - start)} into the recording${n.clip ? `, ${clipPhrase(n.clip)}` : ", nothing animating"}`)
+  lines.push(`Timeline: "${b ? b.name : "Timeline"}"${parent ? `, branched from "${parent.name}" at ${fmt(b.forkAt - start)}` : ""}`)
+  const agent = (n.replies || []).filter((r) => r.from === "agent")
+  if (agent.length) lines.push("", "Earlier replies:", ...agent.map((r) => `- ${r.text}`))
+  return lines.join("\n")
 }
 
 async function copy(text, btn) {
@@ -227,7 +306,8 @@ function openComposer(el) {
   const s = D.last
   if (!D.PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
-  draft = { el: describe(el), t }
+  const desc = describe(el)
+  draft = { el: desc, t, clip: clipFor(t, desc.selector) }
   openNote = null
   card.innerHTML = `${meta(t, draft.el)}<textarea rows="3" placeholder="What should change here?"></textarea>
     <div class="note-actions"><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
@@ -247,7 +327,7 @@ function openComposer(el) {
 
 function saveDraft() {
   const text = card.querySelector("textarea").value.trim()
-  if (draft && text) D.notes.push({ id: newNoteId(), t: draft.t, branchId: D.activeId, text, el: draft.el, status: "pending", replies: [] })
+  if (draft && text) D.notes.push({ id: newNoteId(), t: draft.t, branchId: D.activeId, text, el: draft.el, clip: draft.clip, status: "pending", replies: [] })
   closeCard()
   // Back to the Hand so the next click is on the prototype, not another note.
   setPicking(null)
@@ -256,10 +336,25 @@ function saveDraft() {
 function showNote(n) {
   openNote = n
   draft = null
+  const replies = (n.replies || [])
+    .map((r) => `<div class="reply ${r.from === "agent" ? "agent" : "user"}"><span class="who">${r.from === "agent" ? "Agent" : "You"}</span>${esc(r.text)}</div>`)
+    .join("")
+  const status = n.status || "pending"
   card.innerHTML = `${meta(n.t, n.el, n.branchId)}<p class="note-text">${esc(n.text)}</p>
-    <div class="note-actions"><button data-note-a="delete">Delete</button><button data-note-a="copy" class="primary">Copy for Claude</button></div>`
+    ${n.clip ? `<div class="note-clip">${esc(clipPhrase(n.clip))}</div>` : ""}
+    ${replies ? `<div class="replies">${replies}</div>` : ""}
+    <div class="note-actions"><span class="status s-${esc(status)}">${esc(status)}</span>
+      <button data-note-a="delete">Delete</button>
+      <button data-note-a="resolve">${status === "resolved" ? "Reopen" : "Resolve"}</button>
+      <button data-note-a="copy" class="primary">Copy for Claude</button></div>`
   card.hidden = false
   placeCard(n.el.rect)
+}
+
+// Tell the server about a status change (the session save carries it too).
+function patchNote(n, body) {
+  if (!net.on) return
+  api("PATCH", `notes/${encodeURIComponent(n.id)}`, body).catch(() => {})
 }
 
 function closeCard() {
@@ -277,6 +372,11 @@ function handleNoteClick(b) {
     copy(prompt(openNote), b)
     // Copied: fold the note back to its pin.
     setTimeout(closeCard, 700)
+  }
+  if (act === "resolve" && openNote) {
+    openNote.status = openNote.status === "resolved" ? "pending" : "resolved"
+    patchNote(openNote, { status: openNote.status })
+    showNote(openNote)
   }
   if (act === "delete" && openNote) {
     D.notes = D.notes.filter((n) => n !== openNote)
@@ -351,10 +451,14 @@ function renderExtras(s) {
       pinEls.set(n.id, pin)
     }
     pin.textContent = String(i + 1)
+    pin.style.background = NOTE_FILL[n.status] || NOTE_FILL.pending
+    pin.title = n.text
     pin.style.left = f.left + r.right - 10 + "px"
     pin.style.top = f.top + r.top - 10 + "px"
     seen.add(n.id)
   })
+  renderList()
+  $('[data-a="notes"] .n').textContent = String(D.notes.filter((n) => n.branchId === D.activeId).length)
   for (const [id, pin] of pinEls) {
     if (seen.has(id)) continue
     pin.remove()
@@ -374,8 +478,12 @@ function closeList() {
   list.hidden = true
   $('[data-a="notes"]').classList.remove("on")
 }
+let listKey = ""
 function renderList() {
-  if (list.hidden) return
+  if (list.hidden) return (listKey = "")
+  const key = D.activeId + JSON.stringify(D.notes.map((n) => [n.id, n.status, n.text, n.branchId]))
+  if (key === listKey) return
+  listKey = key
   $('[data-a="notes"]').classList.add("on")
   const start = D.last ? D.last.start : 0
   const mine = D.notes.map((n, i) => ({ n, i })).filter(({ n }) => n.branchId === D.activeId)
