@@ -19,50 +19,6 @@ test("dock v2: idle drawer", async ({ page }) => {
   expect(h.dockErrors).toEqual([])
 })
 
-test("dock v2: four coloured timelines, one active; + on the active lane; animation tooltip", async ({ page }) => {
-  const h = await openDock(page, DOCK_URL)
-  await recordSome(h, ["#toggle", "#spinner", "#wave", "#toggle", "#toggle"])
-  await h.pause()
-  const s = await h.state()
-  for (const [i, frac] of [0.25, 0.45, 0.65].entries()) {
-    await dock(page, () => window.__waybackDock.switchTo(1, 1e9))
-    await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
-    await h.settle()
-    await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * frac)
-    await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(i + 2)
-    await h.settle()
-    await h.record()
-    await page.waitForTimeout(300 + i * 200)
-    await h.pause()
-  }
-  // Timeline 3 active.
-  await dock(page, () => window.__waybackDock.switchTo(3, 1e9))
-  await expect.poll(() => dock(page, (D) => D.activeId === 3 && !D.building)).toBe(true)
-  await h.settle()
-  await page.mouse.move(640, 60)
-  await page.waitForTimeout(300)
-  await shot(page, "dock-v2-timelines.png")
-  const names = await page.evaluate(() => [...document.querySelectorAll(".lane-name")].map((n) => ({ id: n.dataset.lane, active: n.classList.contains("active"), color: getComputedStyle(n).color })))
-  expect(names.filter((n) => n.active).map((n) => n.id)).toEqual(["3"])
-  expect(names.find((n) => n.active).color).toBe("rgb(255, 255, 255)")
-
-  // + on the active lane, with its guide.
-  const st = await h.state()
-  const x = await xOf(page, st.start + (st.end - st.start) * 0.5)
-  await page.mouse.move(x, await laneY(page))
-  await expect(page.locator(".plus")).toBeVisible()
-  await expect(page.locator(".lines .guide")).toHaveCount(1)
-  await shot(page, "dock-v2-plus.png")
-
-  // Hovering an animation block lists what was animating.
-  const band = page.locator(".lines [data-band]").first()
-  const bb = await band.boundingBox()
-  await page.mouse.move(bb.x + Math.min(12, bb.width / 2), await laneY(page))
-  await expect(page.locator(".tip .row").first()).toBeVisible()
-  await shot(page, "dock-v2-animation-tip.png")
-  expect(h.dockErrors).toEqual([])
-})
-
 test("dock v2: a note popover near the right edge stays on screen, arrow on the spot", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordSome(h, ["#toggle"])

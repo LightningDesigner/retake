@@ -38,8 +38,7 @@ const D = {
   markerSeq: 0,
   // pointer and tools
   dragT: null, // the time under the playhead while scrubbing
-  hoverT: null, // where a + would start a new timeline
-  hoverX: null, // the pointer over the track, in px
+  branchT: null, // where a Control-click on the track would branch
   hot: null, // what the pointer is over: { kind: "clip" | "mark", i }
   keyT: null, // where arrow keys have taken the playhead, until it's built
   snapT: null, // what the playhead snapped to while scrubbing

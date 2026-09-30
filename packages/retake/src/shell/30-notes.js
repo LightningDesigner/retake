@@ -561,18 +561,55 @@ function handleNoteClick(b) {
     D.notes = D.notes.filter((n) => n !== openNote)
     closeCard()
   }
-  if (b.dataset.note) {
-    const n = D.notes.find((x) => String(x.id) === b.dataset.note)
-    if (!n) return true
-    // From a pin, the timeline or the list: go to the note's moment too.
-    if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
-    else if (D.PT && D.last && Math.abs(shownTime(D.last) - n.t) > 5) {
-      if (D.last.previewing) D.PT.endPreview()
-      D.PT.seek(n.t)
-    }
-    showNote(n)
-  }
+  if (b.dataset.note) goToNoteId(b.dataset.note)
   return !!(act || b.dataset.note)
+}
+
+// From a pin, the timeline or the list: go to the note's moment and open it.
+function goToNoteId(id) {
+  const n = D.notes.find((x) => String(x.id) === String(id))
+  if (!n) return
+  if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
+  else if (D.PT && D.last && Math.abs(shownTime(D.last) - n.t) > 5) {
+    if (D.last.previewing) D.PT.endPreview()
+    D.PT.seek(n.t)
+  }
+  showNote(n)
+}
+
+// ---- the lens: ⌘ held over an element shows its own animations on the lane ----------
+
+// The runtime's clipsFor(element) when it has it; else the clips whose
+// element is this one or inside it.
+function clipsOfElement(el) {
+  const pt = D.PT
+  if (pt && typeof pt.clipsFor === "function") {
+    try {
+      return pt.clipsFor(el) || []
+    } catch {}
+  }
+  const out = []
+  const doc = el.ownerDocument
+  for (const c of timeline().clips) {
+    if (!c.selector) continue
+    let node = null
+    try {
+      node = doc.querySelector(c.selector)
+    } catch {}
+    if (node && (node === el || el.contains(node))) out.push(c)
+  }
+  return out
+}
+
+function updateLens() {
+  const target = D.metaHeld && mode() === "comment" && hovered && hovered.isConnected ? hovered : null
+  if (!target) {
+    D.lens = null
+    return
+  }
+  if (D.lens && D.lens.el === target) return
+  const clips = clipsOfElement(target)
+  D.lens = { el: target, clips, key: `${cssPath(target)}:${clips.length}` }
 }
 
 // ---- drawing on the prototype --------------------------------------------------------
@@ -597,6 +634,7 @@ function renderExtras(s) {
     t.setAttribute("aria-selected", String(t.dataset.tool === tool))
   }
 
+  updateLens()
   const target = mode() && hovered && hovered.isConnected ? hovered : null
   hl.style.display = target ? "block" : "none"
   if (target) {
@@ -647,8 +685,10 @@ function renderExtras(s) {
 // ---- the notes list: this timeline's notes, compact ------------------------------------
 
 const list = $("#wb-list")
+// With no notes on this timeline, the button just says 0.
 function toggleList() {
   if (!list.hidden) return closeList()
+  if (!D.notes.some((n) => n.branchId === D.activeId)) return
   list.hidden = false
   renderList()
 }
@@ -672,7 +712,7 @@ function renderList() {
             `<button class="list-row" data-note="${n.id}"><span class="num" style="background:${NOTE_FILL[n.status] || NOTE_FILL.pending}">${i + 1}</span><span class="t">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span><span class="st">${esc(n.status || "pending")}</span></button>`,
         )
         .join("")
-    : `<div class="list-empty">No notes on this timeline. Go back in time, then hold ⌘ and click anything.</div>`
+    : ""
   const r = $('[data-a="notes"]').getBoundingClientRect()
   list.style.left = Math.min(r.left, innerWidth - 340) + "px"
   list.style.top = r.top - list.offsetHeight - 8 + "px"

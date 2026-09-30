@@ -5,74 +5,73 @@ import { openDock, DOCK_URL, dock, recordAndRewind, xOfTime, shot } from "./help
 const branches = (page) => dock(page, (D) => D.branches.map((b) => ({ id: b.id, name: b.name, forkAt: b.forkAt, parentId: b.parentId })))
 const laneY = (page, id) => dock(page, (D, id) => D.lanes.get(id ?? D.activeId).y + document.querySelector(".lines").getBoundingClientRect().top, id)
 
-async function plusAt(h, t) {
-  const { page } = h
+// Control-click on the track at time t (an empty part of it, under the lanes).
+async function ctrlClickAt(page, t) {
+  const g = await page.locator(".lines").boundingBox()
   const x = await xOfTime(page, t)
-  const y = await laneY(page)
-  await page.mouse.move(x - 30, y)
-  await page.mouse.move(x, y, { steps: 3 })
-  await expect(page.locator(".plus")).toBeVisible()
-  const pb = await page.locator(".plus").boundingBox()
-  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2, { steps: 3 })
-  return pb
+  const y = g.y + g.height - 6
+  await page.mouse.move(x, y)
+  await page.keyboard.down("Control")
+  await page.mouse.move(x + 1, y)
+  await page.mouse.move(x, y)
+  await page.mouse.click(x, y)
+  await page.keyboard.up("Control")
+  return { x, y }
 }
 
-test("+ on the active lane grows a new lane in its own colour, selected and paused at the fork", async ({ page }) => {
+test("Control-click branches the active timeline at the clicked time (not the playhead), selected and paused there", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.8)
-  await expect(page.locator(".plus")).toBeHidden()
-  const t = s.start + (s.end - s.start) * 0.4
-  const pb = await plusAt(h, t)
-  const hoverT = await dock(page, (D) => D.hoverT)
-  await page.mouse.click(pb.x + pb.width / 2, pb.y + pb.height / 2)
+  const t = s.start + (s.end - s.start) * 0.3
+  const g = await page.locator(".lines").boundingBox()
+  // While Control is held over the track: a guide at the pointer, with its time.
+  await page.mouse.move(await xOfTime(page, t), g.y + g.height - 6)
+  await page.keyboard.down("Control")
+  await page.mouse.move((await xOfTime(page, t)) + 1, g.y + g.height - 6)
+  await expect.poll(() => dock(page, (D) => D.branchT)).not.toBe(null)
+  expect(Math.abs((await dock(page, (D) => D.scene.guide.t)) - t)).toBeLessThan(40)
+  await expect(page.locator("body")).toHaveClass(/branching/)
+  await page.keyboard.up("Control")
+  await expect.poll(() => dock(page, (D) => D.branchT)).toBe(null)
+
+  await ctrlClickAt(page, t)
   await expect.poll(() => branches(page).then((b) => b.length)).toBe(2)
-  // Mid-growth: the new lane is drawn partway along its curve.
-  const dash = await page.locator(".lines path.lane.active").first().getAttribute("stroke-dasharray")
-  if (dash) expect(Number(dash.split(" ")[0])).toBeLessThan(1)
   await shot(page, "branching-mid.png")
   const [a, b] = await branches(page)
   expect(b).toMatchObject({ id: 2, parentId: 1 })
-  expect(Math.abs(b.forkAt - hoverT)).toBeLessThan(40)
+  expect(Math.abs(b.forkAt - t)).toBeLessThan(40)
+  expect(Math.abs(b.forkAt - s.now)).toBeGreaterThan(200)
   expect(await dock(page, (D) => D.activeId)).toBe(2)
-  // Selected and paused right at the fork: nothing plays until Play.
+  // The playhead went to the fork, paused: nothing plays until Play.
   await expect.poll(() => h.state().then((x) => !x.playing && !x.future && Math.abs(x.now - b.forkAt) < 5)).toBe(true)
   await page.waitForTimeout(500)
-  const later = await h.state()
-  expect(later.playing).toBe(false)
-  expect(Math.abs(later.now - b.forkAt)).toBeLessThan(5)
-  expect(await page.locator(".lines path.lane.active").first().getAttribute("stroke-dasharray")).toBe(null)
-  // Each timeline its colour: the active one full, the other the same hue, faint.
-  const look = await page.evaluate(() => {
-    const act = document.querySelector(".lines path.lane.active:not(.ahead)")
-    const other = document.querySelector(".lines path.lane:not(.active):not(.hit)")
-    return { active: getComputedStyle(act).stroke, activeOp: getComputedStyle(act).opacity, other: getComputedStyle(other).stroke, otherOp: getComputedStyle(other).opacity }
-  })
-  expect(look.active).toBe("rgb(45, 212, 191)") // Timeline 2
-  expect(look.other).toBe("rgb(167, 139, 250)") // Timeline 1
-  expect(Number(look.activeOp)).toBe(1)
-  expect(Number(look.otherOp)).toBeLessThan(0.5)
+  expect((await h.state()).playing).toBe(false)
+  const sc = await dock(page, (D) => D.scene.lanes)
+  expect(sc.find((l) => l.id === 2)).toMatchObject({ active: true })
+  expect(sc.find((l) => l.id === 1)).toMatchObject({ active: false })
+  expect(sc.find((l) => l.id === 1).color).not.toBe(sc.find((l) => l.id === 2).color)
   await expect(page.locator('.lane-name.active[data-lane="2"]')).toBeVisible()
   expect(a.id).toBe(1)
   expect(h.dockErrors).toEqual([])
 })
 
-test("+ only ever shows on the active lane; an inactive lane says 'Click to select'", async ({ page }) => {
+test("a plain click on another lane selects it, paused; the empty track moves the playhead", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.8)
   await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   await h.settle()
   const x = await xOfTime(page, s.start + (s.end - s.start) * 0.2)
-  await page.mouse.move(x, await laneY(page, 1))
-  await expect(page.locator(".tip")).toHaveText("Click to select")
-  await expect(page.locator(".plus")).toBeHidden()
-  // Clicking it selects it, paused: nothing starts playing.
   await page.mouse.click(x, await laneY(page, 1))
   await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
   await page.waitForTimeout(300)
   expect((await h.state()).playing).toBe(false)
-  await page.mouse.move(x, await laneY(page, 1))
-  await expect(page.locator(".plus")).toBeVisible()
+  // Empty track: the playhead goes there.
+  const g = await page.locator(".lines").boundingBox()
+  const t2 = s.start + (s.end - s.start) * 0.6
+  await page.mouse.click(await xOfTime(page, t2), g.y + g.height - 6)
+  await expect.poll(async () => Math.abs((await h.state().catch(() => ({ now: -1e9 }))).now - t2), { timeout: 15000 }).toBeLessThan(40)
+  expect(await dock(page, (D) => D.activeId)).toBe(1)
   expect(h.dockErrors).toEqual([])
 })
 
@@ -114,32 +113,27 @@ test("click a grey lane to switch; right-click deletes (not the first); double-c
   expect(h.dockErrors).toEqual([])
 })
 
-test("more than four timelines: the inactive lanes fold to thin lines", async ({ page }) => {
+test("a short dock: lanes close up and the names become colour dots (name on hover)", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle", "#toggle"], 0.9)
-  for (let i = 0; i < 4; i++) {
-    const n = i + 2
-    await h.pause()
-    await h.settle()
-    await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * (0.15 + i * 0.15))
-    await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(n)
-    await page.waitForTimeout(250)
-    await h.pause()
-    await h.settle()
-    // Back to Timeline 1 for the next one.
+  for (let i = 0; i < 3; i++) {
     await dock(page, () => window.__waybackDock.switchTo(1, 1e9))
-    await expect.poll(() => dock(page, (D) => D.activeId)).toBe(1)
+    await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
+    await h.settle()
+    await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * (0.2 + i * 0.2))
+    await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(i + 2)
     await h.settle()
   }
-  expect(await dock(page, (D) => D.branches.length)).toBe(5)
-  const thin = await dock(page, (D) => [...D.lanes.entries()].map(([id, l]) => [id, l.thin]))
-  expect(thin.filter(([, t]) => t).length).toBe(4)
-  expect(thin.find(([id]) => id === 1)[1]).toBe(false)
-  await expect(page.locator(".lane-name.thin")).toHaveCount(4)
-  // Every lane still fits in the dock.
-  const h2 = await page.locator(".lines").boundingBox()
-  const maxY = await dock(page, (D) => Math.max(...[...D.lanes.values()].map((l) => l.y)))
-  expect(maxY).toBeLessThan(h2.height)
+  await dock(page, (D) => (D.height = 110))
+  await page.waitForTimeout(300)
+  expect(await dock(page, (D) => D.compact)).toBe(true)
+  await expect(page.locator(".gutter")).toHaveClass(/dots/)
+  const ys = await dock(page, (D) => [...D.lanes.values()].map((l) => l.y))
+  for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(10)
+  const g = await page.locator(".lines").boundingBox()
+  expect(Math.max(...ys)).toBeLessThan(g.height)
+  expect(await page.locator('.lane-name[data-lane="2"]').getAttribute("title")).toBe(await dock(page, (D) => D.branches[1].name))
+  await expect(page.locator('.lane-name[data-lane="2"] span')).toBeHidden()
   expect(h.dockErrors).toEqual([])
 })
 

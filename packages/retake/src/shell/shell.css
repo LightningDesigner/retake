@@ -1,4 +1,4 @@
-/* The dock: a floating glass drawer at the bottom, 16px off the edges. Sans
+/* The dock: a glass notch rising from the bottom edge, 16px in from the sides. Sans
    for words, monospace only for numbers. Each timeline has its own colour;
    blue dots are things you did, amber is notes. Spacing on a 4/8 grid, 32px
    controls, every transition under 300ms. */
@@ -37,14 +37,14 @@ body { display: flex; flex-direction: column; font: 400 13px/16px var(--sans); c
 #wb-stage iframe.live { z-index: 1; }
 #wb-stage iframe.checkpoint { z-index: 0; pointer-events: none; }
 /* In the past the app is view-only, like a paused video. */
-#wb-shield { position: absolute; inset: 0; z-index: 2; cursor: default; }
+#wb-shield { position: absolute; inset: 0; z-index: 2; cursor: default; pointer-events: none; }
 #wb-shield[hidden] { display: none; }
 body.dragging #wb-stage, body.scrubbing #wb-stage { pointer-events: none; }
 
 /* ---- the drawer ---- */
-#wb-dock { position: relative; flex: none; height: 200px; margin: 16px; display: flex; flex-direction: column; border-radius: 18px;
+#wb-dock { position: relative; flex: none; height: 200px; margin: 16px 16px 0; display: flex; flex-direction: column; border-radius: 18px 18px 0 0;
   background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(140%); backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid var(--hair); box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+  border: 1px solid var(--hair); border-bottom: 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
 /* Resize by the grab handle at the top centre. */
 .divider { position: absolute; left: 50%; top: 0; width: 64px; height: 12px; margin-left: -32px; cursor: ns-resize; z-index: 3;
   display: flex; align-items: center; justify-content: center; }
@@ -59,17 +59,21 @@ button:active { transform: scale(0.96); }
 .head { flex: none; height: 48px; display: flex; align-items: center; gap: 16px; padding: 8px 8px 0; }
 .left, .right { display: flex; align-items: center; gap: 8px; flex: none; }
 .right { margin-left: auto; }
-.tool { width: 32px; height: 32px; border-radius: 8px; }
-@media (hover: hover) { .tool:hover { color: var(--white); background: var(--fill); } }
-.tool.on { color: var(--white); background: var(--fill-2); }
-.tool.disabled { opacity: .35; cursor: default; }
-@media (hover: hover) { .tool.disabled:hover { color: var(--muted); background: transparent; } }
+/* One button style for every control: 32px, 8px radius, a ghost fill.
+   Play is the one filled button. */
+.btn { flex: none; height: 32px; padding: 0 12px; gap: 8px; border-radius: 8px; background: var(--fill); color: var(--muted);
+  font: 500 13px/1 var(--sans); box-shadow: inset 0 0 0 1px transparent; }
+.btn.icon { width: 32px; padding: 0; }
+@media (hover: hover) { .btn:hover { color: var(--white); background: var(--fill-2); } }
+.btn.on { color: var(--white); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--hair-2); }
+.btn.disabled { opacity: .35; cursor: default; }
+@media (hover: hover) { .btn.disabled:hover { color: var(--muted); background: var(--fill); } }
 .play .i-pause { display: none; }
 .play.playing .i-play { display: none; }
 .play.playing .i-pause { display: block; }
-.play { color: var(--ink); background: var(--white); border-radius: 999px; }
-@media (hover: hover) { .play:hover { color: var(--ink); background: #e6e6ea; } }
-.tools { display: flex; gap: 4px; padding: 0 8px 0 0; border-right: 1px solid var(--hair); }
+.btn.play { color: var(--ink); background: var(--white); }
+@media (hover: hover) { .btn.play:hover { color: var(--ink); background: #e6e6ea; } }
+.tools { display: flex; gap: 8px; }
 
 .readout { display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; }
 .readout .t { font: 500 14px/1 var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; }
@@ -86,14 +90,18 @@ button:active { transform: scale(0.96); }
 .hint.show { opacity: 1; transform: none; }
 .hint.warn { color: var(--red); border-color: rgba(255, 107, 107, 0.35); }
 
-.text-btn { flex: none; height: 32px; padding: 0 12px; border-radius: 8px; font: 500 13px/1 var(--sans); color: var(--muted); gap: 8px; }
-@media (hover: hover) { .text-btn:hover { color: var(--white); background: var(--fill); } }
-.text-btn.on { color: var(--white); background: var(--fill-2); }
-.text-btn.armed { color: var(--red); background: rgba(255, 107, 107, 0.12); }
+/* Start fresh's safety net: a toast where the hint sits. */
+#wb-toast { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); z-index: 4; height: 32px; padding: 0 4px 0 12px;
+  display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--hair-2);
+  box-shadow: var(--shadow); font: 500 12px/1 var(--sans); color: var(--fg); animation: card-in .16s var(--ease); }
+#wb-toast[hidden] { display: none; }
+#wb-toast button { height: 24px; padding: 0 10px; border-radius: 999px; background: var(--fill-2); color: var(--white); font: 600 12px/1 var(--sans); }
+@media (hover: hover) { #wb-toast button:hover { background: rgba(255, 255, 255, 0.18); } }
+.head:has(#wb-toast:not([hidden])) .hint { visibility: hidden; }
 .notes-btn .n { font: 500 12px/1 var(--mono); color: var(--fg); }
 
 /* ---- timeline: lane names + the drawing ---- */
-.body { position: relative; flex: 1; min-height: 0; display: flex; padding: 0 8px 8px; }
+.body { position: relative; flex: 1; min-height: 0; display: flex; padding: 0 8px; }
 .gutter { position: relative; flex: none; width: 120px; overflow: hidden; }
 .lane-name { position: absolute; left: 0; right: 0; height: 24px; margin-top: -12px; padding: 0 8px; display: flex; align-items: center; gap: 8px;
   border-radius: 8px; font: 500 12px/1 var(--sans); color: var(--dim); white-space: nowrap; cursor: pointer; user-select: none;
@@ -103,13 +111,23 @@ button:active { transform: scale(0.96); }
 .lane-name.active { color: var(--white); }
 .lane-name.active i { opacity: 1; }
 @media (hover: hover) { .lane-name:not(.active):hover { color: var(--fg); background: var(--fill); } .lane-name:not(.active):hover i { opacity: .7; } }
-.lane-name.thin { height: 8px; margin-top: -4px; font-size: 0; }
-.lane-name.thin i { width: 4px; height: 4px; }
+/* A short dock: just the colour dots, the name on hover. */
+.gutter.dots { width: 28px; }
+.gutter.dots .lane-name { height: 12px; margin-top: -6px; padding: 0; justify-content: center; }
+.gutter.dots .lane-name span { display: none; }
+.gutter.dots .lane-name.active i { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
 .lane-name input { all: unset; width: 100%; font: inherit; color: var(--white); border-bottom: 1px solid var(--dim); }
 
 .track { position: relative; flex: 1; min-width: 80px; overflow: hidden; cursor: default; touch-action: none; }
 .lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; user-select: none; }
 body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
+body.branching .track, body.branching .track * { cursor: crosshair !important; }
+
+/* Following was stopped by hand: this brings it back. */
+.live-btn { position: absolute; right: 8px; top: 24px; z-index: 2; height: 24px; padding: 0 10px; border-radius: 999px;
+  background: var(--fill-2); color: var(--white); font: 500 12px/1 var(--sans); }
+@media (hover: hover) { .live-btn:hover { background: rgba(255, 255, 255, 0.18); } }
+.live-btn[hidden] { display: none; }
 
 /* ruler: numbers are monospace */
 .lines .rule { stroke: var(--hair); stroke-width: 1; }
@@ -121,7 +139,6 @@ body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
 .lines .lane { fill: none; stroke-width: 2; stroke-linecap: round; opacity: .3; transition: opacity .15s var(--ease); }
 .lines .lane.active { opacity: 1; }
 .lines .lane.active.ahead { opacity: .45; }
-.lines .lane.thin { stroke-width: 1.5; opacity: .3; }
 .lines .lane.hit { stroke: transparent !important; stroke-width: 16; opacity: 1; cursor: pointer; }
 .lines .lane.hit[data-active] { cursor: default; }
 .lines .lane-end { fill: var(--page); stroke-width: 1.5; }
@@ -141,7 +158,9 @@ body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
 /* playhead and guides */
 .lines .head { stroke: var(--white); stroke-width: 1; pointer-events: none; }
 .lines .head-cap { fill: var(--white); pointer-events: none; }
-.lines .guide { stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; stroke-dasharray: 2 3; pointer-events: none; }
+.lines .guide { stroke-width: 1; pointer-events: none; }
+.lines .guide-chip { pointer-events: none; }
+.lines .guide-label { font: 500 9px/1 var(--mono); fill: var(--ink); pointer-events: none; }
 .lines .snap { stroke: var(--white); stroke-width: 1; stroke-dasharray: 1 2; pointer-events: none; }
 .lines .snap-dot { fill: var(--page); stroke: var(--white); stroke-width: 1; pointer-events: none; }
 
@@ -149,25 +168,14 @@ body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
 .lines .note-mark { cursor: pointer; }
 .lines .note-mark text { font: 600 8px/1 var(--mono); fill: var(--ink); pointer-events: none; }
 
-/* The + that starts a new timeline: on the active lane, in its colour. */
-.plus { --c: var(--white); position: absolute; z-index: 2; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 999px;
-  background: var(--c); color: var(--ink); font: 600 14px/1 var(--sans); box-shadow: 0 0 0 3px rgba(22, 22, 26, 0.9);
-  transition: transform .12s var(--ease); }
-@media (hover: hover) { .plus:hover { transform: scale(1.12); } }
-.plus:active { transform: scale(.94); }
-.plus[hidden] { display: none; }
-
-.tip { position: absolute; z-index: 3; pointer-events: none; transform: translateX(-50%); padding: 8px; max-width: 320px;
-  font: 400 12px/16px var(--sans); color: var(--fg); background: var(--glass-strong); border: 1px solid var(--hair-2);
-  border-radius: 8px; box-shadow: var(--shadow); white-space: nowrap; }
+/* The one hover tooltip: an animation block's, small, above the dock. */
+.tip { position: fixed; z-index: 25; pointer-events: none; max-width: 240px; padding: 6px 8px; font: 400 11px/15px var(--sans); color: var(--fg);
+  background: var(--glass-strong); border: 1px solid var(--hair-2); border-radius: 8px; box-shadow: var(--shadow); animation: card-in .12s var(--ease); }
 .tip[hidden] { display: none; }
-.tip .k { color: var(--muted); font-weight: 500; }
-.tip .n { font-family: var(--mono); color: var(--muted); }
-.tip .row { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; }
-.tip .row b { font-weight: 500; color: var(--fg); }
+.tip .row { display: flex; gap: 4px; white-space: nowrap; overflow: hidden; }
+.tip .row b { font-weight: 500; flex: none; }
 .tip .row span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.tip .row .n { margin-left: auto; padding-left: 8px; }
-.tip .more { margin-top: 4px; color: var(--dim); }
+.tip .more { color: var(--dim); }
 
 /* ---- on the prototype ---- */
 #wb-hl { position: fixed; pointer-events: none; border: 1.5px solid var(--amber); border-radius: 4px; z-index: 20; display: none; }

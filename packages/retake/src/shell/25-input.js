@@ -138,14 +138,11 @@ function startScrub(e, s) {
   if (s.playing) D.PT.pause()
   const [lo, hi] = bounds(s)
   D.dragT = clamp(snapped(timeAt(e.clientX), s, e.altKey), lo, hi)
-  D.hoverT = null
-  D.hoverX = null
   hideTip()
   scrubSoon(D.dragT)
 }
 
 function endScrub() {
-  plusPress = null
   if (D.dragT == null) return
   const t = D.dragT
   D.dragT = null
@@ -157,105 +154,94 @@ function endScrub() {
   commitScrub()
 }
 
+// Pressing on the track: Control-click branches the active timeline at that
+// moment; a click on another timeline's lane selects it; anywhere else moves
+// the playhead (and dragging scrubs).
 track.addEventListener("pointerdown", (e) => {
   const s = D.last
   if (!D.PT || !s || !s.started || e.button !== 0) return
-  if (e.target === plus || e.target.closest("[data-note]")) return
   menuEl.hidden = true
-  const lane = e.target.closest("[data-branch]")
-  if (lane && !lane.dataset.active) {
-    const b = branchById(Number(lane.dataset.branch))
-    if (b) switchTo(b.id, clamp(timeAt(e.clientX), b.forkAt, b.end)).then((ok) => ok || flash("Couldn't switch to that timeline"))
+  if (e.ctrlKey) {
+    e.preventDefault()
+    const t = branchTimeAt(e.clientX, s, e.altKey)
+    D.branchT = null
+    document.body.classList.remove("branching")
+    return newTimelineAt(t)
+  }
+  const hit = hitAt(e.clientX, e.clientY)
+  if (hit && hit.kind === "note") return goToNoteId(hit.id)
+  if (hit && hit.kind === "capsule") {
+    // ⌘ held on one of the element's animations: fit it, go to its start.
+    const c = hit.clip
+    fitRange(c.start, c.end == null ? s.end : c.end)
+    scrubTo(c.start + 1)
+    commitScrub()
     return
   }
-  const bm = e.target.closest("[data-bookmark]")
-  if (bm) {
-    const m = D.markers.find((x) => String(x.id) === bm.dataset.bookmark)
+  if (hit && hit.kind === "bookmark") {
+    const m = D.markers.find((x) => String(x.id) === String(hit.id))
     if (m) {
       scrubTo(m.t)
       commitScrub()
     }
     return
   }
+  if (hit && hit.kind === "lane" && !hit.active) {
+    const b = branchById(hit.id)
+    if (b) switchTo(b.id, clamp(shownTime(s), b.forkAt, b.end)).then((ok) => ok || flash("Couldn't switch to that timeline"))
+    return
+  }
   startScrub(e, s)
 })
 
-// The + sits on the lane, so a press on it that moves is a drag along the
-// lane (scrubbing), and only a click makes a new timeline.
-let plusPress = null
-plus.addEventListener("pointerdown", (e) => {
-  if (e.button === 0) plusPress = { x: e.clientX, dragged: false }
-})
+// Where a Control-click would branch: on the active timeline, snapped.
+function branchTimeAt(clientX, s, free) {
+  const [lo, hi] = bounds(s)
+  const t = clamp(snapped(timeAt(clientX), s, free), lo, hi)
+  D.snapT = null
+  return t
+}
+
+// Holding Control over the track shows the branch guide.
+let overTrack = null // the last pointer event over the track
+function setBranchGuide(on, e) {
+  const s = D.last
+  const show = !!(on && e && s && s.started && D.dragT == null)
+  D.branchT = show ? branchTimeAt(e.clientX, s, e.altKey) : null
+  document.body.classList.toggle("branching", show)
+}
+window.addEventListener("keydown", (e) => e.key === "Control" && overTrack && setBranchGuide(true, overTrack))
+window.addEventListener("keyup", (e) => e.key === "Control" && setBranchGuide(false))
+window.addEventListener("blur", () => setBranchGuide(false))
 
 track.addEventListener("pointermove", (e) => {
   const s = D.last
   if (!s || !s.started) return
   const g = geom()
-  if (plusPress && !plusPress.dragged && e.buttons & 1 && Math.abs(e.clientX - plusPress.x) > 4) {
-    plusPress.dragged = true
-    return startScrub(e, s)
-  }
+  overTrack = e
   if (D.dragT != null) {
     const [lo, hi] = bounds(s)
     D.dragT = clamp(snapped(timeAt(e.clientX, g), s, e.altKey), lo, hi)
     scrubSoon(D.dragT)
     return
   }
-  if (e.target === plus) return
-  D.hoverX = r1(e.clientX - g.left) + 0.5
+  setBranchGuide(e.ctrlKey, e)
+  if (e.ctrlKey) return
   hover(e, s, g)
 })
 track.addEventListener("pointerup", endScrub)
 track.addEventListener("pointercancel", endScrub)
 track.addEventListener("pointerleave", () => {
-  if (D.dragT != null) return
-  D.hoverX = null
-  if (!plusHeld) D.hoverT = null
-  hideTip()
-  setHot(null)
+  overTrack = null
+  setBranchGuide(false)
+  D.hoverRow = null
 })
-let plusHeld = false
-plus.addEventListener("pointerenter", () => (plusHeld = true))
-plus.addEventListener("pointerleave", () => (plusHeld = false))
 
-// Hovering: a tooltip for clips, markers and folded lanes; on the active lane
-// in the past, a + to start a new timeline there.
+// Hovering the track: which row the pointer is on (for its faint band).
 function hover(e, s, g) {
-  const band = e.target.closest && e.target.closest("[data-band]")
-  const mark = e.target.closest && e.target.closest("[data-mark]")
-  const lane = e.target.closest && e.target.closest("[data-branch]")
-  const tl = timeline()
-  if (mark) {
-    const m = tl.markers[Number(mark.dataset.mark)]
-    setHot({ kind: "mark", i: Number(mark.dataset.mark) })
-    if (m) showTip(e, g, `<span class="k">${esc(MARK_WORD[m.kind] || m.kind)}</span>${m.label ? " " + esc(m.label) : ""} <span class="n">${fmt(m.t - s.start)}</span>`)
-  } else if (band) {
-    const i = Number(band.dataset.band)
-    setHot({ kind: "band", i })
-    if (D.bands && D.bands[i]) showTip(e, g, bandLabel(D.bands[i], tl, s))
-  } else if (lane && !lane.dataset.active) {
-    setHot(null)
-    showTip(e, g, "Click to select")
-  } else {
-    setHot(null)
-    hideTip()
-  }
-  // The + follows the pointer along the active lane (and only that one), and
-  // snaps to the playhead when it's close: that's where you'd most often start.
-  const A = D.lanes && D.lanes.get(D.activeId)
-  const y = e.clientY - g.top
-  if (!A || Math.abs(y - A.y) > 6) {
-    if (!plusHeld) D.hoverT = null
-    return
-  }
-  const [lo, hi] = bounds(s)
-  const shown = shownTime(s)
-  const t = clamp(timeAt(e.clientX, g), lo, hi)
-  D.hoverT = Math.abs(t - shown) * pxPerMs(g) <= SNAP_PX ? shown : snapped(t, s, e.altKey)
-  D.snapT = null
+  const hit = hitAt(e.clientX, e.clientY)
+  D.hoverRow = hit && hit.kind === "lane" ? hit.id : null
 }
-
-const MARK_WORD = { click: "Click", key: "Key", input: "Typing", submit: "Submit", route: "Route", fetch: "Fetch", reload: "Reload" }
 
 // The component that wrote the clip's element, found the way notes find it
 // (owner chain, library wrappers skipped); else the runtime's guess.
@@ -271,75 +257,12 @@ function clipComponent(c) {
 const clipName = (c) => (c.kind === "transition" ? c.property || "transition" : c.label || c.property || "animation")
 const msWord = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s` : `${Math.round(ms)}ms`)
 
-// An animation block's tooltip: what was animating in it (name, element,
-// duration), a few lines at most.
-function bandLabel(band, tl, s) {
-  const rows = band.clips.slice(0, 5).map((i) => {
-    const c = tl.clips[i]
-    if (!c) return ""
-    const dur = c.end == null ? "running" : msWord(c.end - c.start)
-    const where = clipComponent(c) || c.selector || ""
-    return `<div class="row"><b>${esc(clipName(c))}</b>${where ? `<span>${esc(where)}</span>` : ""}<span class="n">${dur}</span></div>`
-  })
-  const more = band.clips.length > 5 ? `<div class="more">+${band.clips.length - 5} more</div>` : ""
-  return `<div class="k">${band.clips.length} animation${band.clips.length > 1 ? "s" : ""}</div>${rows.join("")}${more}`
-}
-
 function setHot(h) {
   D.hot = h
 }
-// Below the pointer, so it never covers the ruler; above only when there's
-// no room below (and then never higher than the ruler's bottom edge).
-function showTip(e, g, html) {
-  tip.innerHTML = html
-  tip.hidden = false
-  const w = tip.offsetWidth
-  const h = tip.offsetHeight
-  const y = e.clientY - g.top
-  tip.style.left = clamp(e.clientX - g.left, w / 2 + 4, g.w - w / 2 - 4) + "px"
-  tip.style.top = (y + 12 + h <= g.h - 2 ? y + 12 : Math.max(RULER + 2, y - 10 - h)) + "px"
-}
+
 function hideTip() {
   tip.hidden = true
-}
-
-let plusClick = null
-plus.addEventListener("click", (e) => {
-  e.stopPropagation()
-  const dragged = plusPress && plusPress.dragged
-  plusPress = null
-  if (dragged) return
-  if (plusClick) {
-    clearTimeout(plusClick.timer)
-    const t = plusClick.t
-    plusClick = null
-    fitBandAt(t)
-    return
-  }
-  if (D.hoverT == null) return
-  const t = D.hoverT
-  plusClick = {
-    t,
-    timer: setTimeout(() => {
-      plusClick = null
-      D.hoverT = null
-      newTimelineAt(t)
-    }, 220),
-  }
-  D.hoverX = null
-  plusHeld = false
-  setHot(null)
-  hideTip()
-})
-
-// Double-click an animation block: fit it. A block sits under the active
-// lane's +, so the + waits a moment before branching: a second click in that
-// time fits the block instead.
-function fitBandAt(t) {
-  const band = (D.bands || []).find((b) => b.a - 5 <= t && t <= b.b + 5)
-  if (!band) return false
-  fitRange(band.a, band.b)
-  return true
 }
 
 // ⌘-scroll or pinch zooms around the pointer; a sideways scroll pans.
@@ -381,10 +304,12 @@ function openLaneMenu(e, b) {
   menuEl.style.top = e.clientY - menuEl.offsetHeight - 6 + "px"
 }
 track.addEventListener("contextmenu", (e) => {
-  const el = e.target.closest("[data-branch]")
-  const b = el && branchById(Number(el.dataset.branch))
+  e.preventDefault()
+  // On a Mac, Control-click is also a right-click: that one was a branch.
+  if (e.ctrlKey) return
+  const hit = hitAt(e.clientX, e.clientY)
+  const b = hit && hit.kind === "lane" && branchById(hit.id)
   if (b) openLaneMenu(e, b)
-  else e.preventDefault()
 })
 gutter.addEventListener("contextmenu", (e) => {
   const el = e.target.closest("[data-lane]")

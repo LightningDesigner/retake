@@ -5,7 +5,7 @@
 const stage = $("#wb-stage")
 const dock = $("#wb-dock")
 const track = $(".track")
-const svg = $(".lines")
+const cv = $(".lines") // the timeline canvas
 
 const newBranch = (forkAt, parentId = null) => {
   const id = ++D.branchSeq
@@ -312,7 +312,9 @@ document.addEventListener("click", (e) => {
   }
   const a = b.dataset.a
   if (a === "play") togglePlay()
-  if (a === "fresh") return confirmFresh(b)
+  if (a === "fresh") return startFresh()
+  if (a === "undo") return undoFresh()
+  if (a === "live") return followLive()
   if (a === "notes") return toggleList()
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
@@ -334,21 +336,6 @@ document.addEventListener("click", (e) => {
 // only the divider changes it.
 const MIN_H = 150
 const dockHeight = () => Math.round(clamp(D.height, MIN_H, Math.max(MIN_H, innerHeight * 0.7)))
-
-// Start fresh asks once: the first click arms it for three seconds.
-function confirmFresh(btn) {
-  if (btn.classList.contains("armed")) {
-    btn.classList.remove("armed")
-    btn.textContent = "Start fresh"
-    return startFresh()
-  }
-  btn.classList.add("armed")
-  btn.textContent = "Clear everything?"
-  setTimeout(() => {
-    btn.classList.remove("armed")
-    btn.textContent = "Start fresh"
-  }, 3000)
-}
 
 // Resize by dragging the top edge, like docked DevTools.
 const divider = $(".divider")

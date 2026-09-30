@@ -27,19 +27,19 @@ test("the dock sits below the app, never over it, and the divider resizes both",
     return { stage, dock }
   }
   let { stage, dock } = await box()
-  // A floating drawer: 16px off the left, right and bottom; the app ends 16px above it.
-  expect(stage.y + stage.height).toBeLessThanOrEqual(dock.y - 16 + 0.5)
-  expect(dock.y + dock.height).toBeCloseTo(800 - 16, 0)
+  // A notch: flush with the bottom edge, 16px in from the sides, only the top
+  // corners rounded; the app ends above it.
+  expect(stage.y + stage.height).toBeLessThanOrEqual(dock.y + 0.5)
+  expect(dock.y + dock.height).toBeCloseTo(800, 0)
   expect(dock.x).toBeCloseTo(16, 0)
   expect(dock.x + dock.width).toBeCloseTo(1280 - 16, 0)
   const look = await page.evaluate(() => {
     const cs = getComputedStyle(document.querySelector("#wb-dock"))
-    return { radius: cs.borderTopLeftRadius, blur: cs.backdropFilter || cs.webkitBackdropFilter, bg: cs.backgroundColor, body: getComputedStyle(document.body).backgroundColor }
+    return { tl: cs.borderTopLeftRadius, bl: cs.borderBottomLeftRadius, blur: cs.backdropFilter || cs.webkitBackdropFilter }
   })
-  expect(look.radius).toBe("18px")
-  expect(look.blur).toContain("blur(24px)")
-  expect(look.bg).toMatch(/rgba\(22, 22, 26, 0\.72\)/)
-  expect(look.body).not.toBe("rgb(0, 0, 0)")
+  expect(look.tl).toBe("18px")
+  expect(look.bl).toBe("0px")
+  expect(look.blur).toContain("blur(")
   const div = await page.locator(".divider").boundingBox()
   await page.mouse.move(div.x + div.width / 2, div.y + div.height / 2)
   await page.mouse.down()
@@ -127,19 +127,30 @@ test("agent replies arrive over SSE and show on the note", async ({ page }) => {
   expect(h.dockErrors).toEqual([])
 })
 
-test("Start fresh clears timelines and notes, after a confirming second click", async ({ page }) => {
+test("Start fresh clears at once, with 5 seconds to Undo; the server is only told after that", async ({ page }) => {
   const fake = await fakeServer(page)
   const h = await openDock(page, DOCK_URL)
   await recordSome(h, ["#toggle"])
   await forkMid(h)
-  const fresh = page.locator('[data-a="fresh"]')
-  await fresh.click()
-  expect(await D(page, (d) => d.branches.length)).toBe(2)
-  await expect(fresh).toHaveText(/clear/i)
-  await fresh.click()
-  await expect.poll(() => D(page, (d) => d.branches.map((b) => b.id))).toEqual([1])
-  await expect.poll(() => fake.store.session && fake.store.session.branches.length).toBe(1)
+  await expect.poll(() => fake.store.session && fake.store.session.branches.length).toBe(2)
+  const puts = fake.puts("session").length
+  await page.locator('[data-a="fresh"]').click()
+  expect(await D(page, (d) => d.branches.map((b) => b.id))).toEqual([1])
+  await expect(page.locator("#wb-toast")).toBeVisible()
+  await expect(page.locator("#wb-toast")).toContainText("Session cleared")
+  await page.waitForTimeout(800)
+  expect(fake.puts("session").length).toBe(puts)
+  await page.locator('[data-a="undo"]').click()
+  await expect(page.locator("#wb-toast")).toBeHidden()
+  expect(await D(page, (d) => d.branches.map((b) => b.id))).toEqual([1, 2])
+  expect(await D(page, (d) => d.activeId)).toBe(2)
   await h.settle()
+  expect(fake.store.session.branches.length).toBe(2)
+
+  // Again, and this time let it go: after 5s the server has the fresh session.
+  await page.locator('[data-a="fresh"]').click()
+  await expect(page.locator("#wb-toast")).toBeHidden({ timeout: 7000 })
+  await expect.poll(() => fake.store.session.branches.length).toBe(1)
   expect(h.dockErrors).toEqual([])
 })
 

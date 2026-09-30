@@ -51,7 +51,7 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
 
   // A pin on the app and a bubble on the timeline.
   await expect(page.locator(".canvas-pin")).toHaveCount(1)
-  await expect(page.locator(".lines .note-mark")).toHaveCount(1)
+  await expect.poll(() => dock(page, (D) => D.scene.notes.length)).toBe(1)
 
   const p = await page.evaluate(() => window.__waybackDock.prompt(window.__waybackDock.state.notes[0]))
   expect(p).toContain("## Make this slide slower")

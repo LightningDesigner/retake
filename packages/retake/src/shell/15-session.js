@@ -115,7 +115,7 @@ function activeSig(s) {
 
 let saving = false
 async function persist() {
-  if (!net.on || net.restoring || saving || D.switching) return
+  if (!net.on || net.restoring || net.hold || saving || D.switching) return
   saving = true
   try {
     const body = JSON.stringify(sessionBody())
@@ -151,7 +151,7 @@ async function persist() {
 let lastSeen = ""
 let stillSince = 0
 setInterval(() => {
-  if (!net.on || net.restoring) return
+  if (!net.on || net.restoring || net.hold) return
   let sig = ""
   try {
     sig = JSON.stringify(sessionBody()) + D.branches.map((b) => (b.json ? b.json.length : 0)).join(",")
@@ -198,16 +198,52 @@ function listen() {
   es.onerror = () => es.readyState === EventSource.CLOSED && es.close()
 }
 
-// Start fresh: one empty timeline, no notes, a new prototype frame.
-async function startFresh() {
+// Start fresh: one empty timeline, no notes, a new recording, straight away.
+// For five seconds it can be undone; the server isn't told until then.
+const UNDO_MS = 5000
+let undo = null
+const toast = $("#wb-toast")
+
+function startFresh() {
+  if (undo) commitFresh()
+  const snap = {
+    branches: D.branches.map((b) => ({ ...b })),
+    activeId: D.activeId,
+    branchSeq: D.branchSeq,
+    notes: D.notes,
+    markers: D.markers,
+    markerSeq: D.markerSeq,
+    frame: D.frame, // the frame showing when it was cleared
+  }
+  const cur = snap.branches.find((b) => b.id === snap.activeId)
+  try {
+    if (cur && D.PT) {
+      cur.json = JSON.stringify(D.PT.history())
+      cur.end = D.PT.state().end
+    }
+  } catch {}
+  net.hold = true
   D.notes = []
   D.markers = []
   D.markerSeq = 0
   closeCard()
+  closeList()
   resetBranches()
+  invalidateGutter()
+  freshFrame()
+  undo = { snap, timer: setTimeout(commitFresh, UNDO_MS) }
+  toast.hidden = false
+}
+
+// The five seconds are up: clear the session on the server too.
+async function commitFresh() {
+  if (!undo) return
+  clearTimeout(undo.timer)
+  undo = null
+  toast.hidden = true
   net.savedRec.clear()
   net.activeSig = ""
-  freshFrame()
+  net.hold = false
   if (net.on) {
     try {
       const body = JSON.stringify(sessionBody())
@@ -215,6 +251,29 @@ async function startFresh() {
       net.savedSession = body
     } catch {}
   }
+}
+
+// Undo: everything back as it was, the moment rebuilt where it was.
+function undoFresh() {
+  if (!undo) return
+  clearTimeout(undo.timer)
+  const { snap } = undo
+  undo = null
+  toast.hidden = true
+  D.branches = snap.branches
+  D.activeId = snap.activeId
+  D.branchSeq = snap.branchSeq
+  D.notes = snap.notes
+  D.markers = snap.markers
+  D.markerSeq = snap.markerSeq
+  invalidateGutter()
+  const cur = activeBranch()
+  // Still showing the old frame (the fresh one hadn't swapped in yet)? Then
+  // there's nothing to rebuild: just drop the fresh one.
+  if (D.building) cancelBuild()
+  if (D.frame === snap.frame) D.frameBranch = cur.id
+  else if (cur && cur.json && D.PT) D.PT.load(cur.json, cur.end)
+  net.hold = false
 }
 
 restore().then(listen)
