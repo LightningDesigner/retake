@@ -38,3 +38,18 @@ test("F11 browser Back inside a React Router app replays", async ({ page }) => {
   await h.seek(T)
   expect((await h.rt(() => __sample())).path).toBe(livePath)
 })
+
+test("React elements in a rebuilt frame keep their debug stack (notes read source lines from it)", async ({ page }) => {
+  const h = await openDock(page, `http://localhost:${PORTS.react}/`)
+  await h.record(); await page.waitForTimeout(300)
+  await h.click("#nav-anim"); await page.waitForTimeout(600)
+  await h.pause()
+  await h.seek((await h.state()).now - 100)
+  const stack = await h.rt(() => {
+    const el = document.getElementById("go")
+    const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"))
+    const s = el[key]._debugStack
+    return s && (s.stack || String(s))
+  })
+  expect(stack).toContain("main.tsx")
+})

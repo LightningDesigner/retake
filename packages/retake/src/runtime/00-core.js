@@ -33,41 +33,17 @@ const timers = new Map()
 let timerSeq = 1e9
 
 function isExempt() {
-  // Stack traces may be switched off while rebuilding (see below); this one needs one.
-  const quiet = savedStackLimit != null
-  if (quiet) quietStacks(false)
-  const stack = new Error().stack || ""
-  if (quiet) quietStacks(true)
-  return EXEMPT.test(stack)
+  return EXEMPT.test(new Error().stack || "")
 }
 
-// While rebuilding, dev-only debugging work is skipped: React's dev build makes
-// an Error (for a stack) and a console task for every element it renders, a
-// third of the time a rebuild takes on a big app. Nobody looks at those for
-// frames being replayed at full speed.
+// While rebuilding, React's per-element console tasks (async stack tagging
+// for devtools) are skipped. Its per-element Error stacks are NOT: notes read
+// an element's source file:line from them, and notes are made in rebuilt frames.
 const realCreateTask = console.createTask
 if (realCreateTask) {
   const noTask = { run: (fn) => fn() }
   console.createTask = function (name) {
     return clock.seeking ? noTask : realCreateTask.call(console, name)
-  }
-}
-// V8 reads Error.stackTraceLimit as a plain data property and ignores
-// getters, so while it's an accessor no stack is captured at all, whatever
-// the app (or React, which sets it to 10 around each element) assigns.
-let savedStackLimit = null
-function quietStacks(on) {
-  if (on && savedStackLimit == null) {
-    savedStackLimit = Error.stackTraceLimit
-    let shown = savedStackLimit
-    try {
-      Object.defineProperty(Error, "stackTraceLimit", { configurable: true, enumerable: true, get: () => shown, set: (v) => (shown = v) })
-    } catch {
-      savedStackLimit = null
-    }
-  } else if (!on && savedStackLimit != null) {
-    Object.defineProperty(Error, "stackTraceLimit", { configurable: true, enumerable: true, writable: true, value: savedStackLimit })
-    savedStackLimit = null
   }
 }
 

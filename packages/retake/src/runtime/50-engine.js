@@ -85,7 +85,6 @@ function nextBoundary(limit, skipping) {
 async function runSeek() {
   const seekStart = real.perfNow()
   clock.seeking = true
-  quietStacks(true)
   syncMedia()
   PT.emit()
   let lastPaint = real.perfNow()
@@ -105,7 +104,6 @@ async function runSeek() {
   stats.seekMs = Math.round(real.perfNow() - seekStart)
   seekTarget = null
   clock.seeking = false
-  quietStacks(false)
   pace = clock.now
   syncAnimations()
   alignMedia()
