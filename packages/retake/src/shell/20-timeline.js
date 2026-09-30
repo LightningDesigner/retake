@@ -154,8 +154,6 @@ function setSvg(markup) {
   svg.innerHTML = markup
 }
 
-// Rows set the dock's height.
-const neededHeight = () => Math.max(104, TOP + D.branches.length * ROW + 28)
 
 // ---- a new timeline from a chosen moment -------------------------------------------
 

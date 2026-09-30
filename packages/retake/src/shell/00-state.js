@@ -33,7 +33,6 @@ const D = {
   switching: false,
   // what's been said about them
   notes: [],
-  noteSeq: 0,
   markers: [], // bookmarks dropped with M: { id, t, branchId }
   markerSeq: 0,
   // pointer and tools

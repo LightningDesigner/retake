@@ -156,6 +156,55 @@ async function copy(text, btn) {
   }
 }
 
+// ---- notes as the server keeps them (CONTRACT.md "Note") --------------------------
+
+const newNoteId = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+
+function noteForServer(n) {
+  return {
+    id: n.id,
+    branchId: n.branchId,
+    t: n.t,
+    clip: n.clip || null,
+    selector: n.el.selector,
+    component: n.el.components[0] || null,
+    source: n.el.source || null,
+    classes: n.el.classes || [],
+    rect: n.el.rect,
+    text: n.text,
+    status: n.status || "pending",
+    replies: n.replies || [],
+    el: n.el,
+  }
+}
+
+function noteFromServer(n) {
+  const el = n.el || {
+    label: n.selector || "element",
+    text: "",
+    selector: n.selector || "",
+    components: n.component ? [n.component] : [],
+    rect: n.rect || { x: 0, y: 0, w: 0, h: 0 },
+    page: "/",
+    classes: n.classes || [],
+    source: n.source || null,
+  }
+  return { id: n.id, branchId: n.branchId, t: n.t, text: n.text || "", el, clip: n.clip || null, status: n.status || "pending", replies: n.replies || [] }
+}
+
+// A change from outside (an agent replied, or marked it resolved).
+function mergeNote(n) {
+  const mine = D.notes.find((x) => String(x.id) === String(n.id))
+  if (!mine) {
+    if (branchById(n.branchId)) D.notes.push(noteFromServer(n))
+    return
+  }
+  if (n.status) mine.status = n.status
+  if (Array.isArray(n.replies)) mine.replies = n.replies
+  else if (n.reply) mine.replies = [...(mine.replies || []), typeof n.reply === "string" ? { from: "agent", text: n.reply, at: Date.now() } : n.reply]
+  if (openNote === mine) showNote(mine)
+}
+
 // ---- the note card -----------------------------------------------------------------
 
 function placeCard(rect) {
@@ -197,7 +246,7 @@ function openComposer(el) {
 
 function saveDraft() {
   const text = card.querySelector("textarea").value.trim()
-  if (draft && text) D.notes.push({ id: ++D.noteSeq, t: draft.t, branchId: D.activeId, text, el: draft.el })
+  if (draft && text) D.notes.push({ id: newNoteId(), t: draft.t, branchId: D.activeId, text, el: draft.el, status: "pending", replies: [] })
   closeCard()
   // Back to the Hand so the next click is on the prototype, not another note.
   setPicking(null)
@@ -233,7 +282,7 @@ function handleNoteClick(b) {
     closeCard()
   }
   if (b.dataset.note) {
-    const n = D.notes.find((x) => x.id === Number(b.dataset.note))
+    const n = D.notes.find((x) => String(x.id) === b.dataset.note)
     if (!n) return true
     // From the timeline or the list, go to the note's moment too.
     if (!b.classList.contains("canvas-pin")) {

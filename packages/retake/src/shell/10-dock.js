@@ -39,6 +39,8 @@ function swapIn(f, pt) {
   if (D.frame && D.frame !== f) D.frame.remove()
   D.frame = f
   D.frame.className = "live"
+  // Built at the recorded size; the visible frame fills the stage again.
+  D.frame.style.width = D.frame.style.height = ""
   D.PT = pt
   D.building = null
   window.__waybackShell.rebuilding = false
@@ -60,8 +62,16 @@ window.__waybackShell = {
     if (D.building) D.building.frame.remove()
     D.stash = payload
     window.__waybackShell.rebuilding = true
-    const url = new URL(JSON.parse(payload.rec).url)
+    const rec = JSON.parse(payload.rec)
+    const url = new URL(rec.url)
     D.building = { frame: makeFrame(url.pathname + url.search + url.hash), pt: null }
+    // Replay at the size it was recorded at, or layout, media queries and
+    // virtual lists come out differently (F18).
+    const vp = recordedViewport(rec)
+    if (vp) {
+      D.building.frame.style.width = vp.w + "px"
+      D.building.frame.style.height = vp.h + "px"
+    }
   },
   // The runtime is about to cut off its future at `at`: keep it as a branch.
   branchOff(json, end, at) {
@@ -72,6 +82,18 @@ window.__waybackShell = {
     b.version = old.version // a new timeline starts on its parent's code
     D.activeId = b.id
   },
+}
+
+// The viewport a recording was made at: the recording says, or the runtime's
+// timeline() does.
+function recordedViewport(rec) {
+  const ok = (v) => v && v.w > 0 && v.h > 0
+  if (ok(rec.viewport)) return rec.viewport
+  try {
+    const v = D.PT && D.PT.timeline && D.PT.timeline().viewport
+    if (ok(v)) return v
+  } catch {}
+  return null
 }
 
 // A fresh prototype: no history.
@@ -102,18 +124,20 @@ function checkBuilding() {
 // Returns true only if the switch happened.
 async function switchTo(id, t) {
   const target = branchById(id)
-  if (!D.PT || !target || !target.json || D.switching) return false
+  if (!D.PT || !target || D.switching || id === D.activeId) return false
   D.switching = true
   try {
+    const json = await recordingOf(target)
+    if (!json || !D.PT) return false
     const cur = activeBranch()
+    // A timeline made on other code runs on its own version of the code.
+    if (target.version && cur && cur.version && target.version !== cur.version && !(await checkoutCode(target.version))) return false
     if (cur) {
       cur.json = JSON.stringify(D.PT.history())
       cur.end = D.PT.state().end
     }
-    // A timeline made on other code runs on its own version of the code.
-    if (target.version && cur && cur.version && target.version !== cur.version) await checkoutCode(target.version)
     D.activeId = id
-    D.PT.load(target.json, clamp(t, target.forkAt, target.end))
+    D.PT.load(json, clamp(t, target.forkAt, target.end))
     return true
   } finally {
     D.switching = false
@@ -154,7 +178,7 @@ function render() {
   // on the first one rather than draw nothing.
   if (!activeBranch()) D.activeId = D.branches[0].id
   const s = state()
-  dock.style.height = Math.max(D.height, neededHeight()) + "px"
+  dock.style.height = dockHeight() + "px"
   if (!s) return
   const active = activeBranch()
   if (s.started) active.end = Math.max(active.end, s.end)
@@ -195,6 +219,7 @@ document.addEventListener("click", (e) => {
   if (a === "record" && D.PT && !(D.last && D.last.recording)) D.PT.record()
   if (a === "pause" && D.PT) D.PT.pause()
   if (a === "flag") addFlag()
+  if (a === "fresh") return confirmFresh(b)
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
     deleteTimeline(Number(b.dataset.deleteTimeline))
@@ -206,6 +231,26 @@ document.addEventListener("click", (e) => {
   refocus()
 })
 
+// The dock never grows by itself (that would resize the app mid-recording);
+// only the divider changes it.
+const MIN_H = 96
+const dockHeight = () => Math.round(clamp(D.height, MIN_H, Math.max(MIN_H, innerHeight * 0.7)))
+
+// Start fresh asks once: the first click arms it for three seconds.
+function confirmFresh(btn) {
+  if (btn.classList.contains("armed")) {
+    btn.classList.remove("armed")
+    btn.textContent = "Start fresh"
+    return startFresh()
+  }
+  btn.classList.add("armed")
+  btn.textContent = "Clear everything?"
+  setTimeout(() => {
+    btn.classList.remove("armed")
+    btn.textContent = "Start fresh"
+  }, 3000)
+}
+
 // Resize by dragging the top edge, like docked DevTools.
 const divider = $(".divider")
 divider.addEventListener("pointerdown", (e) => {
@@ -214,7 +259,7 @@ divider.addEventListener("pointerdown", (e) => {
   const startY = e.clientY
   const startH = dock.offsetHeight
   const move = (ev) => {
-    D.height = Math.round(Math.min(innerHeight * 0.6, Math.max(44, startH + startY - ev.clientY)))
+    D.height = Math.round(clamp(startH + startY - ev.clientY, MIN_H, innerHeight * 0.7))
   }
   const up = () => {
     document.body.classList.remove("dragging")

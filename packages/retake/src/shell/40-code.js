@@ -5,13 +5,20 @@
 
 const CODE_BRANCHES = !!(window.__waybackConfig && window.__waybackConfig.codeBranches)
 
+// Returns true once the files on disk are that version.
 async function checkoutCode(version) {
-  await fetch(`/__wayback/checkout?v=${encodeURIComponent(version)}`)
+  try {
+    const r = await api("POST", `checkout?v=${encodeURIComponent(version)}`)
+    return !r.missing && (!r.value || r.value.ok !== false)
+  } catch (err) {
+    console.warn("[retake] couldn't check out that timeline's code", err)
+    return false
+  }
 }
 
 if (CODE_BRANCHES) {
   setInterval(async () => {
-    if (D.switching || !D.PT || D.building) return
+    if (D.switching || !D.PT || D.building || net.restoring) return
     let version
     try {
       version = (await (await fetch("/__wayback/version")).json()).version
