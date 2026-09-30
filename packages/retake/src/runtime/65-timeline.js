@@ -129,6 +129,31 @@ function describeClip(e) {
   const pseudo = (a.effect && a.effect.pseudoElement) || null
   return { kind, label, selector: selectorOf(e.target) + (pseudo || ""), component: componentOf(e.target) || undefined, property, pseudoElement: pseudo }
 }
+// The recorded start of the clip a new animation replays, if there is one:
+// same element, kind and property/name, not yet claimed, started near now.
+const claimedClips = new WeakSet()
+function recordedStart(a) {
+  const target = a.effect && a.effect.target
+  if (!target || !rec || !rec.clips) return null
+  const path = pathOf(target)
+  if (!path || !Array.isArray(path)) return null
+  const key = path.join(",")
+  const kind = clipKind(a)
+  const pseudo = (a.effect && a.effect.pseudoElement) || null
+  const name = kind === "transition" ? a.transitionProperty : kind === "css-animation" ? a.animationName : null
+  let best = null
+  for (const c of rec.clips) {
+    if (claimedClips.has(c) || c.kind !== kind || (c.pseudoElement || null) !== pseudo || !c.path) continue
+    if (c.start > clock.now + 250 || c.start < clock.now - 250) continue
+    if (name != null && (kind === "transition" ? c.property : c.label) !== name) continue
+    if (c.path.join(",") !== key) continue
+    if (!best || Math.abs(c.start - clock.now) < Math.abs(best.start - clock.now)) best = c
+  }
+  if (!best) return null
+  claimedClips.add(best)
+  return best.start
+}
+
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
   const clips = rec.clips || (rec.clips = [])

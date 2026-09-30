@@ -13,6 +13,7 @@ const futureFrame = () => (cursor.frame < rec.frames.length ? rec.frames[cursor.
 
 // Input recorded at exactly a seek target happened just *after* that moment,
 // so a seek stops short of it.
+const INPUT_TYPES = new Set([...POINTER, ...MOUSE, ...KEYS, ...TOUCH, ...DRAG, ...CLIP, ...COMPOSE, ...OTHER])
 let timersBefore = 0
 async function dispatchUpTo(B) {
   const exclusive = clock.seeking && B === seekTarget
@@ -26,6 +27,9 @@ async function dispatchUpTo(B) {
     // the app gets its turn after the group.
     const next = rec.events[cursor.event]
     if (next && next.g && next.t === ev.t && !(exclusive && next.t >= B)) continue
+    // Input: take in the animations it started now, as live does after the
+    // input's task.
+    if (INPUT_TYPES.has(ev.type)) syncAnimations()
     await settle()
     // An event that changed the DOM may have started CSS transitions, which
     // the next frame adopts; one that changed nothing leaves nothing behind.
@@ -61,6 +65,8 @@ async function processBoundary(B) {
   if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || animating()) {
     syncAnimations()
     await settle()
+    // Whatever the app started while settling belongs to this moment too.
+    syncAnimations()
     appRan = false
   }
   await dispatchUpTo(B)

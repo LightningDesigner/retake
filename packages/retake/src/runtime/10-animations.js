@@ -30,8 +30,12 @@ function adopt(a) {
   // boundary, whatever real time the browser gave it before we saw it: live,
   // a CSS transition has usually run a few real ms by then, in a rebuild
   // none, and the two must agree.
+  // Replaying: if the recording has this animation, it starts when it did
+  // live. (Live, which frame first sees a new CSS transition races with the
+  // browser's own scheduling; the recorded start settles it.)
+  const recorded = ps === "running" && (hasFuture() || clock.seeking) ? recordedStart(a) : null
   const s = {
-    t: ps === "running" ? 0 : Number(orig.currentTime.get.call(a)) || 0,
+    t: recorded != null ? (clock.now - recorded) * (rateOf(a) || 1) : ps === "running" ? 0 : Number(orig.currentTime.get.call(a)) || 0,
     v: clock.now,
     userPaused: ps === "paused",
     done: ps === "finished",
