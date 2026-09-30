@@ -91,6 +91,9 @@ window.__waybackShell = {
   },
   // The runtime is about to cut off its future at `at`: keep it as a branch.
   branchOff(json, end, at) {
+    // A moment still being built belongs to the timeline we're leaving; if it
+    // landed now it would bring that timeline's future onto the new one.
+    cancelBuild()
     const old = activeBranch()
     old.json = json
     old.end = end
@@ -120,6 +123,14 @@ function recordedViewport(rec) {
     if (ok(v)) return v
   } catch {}
   return null
+}
+
+function cancelBuild() {
+  if (!D.building) return
+  D.building.frame.remove()
+  D.building = null
+  D.stash = null
+  window.__waybackShell.rebuilding = false
 }
 
 // A fresh prototype: no history.

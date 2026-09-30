@@ -116,3 +116,56 @@ test("more than four timelines: the inactive lanes fold to thin lines", async ({
   expect(maxY).toBeLessThan(h2.height)
   expect(h.dockErrors).toEqual([])
 })
+
+test("+ while a rewind is still building waits for it: Timeline 1 keeps its whole future", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const { recordSome } = await import("./helpers.js")
+  await recordSome(h, ["#toggle", "#toggle", "#toggle"])
+  await h.pause()
+  const s = await h.state()
+  const t = s.start + (s.end - s.start) * 0.4
+  // seek, then + at that moment straight away, before the rebuild lands.
+  await dock(page, (D, t) => {
+    D.PT.seek(t)
+    window.__waybackDock.newTimelineAt(t)
+  }, t)
+  await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(2)
+  await expect.poll(() => dock(page, (D) => !D.building && D.activeId === 2)).toBe(true)
+  await page.waitForTimeout(300)
+  const r = await dock(page, (D) => ({
+    t1End: JSON.parse(D.branches[0].json).end,
+    t1Events: JSON.parse(D.branches[0].json).events.length,
+    fork: D.branches[1].forkAt,
+    future: D.last.future,
+  }))
+  expect(r.t1End).toBeGreaterThanOrEqual(s.end - 1)
+  expect(Math.abs(r.fork - t)).toBeLessThan(40)
+  expect(r.future).toBe(false)
+  // And going back to Timeline 1 shows its whole recording.
+  await dock(page, (D) => window.__waybackDock.switchTo(1, 1e9))
+  await expect.poll(() => h.state().then((x) => x.end).catch(() => 0)).toBeGreaterThanOrEqual(s.end - 1)
+  expect(h.dockErrors).toEqual([])
+})
+
+test("+ at the visible moment while another moment is building doesn't let the stale build land on the new timeline", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  const { recordSome } = await import("./helpers.js")
+  await recordSome(h, ["#toggle", "#toggle", "#toggle"])
+  await h.pause()
+  const s = await h.state()
+  await h.seek(s.start + (s.end - s.start) * 0.6)
+  const here = (await h.state()).now
+  await dock(page, (D, [t2, here]) => {
+    D.PT.seek(t2) // a rebuild starts...
+    window.__waybackDock.newTimelineAt(here) // ...and + is pressed where the visible frame is
+  }, [s.start + (s.end - s.start) * 0.2, here])
+  await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(2)
+  await expect.poll(() => dock(page, (D) => !D.building && D.activeId === 2)).toBe(true)
+  await page.waitForTimeout(400)
+  const r = await dock(page, (D) => ({ t1End: JSON.parse(D.branches[0].json).end, fork: D.branches[1].forkAt, now: D.last.now, future: D.last.future, frames: document.querySelectorAll("#wb-stage iframe").length }))
+  expect(r.t1End).toBeGreaterThanOrEqual(s.end - 1)
+  // The new timeline's frame is the forked one: no recorded future.
+  expect(r.future).toBe(false)
+  expect(r.frames).toBe(1)
+  expect(h.dockErrors).toEqual([])
+})
