@@ -54,6 +54,15 @@ function serialize(e) {
     ev.data = e.data
     if (typeof el.selectionStart === "number") ev.sel = [el.selectionStart, el.selectionEnd]
   }
+  // For the dock's markers: what was acted on, readably.
+  if (e.type === "click" || e.type === "keydown" || e.type === "input" || e.type === "change") {
+    const el = e.target && e.target.nodeType === 1 ? e.target : null
+    if (el) {
+      ev.sel = selectorOf(el)
+      ev.label = e.type === "click" ? labelOf(el) : e.type === "keydown" ? e.key : labelOf(el)
+      if (e.type === "keydown") ev.inField = !!(el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+    }
+  }
   if (e.type === "scroll") {
     const el = e.target === document ? document.scrollingElement : e.target
     ev.path = e.target === document ? "d" : ev.path
@@ -78,6 +87,12 @@ function onInput(e) {
     if (e.cancelable && e.type !== "scroll" && e.type !== "input") e.preventDefault()
     return
   }
+  // A dock tool (comment/select) is on: the app sees nothing.
+  if (toolActive) {
+    e.stopImmediatePropagation()
+    if (e.cancelable && e.type !== "scroll") e.preventDefault()
+    return
+  }
   if ((e.type === "keydown" || e.type === "keyup") && PT.shortcut && PT.shortcut(e)) return
   if (clock.seeking) {
     // Input during a rewind would land at the wrong moment; drop it.
@@ -92,13 +107,20 @@ function onInput(e) {
     if (previewing && FORKING.has(e.type) && shell && shell.wake) shell.wake()
     return
   }
-  // Nothing branches on its own: new timelines only come from the dock's +.
-  // While paused, input still reaches the prototype but isn't recorded.
-  if (rec.start != null && !clock.playing) return
+  // In the past (rewound, or playing the recorded future back) the app is
+  // view-only, like a paused video: input is blocked, except scrolling to look
+  // around. Only the dock's + makes a new timeline from here.
   if (hasFuture()) {
-    // The real mouse wandering over the page mustn't disturb the replay.
-    if (HOVER.has(e.type)) e.stopImmediatePropagation()
+    if (e.type === "scroll" || e.type === "wheel") return
+    e.stopImmediatePropagation()
+    if (e.cancelable) e.preventDefault()
     return
+  }
+  // At the live edge the app is live and everything is recorded: acting
+  // while paused there resumes recording first, so nothing goes unrecorded.
+  if (!clock.playing) {
+    if (!FORKING.has(e.type)) return // hovering a paused page isn't worth a take
+    play()
   }
   if (e.type === "wheel" || e.type === "touchstart") return
   const ev = serialize(e)

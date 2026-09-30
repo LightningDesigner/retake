@@ -30,6 +30,8 @@ function newRecording() {
     seed: Math.floor(real.random() * 2 ** 32),
     epoch: real.Date.now(),
     storage: { local: snapshotStorage(real.local), session: snapshotStorage(real.session) },
+    // Replays run in a frame of this size, so layout matches (F18).
+    viewport: { w: W.innerWidth, h: W.innerHeight },
     frames: [],
     events: [],
     fetches: [],
@@ -51,6 +53,8 @@ function fork() {
   if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
   rec.events.length = cursor.event
   rec.frames.length = cursor.frame
+  if (rec.routes) rec.routes = rec.routes.filter((r) => r.t <= clock.now)
+  if (rec.reloads) rec.reloads = rec.reloads.filter((t) => t <= clock.now)
   rec.fetches = rec.fetches.map((f, i) => (usedFetches.has(i) ? f : null))
   rec.end = clock.now
   PT.emit()

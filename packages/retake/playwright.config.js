@@ -13,6 +13,11 @@ if (fs.existsSync(new URL("./test/shell/servers.js", import.meta.url))) {
   shellServers = (await import("./test/shell/servers.js")).servers || []
 }
 
+function only(name) {
+  const projects = process.argv.flatMap((a, i, all) => (a.startsWith("--project=") ? [a.slice(10)] : a === "--project" ? [all[i + 1]] : []))
+  return projects.length > 0 && projects.every((p) => p === name)
+}
+
 export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 10_000 },
@@ -24,5 +29,7 @@ export default defineConfig({
     { name: "engine", testDir: "test/engine" },
     { name: "shell", testDir: "test/shell" },
   ],
-  webServer: [...SERVERS, ...shellServers],
+  // Start only the servers the selected projects need, so a shell-only run in
+  // another session doesn't start (and later stop) the engine fixtures.
+  webServer: [...(only("shell") ? [] : SERVERS), ...(only("engine") ? [] : shellServers)],
 })

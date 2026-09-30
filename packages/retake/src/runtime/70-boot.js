@@ -34,8 +34,8 @@ if (pending) {
   clock.rate = pending.rate || 1
 } else {
   rec = newRecording()
-  // Nothing shows on the timeline until Record is pressed.
-  rec.start = null
+  // Recording is always on from page load (CONTRACT.md).
+  rec.start = 0
 }
 epoch = rec.epoch
 seedRandom(rec.seed)
@@ -82,6 +82,10 @@ Object.assign(PT, {
     rate: clock.rate,
     future: hasFuture(),
   }),
+  timeline,
+  clipAt,
+  isInteractive,
+  setToolActive,
   debug: () => ({
     ...stats,
     appMessages,
