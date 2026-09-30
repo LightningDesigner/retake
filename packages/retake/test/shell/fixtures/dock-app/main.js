@@ -19,3 +19,10 @@ $("#f").addEventListener("submit", (e) => {
   e.preventDefault()
   $("#count").textContent = $("#q").value
 })
+
+// Enter sends what's typed, like a chat box: needs focus on the textarea.
+$("#idea").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return
+  e.preventDefault()
+  $("#sent").textContent = "sent: " + $("#idea").value
+})

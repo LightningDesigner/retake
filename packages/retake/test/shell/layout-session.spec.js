@@ -152,3 +152,45 @@ test("F18: a rebuilding frame is pinned to the recorded viewport", async ({ page
   const stage = await page.locator("#wb-stage").boundingBox()
   expect((await page.locator("#wb-stage iframe.live").boundingBox()).width).toBeCloseTo(stage.width, 0)
 })
+
+test("the dock never takes focus away from a frame being rebuilt (replayed keys keep their target)", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await h.click("#idea")
+  await page.keyboard.type("A lighthouse")
+  await page.keyboard.press("Enter")
+  await page.waitForTimeout(300)
+  expect(await h.rt(() => document.querySelector("#sent").textContent)).toBe("sent: A lighthouse")
+  await page.waitForTimeout(300)
+  await h.pause()
+  const s = await h.state()
+  await page.evaluate(() => {
+    window.__blurred = []
+    const orig = HTMLIFrameElement.prototype.blur
+    HTMLIFrameElement.prototype.blur = function () {
+      window.__blurred.push(this.className)
+      return orig.call(this)
+    }
+  })
+  // Rebuild a moment before the end and then after the Enter: the replay
+  // has to type into the textarea and press Enter there.
+  // (Going back from the end rebuilds from the start, replaying the typing.)
+  // While a moment builds, give the hidden frame focus (as a replayed
+  // focus() on a textarea would) and see if the dock takes it away.
+  await page.evaluate(() => {
+    window.__stole = null
+    const watch = () => {
+      const f = document.querySelector("#wb-stage iframe.building")
+      if (!f) return requestAnimationFrame(watch)
+      f.focus()
+      setTimeout(() => (window.__stole = document.activeElement !== f && document.querySelector("#wb-stage iframe.building") === f), 120)
+    }
+    watch()
+  })
+  await h.rt((t) => __wayback.seek(t), s.end - 50)
+  await expect.poll(() => page.evaluate(() => window.__stole)).not.toBe(null)
+  expect(await page.evaluate(() => window.__stole)).toBe(false)
+  await h.settle()
+  expect(await h.rt(() => document.querySelector("#sent").textContent)).toBe("sent: A lighthouse")
+  expect(await page.evaluate(() => window.__blurred.filter((c) => c.includes("building")))).toEqual([])
+  expect(h.dockErrors).toEqual([])
+})

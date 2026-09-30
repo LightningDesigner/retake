@@ -218,9 +218,11 @@ const shield = $("#wb-shield")
 function renderShield(s) {
   const block = !!s.started && !isInteractive(s) && !mode()
   shield.hidden = !block
-  // A rebuilt frame can take focus; in the past, keys belong to the dock.
-  if (block && document.activeElement && document.activeElement.tagName === "IFRAME") {
-    document.activeElement.blur()
+  // In the past, keys belong to the dock, so the visible frame shouldn't keep
+  // focus. Never touch the frame being built: its replay moves focus around
+  // (a replayed click on a textarea) and the keys it replays need that focus.
+  if (block && D.frame && document.activeElement === D.frame && !D.building) {
+    D.frame.blur()
     window.focus()
   }
 }
