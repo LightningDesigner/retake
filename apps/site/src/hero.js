@@ -131,7 +131,7 @@ document.querySelectorAll("[data-copy]").forEach((b) =>
     }
     const s = clockMs / 1000
     tEl.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(2).padStart(5, "0")}`
-    dirEl.textContent = phase === "rewind" ? "GOING BACK" : phase === "branch" ? "BRANCHING" : phase === "pause" ? "PAUSED" : "PLAYING"
+    dirEl.textContent = phase === "rewind" ? "GOING BACK" : phase === "branch" ? "NEW TIMELINE" : phase === "pause" ? "PAUSED" : "PLAYING"
     dirEl.className = phase === "rewind" ? "rw" : ""
     draw()
     requestAnimationFrame(tick)

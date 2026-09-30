@@ -75,3 +75,11 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
   section { padding: 72px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { #threads { display: none; } }
+
+/* package manager switch */
+.pm { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+.pm button { all: unset; cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 12px; border-radius: 6px; transition: color .15s, background-color .15s; }
+.pm button:hover { color: var(--fg); }
+.pm button[aria-selected="true"] { color: var(--fg); background: #1a1a1a; }
+.pm button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.row code.inline { font-size: 13px; color: var(--fg); }
