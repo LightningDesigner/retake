@@ -19,41 +19,41 @@ async function forkMid(h) {
   await h.settle()
 }
 
-test("the dock sits below the app, never over it, and the divider resizes both", async ({ page }) => {
+test("the app fills the window; a glass notch floats over its bottom edge; resizing the dock never resizes the app", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
-  const box = async () => {
-    const stage = await page.locator("#wb-stage").boundingBox()
-    const dock = await page.locator("#wb-dock").boundingBox()
-    return { stage, dock }
-  }
-  let { stage, dock } = await box()
-  // A notch: flush with the bottom edge, 16px in from the sides, only the top
-  // corners rounded; the app ends above it.
-  expect(stage.y + stage.height).toBeLessThanOrEqual(dock.y + 0.5)
+  const frame0 = await page.locator("#wb-stage iframe.live").boundingBox()
+  expect(frame0).toMatchObject({ x: 0, y: 0, width: 1280, height: 800 })
+  const dock = await page.locator("#wb-dock").boundingBox()
   expect(dock.y + dock.height).toBeCloseTo(800, 0)
   expect(dock.x).toBeCloseTo(16, 0)
   expect(dock.x + dock.width).toBeCloseTo(1280 - 16, 0)
   const look = await page.evaluate(() => {
     const cs = getComputedStyle(document.querySelector("#wb-dock"))
-    return { tl: cs.borderTopLeftRadius, bl: cs.borderBottomLeftRadius, blur: cs.backdropFilter || cs.webkitBackdropFilter }
+    return { tl: cs.borderTopLeftRadius, bl: cs.borderBottomLeftRadius, blur: cs.backdropFilter || cs.webkitBackdropFilter, body: getComputedStyle(document.body).backgroundColor, pos: cs.position }
   })
-  expect(look.tl).toBe("18px")
-  expect(look.bl).toBe("0px")
-  expect(look.blur).toContain("blur(")
-  const div = await page.locator(".divider").boundingBox()
+  expect(look).toMatchObject({ tl: "18px", bl: "0px", pos: "fixed" })
+  expect(look.blur).toContain("blur(28px)")
+  expect(look.body).toBe("rgba(0, 0, 0, 0)")
+  // Drag the handle up 100px: the notch grows, the app doesn't change.
+  const div = await page.locator(".divider span").boundingBox()
   await page.mouse.move(div.x + div.width / 2, div.y + div.height / 2)
   await page.mouse.down()
   await page.mouse.move(div.x + div.width / 2, div.y + div.height / 2 - 100, { steps: 5 })
   await page.mouse.up()
   await page.waitForTimeout(100)
-  const after = await box()
-  expect(after.dock.height).toBeCloseTo(dock.height + 100, -1)
-  expect(after.stage.height).toBeCloseTo(stage.height - 100, -1)
-  const frame = await page.locator("#wb-stage iframe.live").boundingBox()
-  expect(frame.height).toBeCloseTo(after.stage.height, 0)
+  expect((await page.locator("#wb-dock").boundingBox()).height).toBeCloseTo(dock.height + 100, -1)
+  expect(await page.locator("#wb-stage iframe.live").boundingBox()).toEqual(frame0)
+  // "Don't cover app": the app ends above the notch.
+  await page.locator('[data-a="more"]').click()
+  await page.locator('[data-a="reserve"]').click()
+  const d2 = await page.locator("#wb-dock").boundingBox()
+  const f2 = await page.locator("#wb-stage iframe.live").boundingBox()
+  expect(f2.y + f2.height).toBeCloseTo(d2.y, 0)
+  // Remembered across a reload, like the dock's height.
   await page.reload()
   await h.settle()
-  expect((await page.locator("#wb-dock").boundingBox()).height).toBeCloseTo(after.dock.height, 0)
+  expect((await page.locator("#wb-dock").boundingBox()).height).toBeCloseTo(dock.height + 100, -1)
+  expect(await page.evaluate(() => document.body.classList.contains("reserve"))).toBe(true)
   expect(h.dockErrors).toEqual([])
 })
 

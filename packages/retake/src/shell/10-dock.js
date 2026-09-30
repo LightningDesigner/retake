@@ -254,7 +254,9 @@ function render() {
   // on the first one rather than draw nothing.
   if (!activeBranch()) D.activeId = D.branches[0].id
   const s = state()
-  dock.style.height = dockHeight() + "px"
+  const dh = dockHeight()
+  dock.style.height = dh + "px"
+  document.body.style.setProperty("--dock-h", dh + "px")
   if (!s || !D.frame) return
   autoStart(s)
   const active = activeBranch()
@@ -360,6 +362,11 @@ document.addEventListener("click", (e) => {
   if (a === "fresh") return startFresh()
   if (a === "undo") return undoFresh()
   if (a === "live") return followLive()
+  if (a === "more") return openMoreMenu(b)
+  if (a === "reserve") {
+    menuEl.hidden = true
+    return setReserve(!D.reserve)
+  }
   if (a === "notes") return toggleList()
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
@@ -377,10 +384,32 @@ document.addEventListener("click", (e) => {
   if (isInteractive()) refocus()
 })
 
+// "Don't cover app": the app ends above the notch instead of under it. Off by
+// default, so the app keeps one size whatever the dock does.
+D.reserve = !!store.get("reserve", false)
+function setReserve(on) {
+  D.reserve = on
+  store.set("reserve", on)
+  document.body.classList.toggle("reserve", on)
+}
+setReserve(D.reserve)
+
+function openMoreMenu(btn) {
+  menuEl.innerHTML = `<button data-a="reserve" role="menuitemcheckbox" aria-checked="${D.reserve}"><span class="check">${D.reserve ? "✓" : ""}</span>Don't cover app</button>`
+  menuEl.hidden = false
+  const r = btn.getBoundingClientRect()
+  menuEl.style.left = Math.min(r.left, innerWidth - menuEl.offsetWidth - 8) + "px"
+  menuEl.style.top = r.top - menuEl.offsetHeight - 8 + "px"
+}
+
 // The dock never grows by itself (that would resize the app mid-recording);
 // only the divider changes it.
-const MIN_H = 150
-const dockHeight = () => Math.round(clamp(D.height, MIN_H, Math.max(MIN_H, innerHeight * 0.7)))
+const MIN_H = 96
+// Never so short that the lanes (at their closest) don't fit under the ruler.
+const dockHeight = () => {
+  const min = Math.max(MIN_H, 56 + 24 + D.branches.length * 10 + 8)
+  return Math.round(clamp(D.height, min, Math.max(min, innerHeight * 0.7)))
+}
 
 // Resize by dragging the top edge, like docked DevTools.
 const divider = $(".divider")

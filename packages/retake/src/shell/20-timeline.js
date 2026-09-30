@@ -33,7 +33,7 @@ const WAVE_H = 10 // waveform height under the active lane
 // blue of actions or the amber of notes.
 const TL_COLORS = ["#a78bfa", "#2dd4bf", "#f472b6", "#bef264", "#fb923c", "#f87171"]
 const colorOf = (b) => TL_COLORS[((b ? b.id : 1) - 1) % TL_COLORS.length]
-const INK = { blue: "#60a5fa", white: "#ffffff", dim: "rgba(255,255,255,0.4)", faint: "rgba(255,255,255,0.16)", hair: "rgba(255,255,255,0.08)", page: "#16161a", lens: "#fde68a" }
+const INK = { blue: "#60a5fa", white: "#ffffff", dim: "rgba(255,255,255,0.55)", faint: "rgba(255,255,255,0.24)", hair: "rgba(255,255,255,0.08)", page: "#16161a", lens: "#fde68a" }
 const NOTE_FILL = { pending: "#ffb224", acknowledged: "#60a5fa", resolved: "#4cc38a", dismissed: "rgba(255,255,255,0.4)" }
 const MONO = '10px "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace'
 
