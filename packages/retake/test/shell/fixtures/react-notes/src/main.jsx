@@ -1,5 +1,6 @@
 import { forwardRef, memo, useId, useState } from "react"
 import { createRoot } from "react-dom/client"
+import { Shifted } from "./Shifted.tsx"
 
 const FancyButton = memo(
   forwardRef(function FancyButton({ dim, onClick, children }, ref) {
@@ -22,6 +23,7 @@ function App() {
     <main>
       <FancyButton dim={dim} onClick={() => setDim((d) => !d)}>Fade</FancyButton>
       <Field />
+      <Shifted />
     </main>
   )
 }

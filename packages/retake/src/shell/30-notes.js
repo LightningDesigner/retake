@@ -120,30 +120,40 @@ function componentName(type) {
   return null
 }
 
-// Nearest components, innermost first.
+// Library wrappers that sit between an element and the component that wrote
+// it (framer-motion presence, Radix slots, providers). Not what a note means.
+const INTERNAL = /^(PopChild|PopChildMeasure|PresenceChild|AnimatePresence|MotionComponent|MotionDOMComponent|LayoutGroup|LazyMotion|MotionConfig|Slot|SlotClone|Slottable|Primitive\b.*|Presence|Portal|DismissableLayer|FocusScope|RemoveScroll|Suspense|StrictMode|Fragment|.*Provider|.*Consumer|.*Context)$/
+
+// Nearest components, innermost first: the components that rendered the
+// element (React's owner chain), which skips wrappers it was merely passed
+// through; failing that, its ancestors.
 function reactComponents(el) {
   const names = []
-  for (let f = fiberOf(el); f && names.length < 4; f = f.return) {
-    const name = componentName(f.type)
-    if (name && /^[A-Z]/.test(name) && !names.includes(name)) names.push(name)
-  }
+  const add = (name) => name && /^[A-Z]/.test(name) && !INTERNAL.test(name) && !names.includes(name) && names.push(name)
+  const f0 = fiberOf(el)
+  for (let o = f0 && f0._debugOwner, i = 0; o && i < 30 && names.length < 4; o = o._debugOwner || o.owner, i++) add(componentName(o.type) || o.name)
+  for (let f = f0; f && names.length < 4; f = f.return) if (!names.length || names.length < 2) add(componentName(f.type))
   return names
 }
 
 // Where the element was written: React's debug info. React 18 and older keep
-// _debugSource; React 19 keeps a stack (_debugStack) whose first app frame is
-// the JSX. Lines are as the dev server serves the file, which for JSX is
-// usually the source line.
+// _debugSource (already source lines). React 19 keeps a stack (_debugStack)
+// whose first app frame is the JSX; those are lines of the file as served
+// (types stripped, JSX compiled), which mapSource() turns back into source
+// lines with the module's own source map.
 function sourceOf(el) {
   for (let f = fiberOf(el), i = 0; f && i < 12; f = f.return, i++) {
     const src = f._debugSource
-    if (src && src.fileName) return { file: shortPath(src.fileName), line: src.lineNumber || null }
+    if (src && src.fileName) return { file: shortPath(src.fileName), line: src.lineNumber || null, mapped: true }
     const stack = f._debugStack && (f._debugStack.stack || String(f._debugStack))
     if (stack) {
       for (const line of stack.split("\n").slice(1)) {
-        const m = line.match(/(\S+?):(\d+):\d+\)?\s*$/)
+        const m = line.match(/(\S+?):(\d+):(\d+)\)?\s*$/)
         if (!m || /node_modules|\/\.vite\/deps\/|react-dom|react\.development|jsx-dev-runtime/.test(m[1])) continue
-        return { file: shortPath(m[1].replace(/^.*?\(/, "")), line: Number(m[2]) }
+        const url = m[1].replace(/^.*?\(/, "")
+        const src = { file: shortPath(url), line: Number(m[2]), col: Number(m[3]), url, mapped: false }
+        mapSource(src)
+        return src
       }
     }
   }
@@ -156,6 +166,83 @@ function shortPath(p) {
   return p.replace(/\?.*$/, "").replace(/^\/@fs/, "")
 }
 
+// ---- source maps: served line → source line ----------------------------------------
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+function decodeMappings(mappings) {
+  const lines = []
+  let src = 0, oLine = 0, oCol = 0
+  for (const text of mappings.split(";")) {
+    const segs = []
+    let gCol = 0
+    for (const seg of text.split(",")) {
+      if (!seg) continue
+      const v = []
+      for (let i = 0, shift = 0, acc = 0; i < seg.length; i++) {
+        const d = B64.indexOf(seg[i])
+        acc += (d & 31) << shift
+        if (d & 32) shift += 5
+        else {
+          v.push(acc & 1 ? -(acc >> 1) : acc >> 1)
+          acc = shift = 0
+        }
+      }
+      gCol += v[0]
+      if (v.length >= 4) {
+        src += v[1]
+        oLine += v[2]
+        oCol += v[3]
+        segs.push([gCol, src, oLine, oCol])
+      }
+    }
+    lines.push(segs)
+  }
+  return lines
+}
+
+const sourceMaps = new Map() // module url (without query) → Promise<{ map, lines } | null>
+function loadMap(url) {
+  const key = url.replace(/\?.*$/, "")
+  if (!sourceMaps.has(key))
+    sourceMaps.set(
+      key,
+      (async () => {
+        try {
+          const code = await (await fetch(url)).text()
+          const m = code.match(/\/\/[#@] sourceMappingURL=(\S+)\s*$/)
+          if (!m) return null
+          let json
+          if (m[1].startsWith("data:")) {
+            const b64 = m[1].slice(m[1].indexOf(",") + 1)
+            json = /;base64/.test(m[1].slice(0, m[1].indexOf(","))) ? new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))) : decodeURIComponent(b64)
+          } else json = await (await fetch(new URL(m[1], url))).text()
+          const map = JSON.parse(json)
+          return { map, lines: decodeMappings(map.mappings || "") }
+        } catch {
+          return null
+        }
+      })(),
+    )
+  return sourceMaps.get(key)
+}
+
+// Rewrites src.line (and file, if the map names another) in place, so the
+// note that holds it is saved with the source line.
+async function mapSource(src) {
+  const m = await loadMap(src.url)
+  const segs = m && m.lines[src.line - 1]
+  if (segs && segs.length) {
+    let best = segs[0]
+    for (const s of segs) if (s[0] <= src.col - 1) best = s
+    src.line = best[2] + 1
+    const name = m.map.sources && m.map.sources[best[1]]
+    if (name && !name.startsWith("\0") && shortPath(name).split("/").pop() !== src.file.split("/").pop()) src.file = shortPath(name)
+  }
+  src.mapped = true
+  delete src.col
+  delete src.url
+}
+
 // The computed styles an agent would ask about first. Defaults are left out.
 const KEY_STYLES = ["display", "position", "width", "height", "margin", "padding", "color", "background-color", "font-size", "font-weight", "border-radius", "opacity", "transform", "transition", "animation-name", "z-index", "gap"]
 const BORING = new Set(["none", "normal", "auto", "0px", "static", "visible", "rgba(0, 0, 0, 0)", "all 0s ease 0s", "0s", ""])
@@ -165,10 +252,24 @@ function keyStyles(el) {
     const cs = el.ownerDocument.defaultView.getComputedStyle(el)
     for (const p of KEY_STYLES) {
       const v = cs.getPropertyValue(p)
-      if (!BORING.has(v) && !(p === "opacity" && v === "1")) out[p] = v
+      if (!BORING.has(v) && !(p === "opacity" && v === "1")) out[p] = p === "transition" ? summariseTransition(v) : v
     }
   } catch {}
   return out
+}
+
+// Tailwind's transition-colors lists ten properties with one timing; say
+// that once: "10 properties 0.15s cubic-bezier(0.4, 0, 0.2, 1)".
+function summariseTransition(v) {
+  const parts = v.split(/,(?![^(]*\))/).map((x) => x.trim())
+  if (parts.length <= 3) return v
+  const groups = new Map()
+  for (const part of parts) {
+    const [prop, ...rest] = part.split(/\s+(?![^(]*\))/)
+    const timing = rest.join(" ")
+    groups.set(timing, [...(groups.get(timing) || []), prop])
+  }
+  return [...groups].map(([timing, props]) => (props.length > 2 ? `${props.length} properties ${timing}` : `${props.join(", ")} ${timing}`)).join("; ")
 }
 
 function describe(el) {

@@ -143,3 +143,32 @@ test("a note on an icon lands on its button, not the svg path inside it", async 
   expect(n.el.selector).toBe("#like")
   expect(n.el.label).toBe("<button#like>")
 })
+
+test("source lines are the original lines (source-mapped), components skip library internals, long transitions are summarised", async ({ page }) => {
+  const fs = await import("node:fs")
+  const path = await import("node:path")
+  const file = fs.readFileSync(path.resolve("test/shell/fixtures/react-notes/src/Shifted.tsx"), "utf8").split("\n")
+  const buttonLine = file.findIndex((l) => l.includes('id="shifted"')) // 0-based index of the id line = 1-based line of <button
+  const h = await openDock(page, REACT_URL)
+  await recordSome(h, ["#fancy"])
+  await h.pause()
+  await intoFirstClick(h, 120)
+  await noteOn(h, "#shifted", "Rounder")
+  await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.source && D.notes[D.notes.length - 1].el.source.mapped)).toBe(true)
+  const n = await dock(page, (D) => D.notes[D.notes.length - 1])
+  expect(n.el.source.file).toMatch(/\/src\/Shifted\.tsx$/)
+  expect([buttonLine, buttonLine + 1]).toContain(n.el.source.line)
+  // ...which the served file has somewhere else, so the mapping mattered.
+  const served = (await (await page.request.get(REACT_URL + "src/Shifted.tsx")).text()).split("\n")
+  const servedLine = served.findIndex((l) => /id:\s*"shifted"/.test(l)) + 1
+  expect(servedLine).toBeGreaterThan(0)
+  expect(Math.abs(servedLine - n.el.source.line)).toBeGreaterThan(50)
+  expect(n.el.components[0]).toBe("Shifted")
+  expect(n.el.components.join(" ")).not.toMatch(/PopChild|PresenceChild|AnimatePresence/)
+  expect(n.el.styles.transition.length).toBeLessThan(80)
+  expect(n.el.styles.transition).toContain("10 properties")
+  expect(n.el.styles.transition).toContain("0.15s")
+  const p = await page.evaluate(() => { const d = window.__waybackDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
+  expect(p).toContain(`Source: /src/Shifted.tsx:${n.el.source.line}`)
+  expect(h.dockErrors).toEqual([])
+})
