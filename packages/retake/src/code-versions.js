@@ -220,7 +220,15 @@ export function codeVersions(server, { token, bus } = {}) {
   }
 
   const rec = store.recover(onFile)
-  if (rec && rec.restored) warn(`an interrupted code checkout was rolled back to version ${rec.restored}`)
+  // True while the files on disk are what this server put back at startup
+  // (a rolled-back checkout, or the newest code after a crash), until the next
+  // edit or checkout. The dock then checks out its active timeline's own code
+  // instead of adopting what it finds on disk.
+  let restoredAtStart = false
+  if (rec && rec.restored) {
+    warn(`an interrupted code checkout was rolled back to version ${rec.restored}`)
+    restoredAtStart = true
+  }
   if (rec && rec.error) warn(rec.error)
 
   let current
@@ -238,6 +246,7 @@ export function codeVersions(server, { token, bus } = {}) {
     const r = store.checkout(prev.newest, onFile)
     if (r.ok) {
       log(`restored the newest code (version ${prev.newest}) left behind by the last run`)
+      restoredAtStart = true
       current = prev.newest
     }
   }
@@ -263,6 +272,7 @@ export function codeVersions(server, { token, bus } = {}) {
       try {
         const id = store.snapshot()
         const changed = id !== current
+        if (changed) restoredAtStart = false
         current = newest = id
         persist()
         if (changed) announce()
@@ -276,6 +286,7 @@ export function codeVersions(server, { token, bus } = {}) {
     clearTimeout(pending)
     const r = store.checkout(id, onFile)
     if (r.ok) {
+      restoredAtStart = false
       // Anything the snapshot-before-checkout captured that we hadn't seen yet
       // is the user's latest work.
       if (r.from !== current && r.from !== id) newest = r.from
@@ -318,7 +329,7 @@ export function codeVersions(server, { token, bus } = {}) {
 
   server.middlewares.use((req, res, next) => {
     const url = new URL(req.url, "http://x")
-    if (url.pathname === "/__wayback/version") return json(res, 200, { version: current, newest })
+    if (url.pathname === "/__wayback/version") return json(res, 200, { version: current, newest, restored: restoredAtStart })
     if (url.pathname === "/__wayback/checkout") {
       // POST + token. A GET is accepted only from the dock's own origin
       // (Sec-Fetch-Site can't be forged by other sites) while the dock moves over.
@@ -328,7 +339,9 @@ export function codeVersions(server, { token, bus } = {}) {
         return json(res, 403, { ok: false, error: "checkout needs POST with x-wayback-token" })
       }
       const r = checkout(url.searchParams.get("v"))
-      return json(res, r.ok ? 200 : 409, { ok: r.ok, version: current, error: r.error })
+      // left: the snapshot taken just before switching, i.e. the real code of
+      // the timeline being left (edits the version poll hadn't seen yet included).
+      return json(res, r.ok ? 200 : 409, { ok: r.ok, version: current, left: r.from || null, error: r.error })
     }
     next()
   })

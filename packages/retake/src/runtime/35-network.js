@@ -218,41 +218,56 @@ function liveFetch(input, init, key, hash, record) {
             ev("end")
             return resolve(makeResponse(entry, null))
           }
+          // The body is read as it arrives, whether or not the app reads it:
+          // a response the app only checks (res.ok) still gets recorded whole,
+          // so replays never have to go back to the network for it.
           const reader = res.body.getReader()
+          let appStream = null
+          let cancelled = false
           const stream = new ReadableStream({
-            pull(controller) {
-              return reader.read().then(
-                ({ done, value }) =>
-                  new Promise((ok) =>
-                    arrive(() => {
-                      if (done) {
-                        entry.done = true
-                        ev("end")
-                        controller.close()
-                      } else {
-                        entry.chunks.push(toB64(value))
-                        ev("chunk", { n: entry.chunks.length - 1 })
-                        controller.enqueue(value)
-                      }
-                      ok()
-                    }),
-                  ),
-                (err) =>
-                  arrive(() => {
-                    entry.error = { name: err && err.name, message: err && err.message }
-                    entry.done = true
-                    ev("error")
-                    controller.error(err)
-                  }),
-              )
+            start(controller) {
+              appStream = controller
             },
             cancel(reason) {
-              entry.done = true
-              entry.error = { name: "AbortError", message: "cancelled" }
-              ev("error")
-              return reader.cancel(reason)
+              cancelled = true // the app is done with it; the recording keeps reading
             },
           })
+          const pump = () =>
+            reader.read().then(
+              ({ done, value }) =>
+                arrive(() => {
+                  if (done) {
+                    entry.done = true
+                    ev("end")
+                    if (!cancelled) {
+                      try {
+                        appStream.close()
+                      } catch {}
+                    }
+                    return
+                  }
+                  entry.chunks.push(toB64(value))
+                  ev("chunk", { n: entry.chunks.length - 1 })
+                  if (!cancelled) {
+                    try {
+                      appStream.enqueue(value)
+                    } catch {}
+                  }
+                  pump()
+                }),
+              (err) =>
+                arrive(() => {
+                  entry.error = { name: err && err.name, message: err && err.message }
+                  entry.done = true
+                  ev("error")
+                  if (!cancelled) {
+                    try {
+                      appStream.error(err)
+                    } catch {}
+                  }
+                }),
+            )
+          pump()
           resolve(makeResponse(entry, stream))
         })
       },

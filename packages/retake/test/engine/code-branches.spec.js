@@ -183,3 +183,57 @@ test("F28 checkout needs POST + token (cross-site GETs are refused)", async () =
     await stop(child)
   }
 })
+
+test("checkout reports the code it left, including edits the version poll hadn't seen yet", async () => {
+  const dir = makeApp()
+  const child = await startServer(dir)
+  const base = `http://localhost:${PORT}`
+  try {
+    const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+    const post = async (v) => (await fetch(`${base}/__wayback/checkout?v=${v}`, { method: "POST", headers: { "x-wayback-token": token } })).json()
+    const v1 = (await (await fetch(`${base}/__wayback/version`)).json()).version
+    await new Promise((r) => setTimeout(r, 800))
+    fs.writeFileSync(path.join(dir, "main.js"), "// EDIT-2, switched away from within 20ms\n")
+    await new Promise((r) => setTimeout(r, 20))
+    const r = await post(v1)
+    expect(r.ok).toBe(true)
+    expect(r.left).toMatch(/^[0-9a-f]{10}$/)
+    expect(r.left).not.toBe(v1)
+    expect(fs.readFileSync(path.join(dir, "main.js"), "utf8")).toContain("V1")
+    expect((await post(r.left)).ok).toBe(true)
+    expect(fs.readFileSync(path.join(dir, "main.js"), "utf8")).toContain("EDIT-2")
+  } finally {
+    await stop(child)
+  }
+})
+
+test("GET /version says restored:true after the server put code back at startup, until the next edit", async () => {
+  const dir = makeApp()
+  let child = await startServer(dir)
+  const base = `http://localhost:${PORT}`
+  const version = async () => (await fetch(`${base}/__wayback/version`)).json()
+  const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+  const v1 = (await version()).version
+  expect((await version()).restored).toBe(false)
+  await new Promise((r) => setTimeout(r, 800))
+  fs.writeFileSync(path.join(dir, "main.js"), "// V2 work\n")
+  let v2 = v1
+  for (let i = 0; i < 50 && v2 === v1; i++) { await new Promise((r) => setTimeout(r, 100)); v2 = (await version()).version }
+  await fetch(`${base}/__wayback/checkout?v=${v1}`, { method: "POST", headers: { "x-wayback-token": token } })
+  for (const pid of listeners()) process.kill(pid, "SIGKILL")
+  child.kill("SIGKILL")
+  for (let i = 0; i < 30 && listeners().length; i++) await new Promise((r) => setTimeout(r, 100))
+  child = await startServer(dir)
+  try {
+    const v = await version()
+    expect(v.restored).toBe(true)
+    expect(v.version).toBe(v2)
+    await new Promise((r) => setTimeout(r, 800))
+    fs.writeFileSync(path.join(dir, "main.js"), "// V3\n")
+    let after = v
+    for (let i = 0; i < 50 && after.version === v.version; i++) { await new Promise((r) => setTimeout(r, 100)); after = await version() }
+    expect(after.restored).toBe(false)
+  } finally {
+    await stop(child)
+  }
+})

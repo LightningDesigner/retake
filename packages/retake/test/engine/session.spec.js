@@ -113,3 +113,12 @@ test("F10 a full reload while recording carries on recording", async ({ page }) 
   expect(s.recording).toBe(true)
   expect(s.end).toBeGreaterThan(3000)
 })
+
+test("a frame the dock removes after a rebuild doesn't leave a resume behind", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(800)
+  await h.pause()
+  await h.seek(300)
+  await h.seek(600)
+  expect(await page.evaluate(() => window.__waybackShell.__resume || null)).toBeNull()
+})

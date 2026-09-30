@@ -116,3 +116,9 @@ document.getElementById("conf").addEventListener("click", () => {
   w.onmessage = (e) => L("conf", e.data)
   w.postMessage({ canvas: off }, [off])
 })
+
+// Like Sherpa's POST: only the status is looked at, the body is never read.
+document.getElementById("unread").addEventListener("click", async () => {
+  const res = await fetch("/api/stream?unread=1")
+  L("unread", res.status)
+})

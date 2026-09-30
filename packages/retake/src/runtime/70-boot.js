@@ -147,9 +147,13 @@ PT.shortcut = function (e) {
   return true
 }
 
+// A reload (or navigation) fires beforeunload first; a frame the dock removes
+// doesn't. Only a reload leaves its recording on the shell to resume.
+let unloading = false
+W.addEventListener("beforeunload", () => (unloading = true))
 W.addEventListener("pagehide", () => {
   try {
-    if (!shell || !rec || rec.start == null || clock.seeking) return
+    if (!unloading || !shell || !rec || rec.start == null || clock.seeking) return
     const el = W.frameElement
     if (!el || !el.isConnected) return
     rec.reloads = [...(rec.reloads || []), clock.now]

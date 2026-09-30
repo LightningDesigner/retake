@@ -98,3 +98,19 @@ test("an abort signal is honoured during replay", async ({ page }) => {
   expect(pick(live, "slow-err")[0].v).toBe("AbortError")
   expect(pick(replay, "slow-err", T)).toEqual(pick(live, "slow-err"))
 })
+
+test("a response whose body the app never reads is still recorded whole and replayed offline", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(300)
+  await h.click("#unread")
+  await page.waitForTimeout(2200) // the (unread) stream finishes on the server
+  await h.pause()
+  const entry = await h.rt(() => __wayback.history().fetches.find((f) => f && f.key.includes("unread")))
+  expect(entry.done).toBe(true)
+  expect(entry.chunks.length).toBeGreaterThan(1)
+  let hits = 0
+  page.on("request", (r) => r.url().includes("unread=1") && hits++)
+  await h.seek((await h.state()).now - 1)
+  expect(pick(await h.log(), "unread")).toHaveLength(1)
+  expect(hits).toBe(0)
+})
