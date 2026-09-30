@@ -151,3 +151,17 @@ test("adopt(): a frame rebuilt to an earlier moment seeks forward in place with 
   other.seed = 12345
   expect(await h.rt((j) => __wayback.adopt(j, 99999), JSON.stringify(other))).toBe(false)
 })
+
+test("seek() ends a live preview", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(1200)
+  await h.pause()
+  const now = (await h.state()).now
+  await h.rt((t) => __wayback.preview(t), now - 800)
+  expect((await h.state()).previewing).toBe(true)
+  await h.rt((t) => __wayback.seek(t), now + 200) // forward, in place
+  await page.waitForTimeout(300)
+  const s = await h.state()
+  expect(s.previewing).toBe(false)
+  expect(s.now).toBeGreaterThanOrEqual(now)
+})

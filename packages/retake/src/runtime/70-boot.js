@@ -71,7 +71,13 @@ Object.assign(PT, {
   pause,
   preview,
   endPreview,
-  seek: (t, andPlay) => rec.start != null && seek(Math.max(t, rec.start), andPlay ? play : undefined),
+  // Going to a moment ends a live preview first (the dock does this itself,
+  // but API and MCP callers shouldn't have to).
+  seek: (t, andPlay) => {
+    if (rec.start == null) return false
+    if (previewing) endPreview()
+    return seek(Math.max(t, rec.start), andPlay ? play : undefined)
+  },
   // Start a new branch at this moment, even if nothing lies ahead yet.
   forkHere() {
     if (hasFuture()) return fork()
