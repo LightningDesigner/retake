@@ -55,6 +55,7 @@ function fork() {
   rec.frames.length = cursor.frame
   if (rec.routes) rec.routes = rec.routes.filter((r) => r.t <= clock.now)
   if (rec.reloads) rec.reloads = rec.reloads.filter((t) => t <= clock.now)
+  if (rec.clips) rec.clips = rec.clips.filter((c) => c.start <= clock.now)
   netFork(cut)
   rec.end = clock.now
   PT.emit()

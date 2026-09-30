@@ -110,3 +110,20 @@ test("route changes are markers", async ({ page }) => {
   const routes = (await h.rt(() => __wayback.timeline())).markers.filter((m) => m.kind === "route").map((m) => m.label)
   expect(routes).toEqual(expect.arrayContaining(["/anim", "/about"]))
 })
+
+test("after a rewind the whole timeline's clips are still there, with the same ids", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(300)
+  await h.click("#go")
+  await page.waitForTimeout(1000)
+  await h.pause()
+  const before = (await h.rt(() => __wayback.timeline())).clips
+  expect(before.length).toBeGreaterThanOrEqual(2)
+  await h.seek(100) // before any clip started
+  const after = (await h.rt(() => __wayback.timeline())).clips
+  expect(after).toEqual(before)
+  expect(typeof (await h.rt(() => typeof __wayback.play))).toBe("string")
+  await h.rt(() => __wayback.play())
+  await page.waitForTimeout(300)
+  expect((await h.state()).playing).toBe(true)
+})

@@ -21,11 +21,15 @@ function logAnim(a, s) {
   const e = { anim: a, target: a.effect.target, keyframes, timing: a.effect.getTiming(), rate, vStart: clock.now - s.t / rate, vEnd: null, clone: null }
   animLog.push(e)
   animEntry.set(a, e)
+  recordClip(e)
 }
 
 function endAnim(a) {
   const e = animEntry.get(a)
-  if (e && e.vEnd == null) e.vEnd = clock.now
+  if (e && e.vEnd == null) {
+    e.vEnd = clock.now
+    endClip(e)
+  }
 }
 
 // ---- DOM log --------------------------------------------------------------------

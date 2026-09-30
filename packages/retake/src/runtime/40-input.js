@@ -112,6 +112,12 @@ function onInput(e) {
   // around. Only the dock's + makes a new timeline from here.
   if (hasFuture()) {
     if (e.type === "scroll" || e.type === "wheel") return
+    // The dock drives space/arrows/F/+ while focus is in the app.
+    if (e.type === "keydown" && shell && typeof shell.key === "function") {
+      try {
+        shell.key(e)
+      } catch {}
+    }
     e.stopImmediatePropagation()
     if (e.cancelable) e.preventDefault()
     return

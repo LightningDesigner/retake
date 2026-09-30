@@ -53,6 +53,11 @@ Object.assign(PT, {
   version: "0.4.0",
   now: () => clock.now,
   record,
+  // Play from here: replays the recorded future, then carries on live.
+  play: () => {
+    if (previewing) endPreview()
+    play()
+  },
   pause,
   preview,
   endPreview,

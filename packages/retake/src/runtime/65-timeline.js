@@ -95,24 +95,34 @@ function clipEnd(e) {
   return Number.isFinite(total) ? e.vStart + total / (e.rate || 1) : null
 }
 
-const clipIds = new WeakMap()
-let clipSeq = 0
+// Clips live in the recording (rec.clips), so a rebuilt frame still knows
+// the whole timeline's clips, including the ones after the playhead. They're
+// described once, when the animation starts at the live edge.
+const clipOfEntry = new WeakMap()
+function describeClip(e) {
+  const a = e.anim
+  const kind = clipKind(a)
+  const props = [...new Set((e.keyframes || []).flatMap((k) => Object.keys(k).filter((p) => !["offset", "easing", "composite", "computedOffset"].includes(p))))]
+  const property = kind === "transition" ? a.transitionProperty : props.join(", ") || undefined
+  const label = kind === "css-animation" ? a.animationName : kind === "transition" ? `${a.transitionProperty} transition` : props.length ? props.join(", ") : "animation"
+  return { kind, label, selector: selectorOf(e.target), component: componentOf(e.target) || undefined, property }
+}
+function recordClip(e) {
+  if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
+  const clips = rec.clips || (rec.clips = [])
+  const c = { id: `c${clips.length + 1}`, start: e.vStart, end: clipEnd(e), ...describeClip(e) }
+  if (c.property === undefined) delete c.property
+  if (c.component === undefined) delete c.component
+  clips.push(c)
+  clipOfEntry.set(e, c)
+}
+function endClip(e) {
+  const c = clipOfEntry.get(e)
+  if (c && (c.end == null || e.vEnd < c.end)) c.end = e.vEnd
+}
 function clipsOf() {
-  const out = []
-  for (const e of animLog) {
-    if (!clipIds.has(e)) {
-      // Described once, when first seen: the element may change or go later.
-      const a = e.anim
-      const kind = clipKind(a)
-      const props = [...new Set((e.keyframes || []).flatMap((k) => Object.keys(k).filter((p) => !["offset", "easing", "composite", "computedOffset"].includes(p))))]
-      const property = kind === "transition" ? a.transitionProperty : props.join(", ") || undefined
-      const name = kind === "css-animation" ? a.animationName : kind === "transition" ? `${a.transitionProperty} transition` : props.length ? props.join(", ") : "animation"
-      clipIds.set(e, { id: `c${++clipSeq}`, kind, label: name, selector: selectorOf(e.target), component: componentOf(e.target) || undefined, property })
-    }
-    const d = clipIds.get(e)
-    out.push({ ...d, start: e.vStart, end: clipEnd(e) })
-  }
-  return out
+  const start = rec.start || 0
+  return (rec.clips || []).filter((c) => c.start >= start || (c.end != null && c.end >= start))
 }
 
 function timeline() {
