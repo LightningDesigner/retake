@@ -44,6 +44,7 @@ async function seed(request) {
     notes: [
       { id: "n1", branchId: 2, t: 2300, clip: { id: "c3", offset: 120, duration: 400 }, selector: "#go", component: "GoButton", source: { file: "src/Go.tsx", line: 12 }, classes: ["btn", "primary"], rect: { x: 10, y: 20, w: 80, h: 32 }, text: "Make this blue", status: "pending", replies: [] },
       { id: "n2", branchId: 1, t: 500, selector: "#box", text: "Slower", status: "resolved", replies: [] },
+      { id: "n4", branchId: 1, t: 6000, selector: "#bar", clip: { id: "c32", offset: 5550, duration: null, label: "fm-note-rise" }, text: "Less bounce", status: "dismissed", replies: [] },
     ],
   }
   await request.put(base + "/__wayback/session", { data: session, headers: { "x-wayback-token": token } })
@@ -64,13 +65,14 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     const list = await m.tool("list_notes")
     expect(list.json.notes.map((n) => n.id)).toEqual(["n1"]) // open only
     expect(list.json.notes[0]).toMatchObject({ timeline: "Timeline 2", source: "src/Go.tsx:12", component: "GoButton" })
-    expect((await m.tool("list_notes", { status: "all" })).json.count).toBe(2)
+    expect((await m.tool("list_notes", { status: "all" })).json.count).toBe(3)
 
     const note = await m.tool("get_note", { id: "n1" })
     expect(note.text).toContain("Make this blue")
     expect(note.text).toContain("Selector: #go")
     expect(note.text).toContain("Source: src/Go.tsx:12")
     expect(note.text).toContain('branched from "Timeline 1"')
+    expect(note.text).toContain("120ms into a 400ms animation (clip c3)")
 
     const active = await m.tool("get_active_timeline")
     expect(active.json.active).toMatchObject({ name: "Timeline 2", parent: "Timeline 1", codeVersion: "abc1234567" })
@@ -85,6 +87,7 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     expect(n1.status).toBe("resolved")
     expect(n1.replies.map((r) => [r.from, r.text])).toEqual([["agent", "on it"], ["agent", "blue as in #2563eb?"], ["agent", "Button is #2563eb now"]])
 
+    expect((await m.tool("get_note", { id: "n4" })).text).toContain("5550ms into a running fm-note-rise animation (clip c32)")
     const missing = await m.tool("get_note", { id: "nope" })
     expect(missing.isError).toBe(true)
     expect(missing.text).toContain("no note with id nope")

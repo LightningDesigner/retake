@@ -118,6 +118,12 @@ function summary(n, session) {
   }
 }
 
+function clipText(c) {
+  const name = c.label ? `${c.label} ` : ""
+  const at = `${Math.round(Number(c.offset) || 0)}ms into`
+  return Number(c.duration) > 0 ? `${at} a ${Math.round(c.duration)}ms ${name}animation (clip ${c.id})` : `${at} a running ${name}animation (clip ${c.id})`
+}
+
 // Everything an agent needs to act on one note, as readable text.
 function describe(n, session) {
   const b = (session.branches || []).find((x) => String(x.id) === String(n.branchId))
@@ -135,7 +141,7 @@ function describe(n, session) {
     n.source ? `Source: ${n.source.file}${n.source.line ? ":" + n.source.line : ""}` : null,
     n.classes && n.classes.length ? `Classes: ${[].concat(n.classes).join(" ")}` : null,
     n.rect ? `Box: ${Math.round(n.rect.w)}×${Math.round(n.rect.h)} at (${Math.round(n.rect.x)}, ${Math.round(n.rect.y)})` : null,
-    n.clip ? `During an animation: clip ${n.clip.id}, ${Math.round(n.clip.offset)}ms into ${Math.round(n.clip.duration || 0)}ms` : null,
+    n.clip ? `During an animation: ${clipText(n.clip)}` : null,
     el.page ? `Page: ${el.page}` : null,
   ]
   if ((n.replies || []).length) {
