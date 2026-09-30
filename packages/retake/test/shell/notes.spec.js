@@ -133,3 +133,13 @@ test("agent replies show inline; the list shows this timeline's notes", async ({
   await expect(page.locator("#wb-note .status")).toHaveText(/acknowledged/i)
   expect(h.dockErrors).toEqual([])
 })
+
+test("a note on an icon lands on its button, not the svg path inside it", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await intoFirstClick(h, 50)
+  const n = await noteOn(h, "#like path", "Bigger heart", "tool")
+  expect(n.el.selector).toBe("#like")
+  expect(n.el.label).toBe("<button#like>")
+})

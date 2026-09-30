@@ -21,8 +21,8 @@ shell.inspect = (e) => {
   const el = e.target.nodeType === 1 ? e.target : e.target.parentElement
   if (e.type === "pointermove" || e.type === "pointerover") hovered = usable(el)
   else if (e.type === "click" && usable(el)) {
-    if (mode() === "select") setScope(el)
-    else openComposer(el)
+    if (mode() === "select") setScope(usable(el))
+    else openComposer(usable(el))
   } else if (e.type === "keydown" && e.key === "Escape") {
     setPicking(null)
     setScope(null)
@@ -44,7 +44,17 @@ shell.meta = (down) => {
 }
 
 // The page itself isn't a thing to comment on.
-const usable = (el) => (el && el.tagName !== "HTML" && el.tagName !== "BODY" ? el : null)
+// Inside an SVG icon, the thing you mean is the icon's control (a button or
+// link), or at least the whole <svg>, not one of its paths.
+function usable(el) {
+  if (!el || el.tagName === "HTML" || el.tagName === "BODY") return null
+  if (el instanceof el.ownerDocument.defaultView.SVGElement) {
+    const svgRoot = el.ownerSVGElement ? el.closest("svg:not(svg svg)") || el.ownerSVGElement : el
+    const control = svgRoot.parentElement && svgRoot.parentElement.closest("button, a, [role=button], [role=link], label, [id]")
+    return control && control.tagName !== "BODY" ? control : svgRoot
+  }
+  return el
+}
 
 // Leaving the Select tool lets go of the selected component.
 function setPicking(m) {
