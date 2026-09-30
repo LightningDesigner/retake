@@ -162,7 +162,9 @@ function freshFrame() {
 
 D.frame = makeFrame(appUrl)
 D.frame.className = "live"
-D.frameBranch = D.activeId
+// Nobody's yet: a saved session may be restored into another frame. restore()
+// hands it to the active timeline if there's nothing to restore.
+D.frameBranch = null
 
 // The frame being built is ready once its runtime has booted and reached its
 // moment.

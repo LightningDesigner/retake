@@ -74,6 +74,7 @@ const whenAttached = () =>
   })
 
 async function restore() {
+  let loaded = false
   try {
     const r = await api("GET", "session")
     if (r.missing) {
@@ -87,13 +88,20 @@ async function restore() {
     const json = await recordingOf(activeBranch())
     if (!json) return
     await whenAttached()
-    const b = activeBranch()
-    D.PT.load(json, b.end)
+    // Back where it was: the end of what that timeline recorded.
+    let end = activeBranch().end
+    try {
+      end = JSON.parse(json).end
+    } catch {}
+    D.PT.load(json, end)
+    loaded = true
   } catch (err) {
     // Don't overwrite a session we couldn't read.
     console.warn("[retake] couldn't restore the session; keeping this one in memory", err)
     net.on = false
   } finally {
+    // Nothing restored: the frame that's been running is the first timeline.
+    if (!loaded) D.frameBranch = D.activeId
     net.restoring = false
   }
 }

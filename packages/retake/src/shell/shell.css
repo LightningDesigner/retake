@@ -156,6 +156,8 @@ body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
 .canvas-pin { position: fixed; pointer-events: auto; width: 18px; height: 18px; border-radius: 999px; background: var(--amber); color: var(--bg);
   font: 500 10px/1 var(--mono); transition: transform .12s var(--ease); }
 @media (hover: hover) { .canvas-pin:hover { transform: scale(1.12); } }
+.canvas-pin.away { opacity: .45; }
+@media (hover: hover) { .canvas-pin.away:hover { opacity: 1; } }
 
 /* ---- cards: a note, the notes list, a context menu ---- */
 .card { position: fixed; z-index: 30; width: 320px; padding: 12px; border-radius: 8px; color: var(--fg);

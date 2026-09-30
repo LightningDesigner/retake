@@ -172,3 +172,37 @@ test("source lines are the original lines (source-mapped), components skip libra
   expect(p).toContain(`Source: /src/Shifted.tsx:${n.el.source.line}`)
   expect(h.dockErrors).toEqual([])
 })
+
+test("pins for another moment are dimmed, and clicking one goes to its note's moment", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle", "#toggle"])
+  await h.pause()
+  await intoFirstClick(h, 140)
+  const n = await noteOn(h, "#card", "Slower")
+  await expect(page.locator(".canvas-pin")).not.toHaveClass(/away/)
+  const s = await h.state()
+  await h.seek(s.end - 20)
+  await expect(page.locator(".canvas-pin")).toHaveClass(/away/)
+  await page.locator(".canvas-pin").click()
+  await expect.poll(async () => Math.abs((await h.state().catch(() => ({ now: -1e9 }))).now - n.t), { timeout: 15000 }).toBeLessThan(20)
+  await expect(page.locator("#wb-note")).toContainText("Slower")
+  await expect(page.locator(".canvas-pin")).not.toHaveClass(/away/)
+})
+
+// S4 (Sherpa): a note on something that isn't animating mustn't borrow a clip
+// from elsewhere on the page (Sherpa's notes on a still button came out as
+// "5550ms into … fm-note-rise on …svg", the floating music notes).
+test("a note on a still element has no clip, even while something else animates", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await intoFirstClick(h, 140) // #card is mid-transition here
+  const n = await noteOn(h, "#count", "Bigger number")
+  expect(n.el.selector).toBe("#count")
+  expect(n.clip).toBeNull()
+  const p = await page.evaluate(() => window.__waybackDock.prompt(window.__waybackDock.state.notes[0]))
+  expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, nothing animating/)
+  // The animating element itself still gets its clip.
+  const m = await noteOn(h, "#card", "Slower")
+  expect(m.clip && m.clip.selector).toBe("#card")
+})

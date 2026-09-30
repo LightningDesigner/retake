@@ -298,9 +298,13 @@ function describe(el) {
   }
 }
 
-// What was moving on the element (or the nearest thing that was) at t.
-function clipFor(t, selector) {
-  const hit = clipAt(t, selector) || clipAt(t)
+// What was moving on the element at t: on it or inside it, else on one of its
+// nearest ancestors (a label inside a sliding button). Never a clip from
+// elsewhere on the page: a note on a still element says nothing is animating.
+const CLIP_ANCESTORS = 4
+function clipFor(t, selector, el) {
+  let hit = clipAt(t, selector)
+  for (let n = el && el.parentElement, i = 0; !hit && n && n.tagName !== "BODY" && i < CLIP_ANCESTORS; n = n.parentElement, i++) hit = clipAt(t, cssPath(n))
   if (!hit || !hit.clip) return null
   const c = hit.clip
   const end = c.end == null ? null : c.end
@@ -419,7 +423,7 @@ function openComposer(el) {
   if (!D.PT || !s || !isStill()) return
   const t = s.previewing ? s.previewAt : s.now
   const desc = describe(el)
-  draft = { el: desc, t, clip: clipFor(t, desc.selector) }
+  draft = { el: desc, t, clip: clipFor(t, desc.selector, el) }
   openNote = null
   card.innerHTML = `${meta(t, draft.el)}<textarea rows="3" placeholder="What should change here?"></textarea>
     <div class="note-actions"><button data-note-a="cancel">Cancel</button><button data-note-a="save" class="primary">Add note</button></div>`
@@ -497,10 +501,11 @@ function handleNoteClick(b) {
   if (b.dataset.note) {
     const n = D.notes.find((x) => String(x.id) === b.dataset.note)
     if (!n) return true
-    // From the timeline or the list, go to the note's moment too.
-    if (!b.classList.contains("canvas-pin")) {
-      if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
-      else if (D.PT && Math.abs((D.last.previewing ? D.last.previewAt : D.last.now) - n.t) > 5) D.PT.seek(n.t)
+    // From a pin, the timeline or the list: go to the note's moment too.
+    if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
+    else if (D.PT && D.last && Math.abs(shownTime(D.last) - n.t) > 5) {
+      if (D.last.previewing) D.PT.endPreview()
+      D.PT.seek(n.t)
     }
     showNote(n)
   }
@@ -563,6 +568,9 @@ function renderExtras(s) {
       pinEls.set(n.id, pin)
     }
     pin.textContent = String(i + 1)
+    // A note made at another moment: its pin is dimmed (the element may look
+    // different now); clicking it goes there.
+    pin.classList.toggle("away", Math.abs(n.t - shownTime(s)) > 60)
     pin.style.background = NOTE_FILL[n.status] || NOTE_FILL.pending
     pin.title = n.text
     pin.style.left = f.left + r.right - 10 + "px"

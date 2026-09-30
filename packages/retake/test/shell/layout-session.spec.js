@@ -77,8 +77,10 @@ test("F10: timelines, notes and recordings are saved and come back after a reloa
   await expect.poll(() => D(page, (d) => d.branches.map((b) => b.name)).catch(() => null)).toEqual(["Timeline 1", "Try B"])
   expect(await D(page, (d) => d.activeId)).toBe(2)
   expect(await D(page, (d) => d.notes.map((n) => n.text))).toEqual(["hello"])
-  // The active timeline's recording is loaded back into the frame.
+  // The active timeline's recording is loaded back into the frame, at its end.
   await expect.poll(async () => (await h.state().catch(() => ({ end: 0 }))).end).toBeGreaterThanOrEqual(savedEnd - 1)
+  await expect.poll(async () => (await h.state().catch(() => ({ now: 0 }))).now, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 50)
+  expect(await D(page, (d) => d.branches[1].end)).toBeGreaterThanOrEqual(savedEnd - 1)
   expect(h.dockErrors).toEqual([])
 })
 
@@ -192,5 +194,18 @@ test("the dock never takes focus away from a frame being rebuilt (replayed keys 
   await h.settle()
   expect(await h.rt(() => document.querySelector("#sent").textContent)).toBe("sent: A lighthouse")
   expect(await page.evaluate(() => window.__blurred.filter((c) => c.includes("building")))).toEqual([])
+  expect(h.dockErrors).toEqual([])
+})
+
+test("reopening a one-timeline session lands where it was (its end), not at 0", async ({ page }) => {
+  const fake = await fakeServer(page)
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle", "#toggle"])
+  await h.pause()
+  await expect.poll(() => fake.store.recordings["1"] && JSON.parse(fake.store.recordings["1"]).end, { timeout: 8000 }).toBeGreaterThan(500)
+  const savedEnd = JSON.parse(fake.store.recordings["1"]).end
+  await page.reload()
+  await expect.poll(async () => (await h.state().catch(() => ({ now: 0 }))).now, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 50)
+  expect(await D(page, (d) => d.branches[0].end)).toBeGreaterThanOrEqual(savedEnd - 1)
   expect(h.dockErrors).toEqual([])
 })
