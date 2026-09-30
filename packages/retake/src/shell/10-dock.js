@@ -168,7 +168,11 @@ async function switchTo(id, t) {
     if (!json || !D.PT) return false
     const cur = activeBranch()
     // A timeline made on other code runs on its own version of the code.
-    if (target.version && cur && cur.version && target.version !== cur.version && !(await checkoutCode(target.version))) return false
+    if (target.version && cur && cur.version && target.version !== cur.version) {
+      const r = await checkoutCode(target.version)
+      if (!r.ok) return false
+      await settleLeftVersion(cur, r)
+    }
     if (cur) {
       cur.json = JSON.stringify(D.PT.history())
       cur.end = D.PT.state().end
