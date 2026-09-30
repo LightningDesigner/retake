@@ -79,3 +79,7 @@ test("F9: deleting a timeline mid-switch leaves the branches alone", async ({ pa
   expect(h.errors).toEqual([])
   expect(h.dockErrors).toEqual([])
 })
+
+test("the timeline mock is never part of the dock", () => {
+  expect(shellScript()).not.toMatch(/MOCK/)
+})

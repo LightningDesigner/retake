@@ -1,11 +1,10 @@
 // M3: the timeline. Ruler, zoom, clips, markers, snapping, keys, readout, and
 // a view-only past.
 import { test, expect } from "@playwright/test"
-import { openDock, DOCK_URL, MOCK, dock, recordAndRewind, xOfTime } from "./helpers.js"
+import { openDock, DOCK_URL, dock, recordAndRewind, xOfTime } from "./helpers.js"
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript({ path: MOCK })
-})
+// Runs against the runtime's real timeline API (engine-timeline.done). The
+// labelled mock in src/shell/mock/ stays for specs that want fixed data.
 
 const view = (page) => dock(page, (D) => ({ from: D.view.from, to: D.view.to, follow: D.view.follow }))
 const laneY = (page) => dock(page, (D) => D.lanes.get(D.activeId).y + document.querySelector(".lines").getBoundingClientRect().top)
