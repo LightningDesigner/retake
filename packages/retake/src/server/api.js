@@ -153,6 +153,26 @@ export function sessionApi(server, { token, bus }) {
     if (!p.startsWith("/__wayback/")) return next()
     const route = p.slice("/__wayback/".length).split("/")
     const mutating = req.method !== "GET" && req.method !== "HEAD"
+    if (route[0] === "tailwind" && req.method === "GET") {
+      // Where Tailwind is configured: a v3 config file, or (v4) the CSS that imports it.
+      const cfg = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs", "tailwind.config.cjs"].find((f) => fs.existsSync(path.join(root, f)))
+      let config = cfg || null
+      if (!config) {
+        const walk = (d, depth) => {
+          if (depth > 4 || config) return
+          for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+            if (config || e.name.startsWith(".") || e.name === "node_modules" || e.name === "dist") continue
+            const f = path.join(d, e.name)
+            if (e.isDirectory()) walk(f, depth + 1)
+            else if (/\.css$/.test(e.name) && /@import\s+["']tailwindcss/.test(fs.readFileSync(f, "utf8"))) config = path.relative(root, f)
+          }
+        }
+        try {
+          walk(root, 0)
+        } catch {}
+      }
+      return send(res, 200, { config })
+    }
     const known = ["session", "recording", "notes", "events"].includes(route[0])
     if (!known) return next() // e.g. /__wayback/version and /checkout (code-versions)
     if (mutating && req.headers["x-wayback-token"] !== token) return send(res, 403, { error: "missing or wrong x-wayback-token" })

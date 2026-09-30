@@ -95,7 +95,7 @@ window.__waybackShell = {
     const stash = own(payload)
     window.__waybackShell.rebuilding = true
     const rec = JSON.parse(payload.rec)
-    const url = new URL(rec.url)
+    const url = new URL(urlAt(rec, payload.target))
     // It's built for whichever timeline is active now (a switch sets that
     // before it loads the target's recording).
     D.building = { frame: makeFrame(url.pathname + url.search + url.hash, stash), pt: null, branchId: D.activeId, target: payload.target, startedAt: performance.now() }
@@ -120,6 +120,14 @@ window.__waybackShell = {
     D.activeId = b.id
     D.frameBranch = b.id // the visible frame carries on as the new timeline
   },
+}
+
+// The page a recording was on at t: after a navigation or reload the dock
+// continued it through (rec.navs), that page; before, where it began.
+function urlAt(rec, t) {
+  let url = rec.url
+  for (const n of rec.navs || []) if (n.t <= t && n.url) url = new URL(n.url, rec.url).href
+  return url
 }
 
 // A plain copy made in the dock's realm (values only).
@@ -160,11 +168,14 @@ function freshFrame() {
   window.__waybackShell.rebuilding = true
 }
 
-D.frame = makeFrame(appUrl)
-D.frame.className = "live"
-// Nobody's yet: a saved session may be restored into another frame. restore()
-// hands it to the active timeline if there's nothing to restore.
-D.frameBranch = null
+// The first frame is opened by restore() (15-session.js) once it knows what
+// was saved: always at the page the user asked for, live, never a rebuild.
+function openFirstFrame(stash, branchId) {
+  if (D.frame) return
+  D.frame = makeFrame(appUrl, stash)
+  D.frame.className = "live"
+  D.frameBranch = branchId
+}
 
 // The frame being built is ready once its runtime has booted and reached its
 // moment.
@@ -244,7 +255,7 @@ function render() {
   if (!activeBranch()) D.activeId = D.branches[0].id
   const s = state()
   dock.style.height = dockHeight() + "px"
-  if (!s) return
+  if (!s || !D.frame) return
   autoStart(s)
   const active = activeBranch()
   // Only the active timeline's own frame says how far it goes: mid-switch the

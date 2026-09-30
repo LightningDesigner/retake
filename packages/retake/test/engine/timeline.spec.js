@@ -48,7 +48,7 @@ test("timeline() has markers for what you did and clips for what animated", asyn
   const at = await h.rt((t) => __wayback.clipAt(t, "#box"), tr.start + 350)
   expect(at.clip.id).toBe(tr.id)
   expect(at.offset).toBeCloseTo(350, 0)
-  expect(await h.rt((t) => __wayback.clipAt(t), tr.start - 50)).toBeNull()
+  expect(await h.rt((t) => __wayback.clipAt(t, "#box"), tr.start - 50)).toBeNull()
   // the recording carries the viewport for rebuilds (F18)
   expect((await h.rt(() => __wayback.history())).viewport).toEqual(tl.viewport)
 })
@@ -104,7 +104,8 @@ test("scrolling while paused is view-only: allowed, not recorded, no time passes
   await page.waitForTimeout(500)
   await h.pause()
   const t = (await h.state()).now
-  const events = await h.rt(() => __wayback.history().events.length)
+  const inputs = () => h.rt(() => __wayback.history().events.filter((e) => /scroll|wheel|pointer|mouse/.test(e.type)).length)
+  const events = await inputs()
   // The dock's past/paused shield must let scrolling through (S2's side);
   // here the runtime is tested on its own.
   await page.evaluate(() => { const s = document.getElementById("wb-shield"); if (s) s.style.pointerEvents = "none" })
@@ -116,7 +117,7 @@ test("scrolling while paused is view-only: allowed, not recorded, no time passes
   const s = await h.state()
   expect(s.playing).toBe(false)
   expect(s.now).toBe(t)
-  expect(await h.rt(() => __wayback.history().events.length)).toBe(events) // not recorded
+  expect(await inputs()).toBe(events) // not recorded
   expect(pick(await h.log(), "scrolled")).toEqual([]) // the app didn't hear of it
   await h.record()
   await page.waitForTimeout(200)

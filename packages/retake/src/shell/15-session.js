@@ -63,18 +63,25 @@ async function recordingOf(b) {
   }
 }
 
-const whenAttached = () =>
-  new Promise((resolve) => {
-    const check = () => {
-      const s = state()
-      if (D.PT && s && s.booted && !D.building) resolve()
-      else setTimeout(check, 50)
-    }
-    check()
-  })
+// The page the user asked for, without the frame's own parameter.
+const askedFor = location.pathname + location.search + location.hash
+const FEATURES = (window.__waybackConfig && window.__waybackConfig.features) || []
 
+// On load: read what was saved, then open the app at the page the user asked
+// for, live. The saved timelines stay; the active one carries on from its end
+// at this page (a runtime with the "continue" feature marks it there, and a
+// rewind before that point brings the old page back). A runtime without it
+// gets this visit as a timeline of its own, so nothing saved is overwritten.
+// It's never a rebuild, and never waits long: after 1.5s the app opens fresh.
 async function restore() {
-  let loaded = false
+  let known = false // the saved session has been read (or there's none)
+  const fallback = setTimeout(() => !D.frame && openFirstFrame(null, null), 1500)
+  const ownTimeline = () => {
+    const b = newBranch(0, null)
+    b.name = `→ ${askedFor.split("?")[0] || "/"}`
+    D.activeId = b.id
+    return b.id
+  }
   try {
     const r = await api("GET", "session")
     if (r.missing) {
@@ -85,23 +92,29 @@ async function restore() {
     if (!s || !Array.isArray(s.branches) || !s.branches.length) return
     applySession(s)
     net.savedSession = JSON.stringify(sessionBody())
+    known = true
     const json = await recordingOf(activeBranch())
-    if (!json) return
-    await whenAttached()
-    // Back where it was: the end of what that timeline recorded.
-    let end = activeBranch().end
-    try {
-      end = JSON.parse(json).end
-    } catch {}
-    D.PT.load(json, end)
-    loaded = true
+    if (D.frame) {
+      // Opened fresh already (the session was slow): that visit is its own.
+      D.frameBranch = ownTimeline()
+      return
+    }
+    if (json && FEATURES.includes("continue")) {
+      let end = activeBranch().end
+      try {
+        end = JSON.parse(json).end
+      } catch {}
+      openFirstFrame({ rec: json, target: end, play: true, continue: true, url: askedFor }, D.activeId)
+    } else if (json) openFirstFrame(null, ownTimeline())
+    else openFirstFrame(null, D.activeId)
   } catch (err) {
     // Don't overwrite a session we couldn't read.
     console.warn("[retake] couldn't restore the session; keeping this one in memory", err)
     net.on = false
   } finally {
-    // Nothing restored: the frame that's been running is the first timeline.
-    if (!loaded) D.frameBranch = D.activeId
+    clearTimeout(fallback)
+    if (!known && !D.frame) openFirstFrame(null, D.activeId)
+    else if (!known && D.frameBranch == null) D.frameBranch = D.activeId
     net.restoring = false
   }
 }

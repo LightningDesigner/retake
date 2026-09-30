@@ -126,7 +126,8 @@ function describeClip(e) {
   const props = [...new Set((e.keyframes || []).flatMap((k) => Object.keys(k).filter((p) => !["offset", "easing", "composite", "computedOffset"].includes(p))))]
   const property = kind === "transition" ? a.transitionProperty : props.join(", ") || undefined
   const label = kind === "css-animation" ? a.animationName : kind === "transition" ? `${a.transitionProperty} transition` : props.length ? props.join(", ") : "animation"
-  return { kind, label, selector: selectorOf(e.target), component: componentOf(e.target) || undefined, property }
+  const pseudo = (a.effect && a.effect.pseudoElement) || null
+  return { kind, label, selector: selectorOf(e.target) + (pseudo || ""), component: componentOf(e.target) || undefined, property, pseudoElement: pseudo }
 }
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it

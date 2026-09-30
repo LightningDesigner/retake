@@ -1,0 +1,21 @@
+/* A loading skeleton with a shimmer on ::after. */
+.skel {
+  position: relative;
+  overflow: hidden;
+  width: 160px;
+  height: 16px;
+  background: #e5e5e5;
+}
+
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}

@@ -1,3 +1,4 @@
+import "./skeleton.css"
 const log = []
 window.__probe = { log }
 const now = () => Math.round(performance.now())

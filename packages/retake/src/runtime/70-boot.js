@@ -143,6 +143,7 @@ Object.assign(PT, {
   timeline,
   clipAt,
   clipsFor,
+  cssSourceFor,
   isInteractive,
   setToolActive,
   debug: () => ({

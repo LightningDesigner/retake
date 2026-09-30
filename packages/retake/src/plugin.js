@@ -50,6 +50,11 @@ export function retake(options = {}) {
   const main = {
     name: "retake",
     apply: "serve",
+    // CSS source maps in dev, so cssSourceFor() can point at the original file.
+    config(cfg) {
+      if (options.enabled === false) return
+      if (!cfg.css || cfg.css.devSourcemap === undefined) return { css: { devSourcemap: true } }
+    },
     configureServer(server) {
       if (options.enabled === false) return
       // Only a top-level page load gets the dock. An iframe the app itself
