@@ -19,7 +19,13 @@ async function dispatchUpTo(B) {
   timersBefore = timers.size
   while (exclusive ? nextEventT() < B : nextEventT() <= B) {
     const before = domLog.length
-    dispatchRecorded(rec.events[cursor.event++])
+    const ev = rec.events[cursor.event++]
+    dispatchRecorded(ev)
+    // Events the browser fired in one task (one mouse move: pointermove,
+    // pointerover/out, mouseover/out…) go out back to back, as they did live;
+    // the app gets its turn after the group.
+    const next = rec.events[cursor.event]
+    if (next && next.g && next.t === ev.t && !(exclusive && next.t >= B)) continue
     await settle()
     // An event that changed the DOM may have started CSS transitions, which
     // the next frame adopts; one that changed nothing leaves nothing behind.

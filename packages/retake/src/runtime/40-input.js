@@ -20,6 +20,17 @@ const RESUMES = new Set(["pointerdown", "mousedown", "keydown", "touchstart", "w
 let dispatching = 0
 let missingTargets = 0
 
+// True from an input event until the current task ends (a message on a
+// private channel clears it at the start of the next task).
+let inputTask = false
+const taskChannel = new RealChannel()
+taskChannel.port1.onmessage = () => (inputTask = false)
+function markInputTask() {
+  if (inputTask) return
+  inputTask = true
+  portPost.call(taskChannel.port2, 0)
+}
+
 // Virtual focus: while rebuilding, the frame being built doesn't have real
 // focus (the visible frame or the dock does), so the browser keeps moving
 // focus away from what the recording focused. The recording's own focus is
@@ -228,7 +239,11 @@ function onInput(e) {
   const ev = serialize(e)
   if (ev.path) {
     trace("input", ev.type)
+    const before = rec.events.length
+    // Fired by the browser in the same task as the previous input event?
+    if (inputTask && before && rec.events[before - 1].t === clock.now) ev.g = 1
     recordEvent(ev)
+    markInputTask()
   }
 }
 
