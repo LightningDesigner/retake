@@ -102,7 +102,9 @@ export function retake(options = {}) {
   }
   // The dock page must not run Vite's client: a full reload (an edit HMR
   // can't apply) would reload the whole dock and drop the session. Only the
-  // app frame keeps the client, so only the app reloads.
+  // app frame keeps the client, so only the app reloads. Other plugins' module
+  // scripts go too (plugin-react's refresh preamble imports the client); the
+  // dock's own scripts are classic ones.
   const stripClient = {
     name: "retake:shell-without-vite-client",
     apply: "serve",
@@ -110,7 +112,7 @@ export function retake(options = {}) {
       order: "post",
       handler(html) {
         if (options.enabled === false || !html.includes('id="wb-dock"')) return
-        return html.replace(/<script\b[^>]*\bsrc="[^"]*@vite\/client"[^>]*>\s*<\/script>\s*/g, "")
+        return html.replace(/<script\b[^>]*\btype=["']?module["']?[^>]*>[\s\S]*?<\/script>\s*/gi, "")
       },
     },
   }

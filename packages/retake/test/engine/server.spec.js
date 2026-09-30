@@ -81,3 +81,28 @@ test("server.json tells local tools where the server is", async () => {
   expect(info.url).toBe(base)
   expect(info.token).toMatch(/^[0-9a-f]{32}$/)
 })
+
+test("F10 with @vitejs/plugin-react: the dock page has no module scripts, and a full reload doesn't navigate it", async ({ page, request }) => {
+  const reactBase = `http://localhost:${PORTS.react}`
+  const html = await (await request.get(reactBase + "/")).text()
+  expect(html).toContain("wb-dock")
+  expect(html).not.toMatch(/<script[^>]*type=["']?module/i)
+  const { openDock } = await import("./helpers.js")
+  const h = await openDock(page, reactBase + "/")
+  await page.waitForTimeout(800)
+  let navigated = false
+  page.on("framenavigated", (f) => f === page.mainFrame() && (navigated = true))
+  const f = path.join(FIXTURES, "react", "src", "main.tsx")
+  const orig = fs.readFileSync(f, "utf8")
+  try {
+    fs.writeFileSync(f, orig + "\n// touched by server.spec\n")
+    await page.waitForTimeout(2500)
+  } finally {
+    fs.writeFileSync(f, orig)
+  }
+  await page.waitForTimeout(1500)
+  expect(navigated).toBe(false)
+  const s = await h.settle()
+  expect(s.started).toBe(true)
+  expect(s.recording).toBe(true) // it was recording before the reload, so it carries on
+})

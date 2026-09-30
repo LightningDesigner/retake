@@ -96,3 +96,20 @@ test("?retake=0 serves the plain app", async ({ request }) => {
     expect(html).toContain('src="/main.js')
   }
 })
+
+test("F10 a full reload while recording carries on recording", async ({ page }) => {
+  const h = await openDock(page, URL_)
+  await page.waitForTimeout(1200)
+  const f = path.join(FIXTURES, "probe", "main.js")
+  const orig = fs.readFileSync(f, "utf8")
+  try {
+    fs.writeFileSync(f, orig + "\n// touched by session.spec (recording)\n")
+    await page.waitForTimeout(2500)
+  } finally {
+    fs.writeFileSync(f, orig)
+  }
+  await page.waitForTimeout(1500)
+  const s = await h.settle()
+  expect(s.recording).toBe(true)
+  expect(s.end).toBeGreaterThan(3000)
+})
