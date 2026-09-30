@@ -8,7 +8,14 @@ importers:
 
   .: {}
 
-  apps/site: {}
+  apps/site:
+    devDependencies:
+      retake-dev:
+        specifier: workspace:*
+        version: link:../../packages/retake
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1
 
   packages/retake:
     devDependencies:
