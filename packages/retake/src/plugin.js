@@ -2,6 +2,7 @@
 // timeline docked at the bottom (like DevTools) and the prototype in a frame
 // above it. The frame's own request (`?__wb=app`) gets the real page with the
 // time runtime injected as its first script, before any app code. Dev only.
+import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -20,7 +21,12 @@ export function runtimeSource() {
 
 export function shellHtml(options = {}) {
   return read("shell", "shell.html")
-    .replace("/*CONFIG*/", () => `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches })};`)
+    .replace(
+      "/*CONFIG*/",
+      () =>
+        `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches })};` +
+        (options.token ? `window.__WAYBACK_TOKEN = ${JSON.stringify(options.token)};` : ""),
+    )
     .replace("/*CSS*/", () => read("shell", "shell.css"))
     .replace("/*JS*/", () => {
       const files = fs.readdirSync(path.join(SRC, "shell")).filter((f) => f.endsWith(".js")).sort()
@@ -35,11 +41,13 @@ export function shellHtml(options = {}) {
  * @returns {import("vite").Plugin}
  */
 export function retake(options = {}) {
+  // Mutating /__wayback/ requests must carry this (see CONTRACT.md).
+  options = { ...options, token: options.token || crypto.randomBytes(16).toString("hex") }
   return {
     name: "retake",
     apply: "serve",
     configureServer(server) {
-      if (options.codeBranches) codeVersions(server)
+      if (options.codeBranches) codeVersions(server, { token: options.token })
       if (options.banner && server.httpServer) {
         server.httpServer.once("listening", () => {
           const a = server.httpServer.address()
