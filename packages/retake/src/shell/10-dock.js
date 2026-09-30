@@ -9,7 +9,7 @@ const cv = $(".lines") // the timeline canvas
 
 const newBranch = (forkAt, parentId = null) => {
   const id = ++D.branchSeq
-  const b = { id, name: `Timeline ${id}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
+  const b = { id, name: id === 1 ? "Main" : `Take ${id}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
   D.branches.push(b)
   return b
 }

@@ -112,17 +112,19 @@ button:active { transform: scale(0.96); }
 /* ---- timeline: lane names + the drawing ---- */
 .body { position: relative; flex: 1; min-height: 0; display: flex; padding: 0 16px; }
 .gutter { position: relative; flex: none; width: 120px; overflow: hidden; }
-.lane-name { position: absolute; left: 0; right: 0; height: 24px; margin-top: -12px; padding: 0 8px; display: flex; align-items: center; gap: 8px;
-  border-radius: 8px; font: 500 12px/1 var(--sans); color: var(--dim); white-space: nowrap; cursor: pointer; user-select: none;
-  transition: color .15s var(--ease), background-color .15s var(--ease), top .2s var(--ease), opacity .2s var(--ease); }
-.lane-name i { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--c); opacity: .35; transition: opacity .15s var(--ease); }
-.lane-name span { overflow: hidden; text-overflow: ellipsis; }
-.lane-name.active { color: var(--white); }
+/* A label: its colour's dot and a short name, on its row; the active row
+   (and the hovered one) have a faint band, which carries on across the track. */
+.lane-name { position: absolute; left: 0; right: 0; padding: 0 8px; display: flex; align-items: center; gap: 8px;
+  font: 500 12px/1 var(--sans); color: rgba(255, 255, 255, 0.55); white-space: nowrap; cursor: pointer; user-select: none;
+  background: transparent; transition: color .15s var(--ease), background-color .15s var(--ease), top .2s var(--ease); }
+.lane-name i { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--c); opacity: .55; transition: opacity .15s var(--ease); }
+.lane-name span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lane-name.active { color: var(--white); background: rgba(255, 255, 255, 0.03); }
 .lane-name.active i { opacity: 1; }
-@media (hover: hover) { .lane-name:not(.active):hover { color: var(--fg); background: var(--fill); } .lane-name:not(.active):hover i { opacity: .7; } }
+@media (hover: hover) { .lane-name:not(.active):hover { color: var(--fg); background: rgba(255, 255, 255, 0.02); } .lane-name:not(.active):hover i { opacity: .8; } }
 /* A short dock: just the colour dots, the name on hover. */
 .gutter.dots { width: 28px; }
-.gutter.dots .lane-name { height: 12px; margin-top: -6px; padding: 0; justify-content: center; }
+.gutter.dots .lane-name { padding: 0; justify-content: center; }
 .gutter.dots .lane-name span { display: none; }
 .gutter.dots .lane-name.active i { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25); }
 .lane-name input { all: unset; width: 100%; font: inherit; color: var(--white); border-bottom: 1px solid var(--dim); }

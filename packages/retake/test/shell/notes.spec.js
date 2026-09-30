@@ -59,7 +59,7 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   expect(p).toContain("Classes: card primary-card off")
   expect(p).toMatch(/Computed: .*border-radius: 8px/)
   expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, \d+ms into a \d+ms /)
-  expect(p).toContain('Timeline: "Timeline 1"')
+  expect(p).toContain('Timeline: "Main"')
 
   // Open it from the pin: the card shows the note and its clip.
   await page.locator(".canvas-pin").click()

@@ -24,14 +24,16 @@ const PAD_R = 18
 const RULER = 20 // ruler height
 const LANE = 32 // row height
 const MIN_PITCH = 10 // lanes closer than this can't be told apart
-const BEND = 18 // how far a new lane travels to reach its row
+const BEND = 20 // how wide a fork's S-curve is
+const STUB = 24 // a new, empty timeline: a short line after its curve
 const GROW_MS = 250
 const FOLLOW_AT = 0.85 // where the playhead sits while following
 const WAVE_H = 10 // waveform height under the active lane
 
 // One colour per timeline, by id: distinct on dark glass, none of them the
 // blue of actions or the amber of notes.
-const TL_COLORS = ["#a78bfa", "#2dd4bf", "#f472b6", "#bef264", "#fb923c", "#f87171"]
+// (OKLCH L 0.78, C 0.12: the same perceived brightness on dark glass.)
+const TL_COLORS = ["#bda8fc", "#3bcfcf", "#f197c2", "#85cc87", "#efa464", "#fb9797"]
 const colorOf = (b) => TL_COLORS[((b ? b.id : 1) - 1) % TL_COLORS.length]
 const INK = { blue: "#60a5fa", white: "#ffffff", dim: "rgba(255,255,255,0.55)", faint: "rgba(255,255,255,0.24)", hair: "rgba(255,255,255,0.08)", page: "#16161a", lens: "#fde68a" }
 const NOTE_FILL = { pending: "#ffb224", acknowledged: "#60a5fa", resolved: "#4cc38a", dismissed: "rgba(255,255,255,0.4)" }
@@ -52,6 +54,9 @@ const ctx = cv.getContext("2d")
 // detached: the user moved the view while it was following.
 D.view = { from: 0, to: 1000, fit: true, target: null, at: 0, followSpan: 20000, detached: false, wasPlaying: false }
 let sceneKey = ""
+// The active row's band crossfades when the active timeline changes.
+const BAND_MS = 150
+const band = { id: null, prev: null, since: -1e9 }
 let pendingFork = null
 let flashUntil = 0
 
@@ -163,18 +168,43 @@ const r1 = (n) => Math.round(n * 10) / 10
 // Where each lane sits: rows from right under the ruler, any spare height
 // below them. When they don't fit at full height, they close up evenly
 // ("compact": names become dots).
+// Rows in tree order, like a git graph: each timeline directly under its
+// parent's row group. Siblings that split off later sit nearer the parent, so
+// at the moment an earlier sibling splits, every row it drops past is still
+// empty (those timelines begin later): no fork ever crosses a lane.
+function treeOrder() {
+  const kids = new Map()
+  for (const b of D.branches) {
+    const k = kids.get(b.parentId) || []
+    k.push(b)
+    kids.set(b.parentId, k)
+  }
+  const out = []
+  const visit = (b) => {
+    out.push(b)
+    const k = (kids.get(b.id) || []).slice().sort((x, y) => y.forkAt - x.forkAt || x.id - y.id)
+    k.forEach(visit)
+  }
+  const roots = D.branches.filter((b) => !b.parentId || !branchById(b.parentId))
+  roots.forEach(visit)
+  return out
+}
+
 function layoutLanes(g) {
   const avail = g.h - RULER - 4
-  const n = D.branches.length
+  const order = treeOrder()
+  const n = order.length
   const compact = n * LANE > avail
   const pitch = compact ? Math.max(MIN_PITCH, Math.floor(avail / n)) : LANE
   D.compact = compact
+  D.rowPitch = pitch
   const lanes = new Map()
   let y = RULER + 4
-  for (const b of D.branches) {
-    lanes.set(b.id, { y: Math.round(y + pitch / 2) + 0.5, thin: compact })
+  order.forEach((b, row) => {
+    lanes.set(b.id, { y: Math.round(y + pitch / 2) + 0.5, thin: compact, row })
     y += pitch
-  }
+  })
+  D.rowOrder = order.map((b) => b.id)
   return lanes
 }
 
@@ -185,22 +215,53 @@ const growth = (b) => {
 
 // A lane: straight from its start, or out of its parent's lane at the exact
 // moment it split, along a short curve, then along its own row.
+// A lane: straight from its start; or, for a timeline that split off, down
+// from its parent's row at the moment it split (a straight drop past rows
+// that are empty there) and one smooth S-curve into its own row. A timeline
+// with nothing recorded yet ends in a short stub.
 function laneShape(b, g, lanes, s, until) {
   const L = lanes.get(b.id)
   const parent = branchById(b.parentId)
-  const x1 = xOf(until, g)
+  const empty = until - (b.parentId ? b.forkAt : s.start) < 1
   if (!parent || !lanes.get(parent.id)) {
     const x0 = xOf(b.parentId ? b.forkAt : s.start, g)
-    return { x0, py: L.y, xb: x0, y: L.y, x1: Math.max(x1, x0 + 0.5) }
+    const x1 = empty ? x0 + STUB : Math.max(xOf(until, g), x0 + 0.5)
+    return { x0, py: L.y, dy: L.y, xb: x0, y: L.y, x1, empty }
   }
   const x0 = xOf(b.forkAt, g)
-  return { x0, py: lanes.get(parent.id).y, xb: x0 + BEND, y: L.y, x1: Math.max(x1, x0 + BEND) }
+  const py = lanes.get(parent.id).y
+  const dy = L.y - D.rowPitch // the row just above: the curve drops one step
+  const xb = x0 + BEND
+  const x1 = empty ? xb + STUB : Math.max(xOf(until, g), xb)
+  return { x0, py, dy: Math.max(py, dy), xb, y: L.y, x1, empty }
 }
 function tracePath(p) {
   ctx.beginPath()
   ctx.moveTo(p.x0, p.py)
-  if (p.xb !== p.x0) ctx.bezierCurveTo(p.x0 + BEND * 0.55, p.py, p.xb - BEND * 0.55, p.y, p.xb, p.y)
+  if (p.xb !== p.x0) {
+    if (p.dy > p.py) ctx.lineTo(p.x0, p.dy)
+    ctx.bezierCurveTo(p.x0 + BEND * 0.5, p.dy, p.xb - BEND * 0.5, p.y, p.xb, p.y)
+  }
   ctx.lineTo(p.x1, p.y)
+}
+// The end of a lane: a small dot where its recording ends; a hollow circle
+// on a new, empty one ("ready").
+function laneEnd(p, color, alpha) {
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.beginPath()
+  ctx.arc(p.x1, p.y, p.empty ? 3.5 : 2.5, 0, Math.PI * 2)
+  if (p.empty) {
+    ctx.fillStyle = INK.page
+    ctx.fill()
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  } else {
+    ctx.fillStyle = color
+    ctx.fill()
+  }
+  ctx.restore()
 }
 // Drawn partway while it grows (the first 250ms of a new timeline).
 function strokeLane(p, color, alpha, width, grow = 1) {
@@ -210,7 +271,7 @@ function strokeLane(p, color, alpha, width, grow = 1) {
   ctx.lineWidth = width
   ctx.lineCap = "round"
   if (grow < 0.999) {
-    const len = Math.abs(p.xb - p.x0) + Math.abs(p.y - p.py) + (p.x1 - p.xb)
+    const len = Math.abs(p.dy - p.py) + BEND + Math.abs(p.y - p.dy) + (p.x1 - p.xb)
     ctx.setLineDash([len * grow, len * 2])
   }
   tracePath(p)
@@ -395,6 +456,12 @@ function renderTimeline(s, shownT) {
   liveBtn.hidden = !(s.playing && !s.future && D.view.detached)
   checkPendingFork(s)
 
+  if (band.id !== D.activeId) {
+    band.prev = band.id
+    band.id = D.activeId
+    band.since = performance.now()
+  }
+  const bandFading = performance.now() - band.since < BAND_MS + 20
   const lensClips = D.lens ? D.lens.clips : null
   const growing = D.branches.some((b) => performance.now() - b.born < GROW_MS + 20)
   const act = activityOf(tl, s)
@@ -403,7 +470,7 @@ function renderTimeline(s, shownT) {
     g.w, g.h, D.view.from.toFixed(2), D.view.to.toFixed(2), shownT.toFixed(2), D.activeId, activeEnd.toFixed(1),
     D.branches.map((b) => `${b.id}.${b.end.toFixed(0)}.${b.forkAt}`).join(","),
     tl.markers.length, act ? act.values.length : -1, D.notes.map((n) => `${n.id}.${n.status}.${n.branchId}`).join(","),
-    D.markers.length, lensClips ? D.lens.key : "", D.branchT, D.snapT, D.dragT, growing ? performance.now() : 0,
+    D.markers.length, lensClips ? D.lens.key : "", D.branchT, D.snapT, D.dragT, growing || bandFading ? performance.now() : 0, D.hoverRow,
   ].join("|")
   if (key === sceneKey) return
   sceneKey = key
@@ -415,37 +482,46 @@ function renderTimeline(s, shownT) {
   const dim = !!lensClips
   const scene = { lanes: [], actions: [], waveCols: 0, capsules: [], notes: [], bookmarks: [], labels, following }
 
-  // Lanes: the others first, faint in their colours; then the active one.
+  // Row bands: a very faint one behind the active row (crossfading in 150ms
+  // when it changes) and the hovered row.
+  const pitch = D.rowPitch
+  const fade = clamp((performance.now() - band.since) / BAND_MS, 0, 1)
+  const rowBand = (id, alpha) => {
+    const L = lanes.get(id)
+    if (!L || alpha <= 0) return
+    ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(4)})`
+    ctx.fillRect(0, L.y - pitch / 2, g.w, pitch)
+  }
+  if (D.hoverRow != null && D.hoverRow !== D.activeId) rowBand(D.hoverRow, 0.02)
+  if (band.prev != null && band.prev !== D.activeId) rowBand(band.prev, 0.03 * (1 - fade))
+  rowBand(D.activeId, 0.03 * fade)
+
+  // Lanes: the others at 35% of their colour; then the active one, full up to
+  // the playhead and 40% over its recorded future.
   for (const b of D.branches) {
     if (b.id === D.activeId) continue
     const p = laneShape(b, g, lanes, s, b.end)
-    strokeLane(p, colorOf(b), dim ? 0.15 : 0.3, D.compact ? 1.5 : 2, growth(b))
-    scene.lanes.push({ id: b.id, y: p.y, x0: p.x0, x1: p.x1, color: colorOf(b), active: false })
+    const a = dim ? 0.15 : 0.35
+    const gr = growth(b)
+    strokeLane(p, colorOf(b), a, D.compact ? 1.5 : 2, gr)
+    if (gr >= 0.999) laneEnd(p, colorOf(b), a)
+    scene.lanes.push({ id: b.id, y: p.y, x0: p.x0, x1: p.x1, color: colorOf(b), active: false, empty: p.empty })
   }
   const color = colorOf(active)
   const A = lanes.get(active.id)
   const p = laneShape(active, g, lanes, s, activeEnd)
   const lo = active.forkAt
   if (act) scene.waveCols = drawWave(g, act, A.y, color, lo, activeEnd, dim)
-  // Past full, recorded future dimmer.
-  strokeLane(p, color, dim ? 0.2 : 0.45, 2, growth(active))
+  const gr = growth(active)
+  strokeLane(p, color, dim ? 0.2 : 0.4, 2, gr)
   ctx.save()
   ctx.beginPath()
   ctx.rect(-10, 0, xNow + 10, g.h)
   ctx.clip()
-  strokeLane(p, color, dim ? 0.45 : 1, 2, growth(active))
+  strokeLane(p, color, dim ? 0.45 : 1, 2, gr)
   ctx.restore()
-  scene.lanes.push({ id: active.id, y: p.y, x0: p.x0, x1: p.x1, color, active: true })
-  const xEnd = xOf(activeEnd, g)
-  if (xEnd - xNow > 6 && xEnd < g.w) {
-    ctx.fillStyle = INK.page
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1.5
-    ctx.beginPath()
-    ctx.arc(xEnd, A.y, 3, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-  }
+  if (gr >= 0.999) laneEnd(p, color, p.empty || p.x1 <= xNow + 1 ? 1 : 0.4)
+  scene.lanes.push({ id: active.id, y: p.y, x0: p.x0, x1: p.x1, color, active: true, empty: p.empty })
   scene.actions = drawActions(g, tl.markers, A.y, lo, activeEnd, dim)
   if (lensClips) scene.capsules = drawLens(g, lensClips, A.y)
 
@@ -558,7 +634,7 @@ let gutterKey = ""
 const invalidateGutter = () => (gutterKey = "")
 function renderGutter(lanes) {
   if (gutter.querySelector("input")) return // renaming
-  const key = D.compact + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|")
+  const key = D.compact + ":" + D.rowPitch + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|")
   if (key === gutterKey) return
   gutterKey = key
   // Short dock: just the colour dots (the name shows on hover).
@@ -569,7 +645,7 @@ function renderGutter(lanes) {
       const on = b.id === D.activeId
       const cls = `lane-name${on ? " active" : ""}`
       const title = D.compact ? ` title="${esc(b.name)}"` : ""
-      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;--c:${colorOf(b)}"${title}><i></i><span>${esc(b.name)}</span></div>`
+      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;height:${D.rowPitch}px;margin-top:${-D.rowPitch / 2}px;--c:${colorOf(b)}"${title}><i></i><span>${esc(b.name)}</span></div>`
     })
     .join("")
 }
