@@ -99,6 +99,10 @@ function activitySamples() {
   if (!a) return []
   if (activityOut && activityOut.n === a.v.length && activityOut.start === a.start) return activityOut.value
   const value = a.v.map((v, i) => ({ t: a.start + i * a.step, v: v / 100 }))
+  // The same data as { step, values, t0 } too (the dock's waveform reads that).
+  value.step = a.step
+  value.t0 = a.start
+  value.values = a.v.map((v) => v / 100)
   activityOut = { n: a.v.length, start: a.start, value }
   return value
 }
