@@ -29,3 +29,19 @@ test("replayed keys reach the field the recording focused, even if the rebuildin
   expect(pick(replay, "keycode")).toEqual(pick(live, "keycode"))
   expect(pick(replay, "submit")).toEqual(pick(live, "submit"))
 })
+
+test("pause then play at the live edge gives focus back to the field you were in", async ({ page }) => {
+  const h = await openDock(page, `http://localhost:${PORTS.probe}/`)
+  await page.waitForTimeout(300)
+  await h.click("#q")
+  await page.keyboard.type("lighthouse")
+  await page.waitForTimeout(200)
+  await h.pause()
+  await page.waitForTimeout(300) // the dock takes focus while paused
+  await h.record()
+  await page.waitForTimeout(300)
+  expect(await h.rt(() => document.activeElement && document.activeElement.id)).toBe("q")
+  await page.keyboard.press("Enter")
+  await page.waitForTimeout(300)
+  expect(pick(await h.log(), "submit").map((e) => e.v)).toEqual(["lighthouse"])
+})

@@ -201,6 +201,24 @@ function scrollElOf(path) {
   return n && n.nodeType === 1 ? n : null
 }
 
+// Pausing hands focus to the dock (the app is view-only); playing gives the
+// app's focused element (and its caret) back.
+function restoreFocus() {
+  const f = focused()
+  if (!f || f === document.body) return
+  try {
+    if (W.frameElement && W.parent.document.activeElement !== W.frameElement) W.focus()
+  } catch {}
+  if (realActive.call(document) !== f) {
+    try {
+      dispatching++ // our own focus change isn't input to record
+      f.focus({ preventScroll: true })
+    } catch {} finally {
+      dispatching--
+    }
+  }
+}
+
 function restoreScroll() {
   for (const [key, path] of viewScrolled) {
     const el = scrollElOf(path)

@@ -25,7 +25,7 @@ export function shellHtml(options = {}) {
     .replace(
       "/*CONFIG*/",
       () =>
-        `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches })};` +
+        `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches, features: ["continue", "segments", "serialize"] })};` +
         (options.token ? `window.__WAYBACK_TOKEN = ${JSON.stringify(options.token)};` : ""),
     )
     .replace("/*CSS*/", () => read("shell", "shell.css"))

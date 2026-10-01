@@ -29,7 +29,7 @@ const pending = (shell && shell.take()) || takeResume()
 let stateReady
 // Set when this page is about to reload itself into another segment's URL.
 let handingOff = false
-if (pending && pending.reloaded) {
+if (pending && (pending.reloaded || pending.continue)) {
   // The app reloaded (or navigated) itself mid-recording: a fresh page, so a
   // new segment of the recording starts here, at this URL, with the storage
   // as it is now. Nothing is replayed; later rebuilds to a moment in this
@@ -45,6 +45,11 @@ if (pending && pending.reloaded) {
     seed: (rec.seed ^ Math.imul((rec.segments || []).length + 1, 0x85ebca6b)) >>> 0,
   }
   ;(rec.segments || (rec.segments = [])).push(seg)
+  // A route marker for where the timeline carried on (a reload, or the URL
+  // the user opened the dock at).
+  const shown = location.pathname + location.search.replace(/([?&])__wb=app&?/, "$1").replace(/[?&]$/, "") + location.hash
+  ;(rec.routes || (rec.routes = [])).push({ t: seg.t, path: shown })
+  if (pending.continue) rec.reloads = [...(rec.reloads || []), seg.t]
   clock.now = seg.t
   cursor.event = seg.ev
   cursor.frame = seg.fr

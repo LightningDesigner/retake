@@ -210,6 +210,7 @@ function playStateChanged() {
 function play() {
   if (clock.playing) return
   restoreScroll() // anything scrolled just to look goes back first
+  restoreFocus() // and the field you were in gets focus back
   clock.playing = true
   pace = clock.now
   syncMedia()
