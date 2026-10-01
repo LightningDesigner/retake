@@ -22,6 +22,14 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  (" + detail + ")" : ""}`)
 }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+// A hang reports where it stopped instead of running until something kills it.
+let stepName = "start"
+const step = (name) => { stepName = name; if (process.env.DEBUG) console.log("…", name) }
+const watchdog = setTimeout(() => {
+  check("walkthrough finished in 3 minutes", false, `stuck at: ${stepName}`)
+  fs.writeFileSync(path.join(OUT, "site-walkthrough.json"), JSON.stringify(results, null, 2))
+  process.exit(1)
+}, 180000)
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
@@ -37,10 +45,12 @@ const xOf = (t) =>
 const laneY = (id) => dock((D, id) => D.lanes.get(id ?? D.activeId).y + document.querySelector(".lines").getBoundingClientRect().top, id)
 
 try {
+  step("open dock")
   const h = await openDock(page, URL)
   await h.rt(() => document.getElementById("try").scrollIntoView({ block: "center" }))
   await wait(400)
 
+  step("1 use the prototype")
   // 1. Use the prototype, live.
   await h.click('[data-plan="Studio"]')
   await wait(300)
@@ -67,6 +77,7 @@ try {
   check("flow reaches step 3 live", /^RT-\d{4}$/.test(order), `${order} at ${at}`)
   await shot("01-live")
 
+  step("2 drag back")
   // 2. Pause, then drag the playhead back to 60ms into the heart tap.
   await page.locator('#wb-dock [data-a="play"]').click()
   await wait(300)
@@ -87,6 +98,7 @@ try {
   check("in the past: back on step 2 with the heart mid-pop", card.step === 1 && card.pop, JSON.stringify(card))
   check("the past is view-only", (await h.rt(() => __wayback.isInteractive())) === false)
 
+  step("3 zoom")
   // 3. Zoom in on the tap with ⌘-scroll over the playhead.
   const spanBefore = await dock((D) => D.view.to - D.view.from)
   await page.mouse.move(await xOf(s1.now), y)
@@ -103,6 +115,7 @@ try {
   check("the dock has a clip for the tap", clips.length > 0, clips.slice(0, 4).join(", "))
   await shot("02-zoomed-tap")
 
+  step("4 note")
   // 4. ⌘-click the heart and leave a note.
   await page.keyboard.down("Meta")
   const b = await h.box("#like")
@@ -119,30 +132,31 @@ try {
   check("note saved on the heart, with its moment", note && /like/.test(note.selector || note.el?.selector || "") && Math.abs(note.t - s1.now) < 50, note ? `${note.selector || note.el?.selector} @${Math.round(note.t)} clip=${JSON.stringify(note.clip)}` : "none")
   await shot("04-note-pinned")
 
-  // 5. Press + at this moment: a new, live timeline.
-  await page.keyboard.press("f").catch(() => {})
-  await wait(400)
-  const px = await xOf(s1.now)
-  await page.mouse.move(px - 30, y)
-  await page.mouse.move(px, y, { steps: 3 })
-  const plus = page.locator(".plus")
-  await plus.waitFor({ state: "visible", timeout: 5000 })
-  const pb = await plus.boundingBox()
-  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2, { steps: 3 })
-  await page.mouse.click(pb.x + pb.width / 2, pb.y + pb.height / 2)
+  step("5 plus")
+  // 5. Press + at this moment: a new, live timeline. The + key works on any
+  // dock; older docks also showed a + button on hover over the lane.
+  await page.keyboard.press("+")
   for (let i = 0; i < 50 && (await dock((D) => D.branches.length)) < 2; i++) await wait(100)
   const br = await dock((D) => ({ n: D.branches.length, active: D.activeId, forkAt: D.branches[1]?.forkAt }))
   check("+ makes timeline 2 and switches to it", br.n === 2 && br.active === 2, JSON.stringify(br))
-  await wait(800)
+  await wait(500)
+  // Newer docks leave the new timeline paused at its split; play makes it live.
+  if (!(await h.state()).playing) {
+    check("+ leaves the new timeline at its own live edge", !(await h.state()).future)
+    await page.locator('#wb-dock [data-a="play"]').click()
+  }
+  await wait(500)
+  if (process.env.DEBUG) console.log("after +", JSON.stringify(await h.state().then(({ playing, future, now, end, started, seeking }) => ({ playing, future, now, end, started, seeking }))), await h.rt(() => __wayback.isInteractive()), await page.locator("#wb-shield").isVisible(), await page.locator("#wb-dock .hint, #wb-dock [aria-live]").allTextContents())
   const live = await h.state()
   check("the new timeline is live", live.playing && !live.future && (await h.rt(() => __wayback.isInteractive())), `playing=${live.playing}`)
   // Try something else: skip the like, just continue.
   await h.click('.card[data-step="1"] [data-next]')
   await wait(1600)
   const order2 = await h.rt(() => document.getElementById("p-order")?.textContent)
-  check("timeline 2 takes new input", /^RT-\d{4}$/.test(order2), order2)
+  check("timeline 2 takes new input", /^RT-\d{4}$/.test(order2) && order2 !== "RT-0000" && order2 !== order, order2)
   await shot("05-new-timeline")
 
+  step("6 switch back")
   // 6. Switch back to timeline 1 by clicking its grey lane, near its end.
   await page.locator('#wb-dock [data-a="play"]').click()
   await wait(300)
@@ -166,6 +180,7 @@ try {
   check("walkthrough finished", false, e.message.split("\n")[0])
   await shot("99-failure").catch(() => {})
 } finally {
+  clearTimeout(watchdog)
   await browser.close()
 }
 
