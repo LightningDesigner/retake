@@ -47,7 +47,8 @@ const cursor = { event: 0, frame: 0 }
 // once in a table and events refer to it by index, which on a deep DOM
 // halves the size. readRec() takes either form back. The in-memory object
 // (history()) keeps plain paths.
-function packRec(r) {
+// A packer keeps the tables, so events can be packed a slice at a time.
+function packer(r) {
   const tables = { paths: [], strs: [] }
   const idx = { paths: new Map(), strs: new Map() }
   const ref = (kind, v) => {
@@ -65,37 +66,47 @@ function packRec(r) {
   const frameAt = new Map()
   r.frames.forEach((f, i) => frameAt.set(f, i))
   let lastF = 0
-  const events = r.events.map((ev) => {
-    const out = { ...ev }
-    out.y = ref("strs", out.type)
-    delete out.type
-    if ("path" in out) (out.p = ref("paths", out.path)), delete out.path
-    if ("related" in out) (out.rp = ref("paths", out.related)), delete out.related
-    if (out.css != null) (out.c = ref("strs", out.css)), delete out.css
-    const fi = frameAt.get(out.t)
-    if (fi != null) {
-      out.f = fi - lastF
-      lastF = fi
-      delete out.t
-    }
-    return out
-  })
-  const clips = (r.clips || []).map((c) => {
-    const out = { ...c }
-    if (out.selector != null) (out.s = ref("strs", out.selector)), delete out.selector
-    if (out.component != null) (out.co = ref("strs", out.component)), delete out.component
-    if (out.label != null) (out.l = ref("strs", out.label)), delete out.label
-    if (out.path != null) (out.p = ref("paths", out.path)), delete out.path
-    return out
-  })
-  const out = {}
-  for (const k of Object.keys(r)) out[k] = r[k]
-  out.v = 3
-  out.events = events
-  if (r.clips) out.clips = clips
-  out.paths = tables.paths
-  out.strs = tables.strs
-  return out
+  return {
+    event(ev) {
+      const out = { ...ev }
+      out.y = ref("strs", out.type)
+      delete out.type
+      if ("path" in out) (out.p = ref("paths", out.path)), delete out.path
+      if ("related" in out) (out.rp = ref("paths", out.related)), delete out.related
+      if (out.css != null) (out.c = ref("strs", out.css)), delete out.css
+      const fi = frameAt.get(out.t)
+      if (fi != null) {
+        out.f = fi - lastF
+        lastF = fi
+        delete out.t
+      }
+      return out
+    },
+    clip(c) {
+      const out = { ...c }
+      if (out.selector != null) (out.s = ref("strs", out.selector)), delete out.selector
+      if (out.component != null) (out.co = ref("strs", out.component)), delete out.component
+      if (out.label != null) (out.l = ref("strs", out.label)), delete out.label
+      if (out.path != null) (out.p = ref("paths", out.path)), delete out.path
+      return out
+    },
+    // Everything but the events, with the tables as they stand.
+    head(events) {
+      const out = {}
+      for (const k of Object.keys(r)) out[k] = r[k]
+      out.v = 3
+      out.events = events
+      if (r.clips) out.clips = r.clips.map((c) => this.clip(c))
+      out.paths = tables.paths
+      out.strs = tables.strs
+      return out
+    },
+  }
+}
+function packRec(r) {
+  const pk = packer(r)
+  const events = r.events.map((ev) => pk.event(ev))
+  return pk.head(events)
 }
 function unpackRec(o) {
   if (o && o.v === 2 && o.paths) {

@@ -58,21 +58,13 @@ test("idle CPU while recording: the runtime adds < 2% over the plain app", async
   const plain = await measure(plainPage, URL_ + "?retake=0")
   await plainPage.close()
   const docked = await measure(page, URL_)
-  // The runtime's share: the same, with the dock's own render loop stopped
-  // (the dock is S2's; its idle cost is reported separately).
-  await page.evaluate(() => { const raf = window.requestAnimationFrame; window.requestAnimationFrame = () => raf(() => {}) })
-  await page.waitForTimeout(300)
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send("Performance.enable")
-  const get = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]))
-  // Best of three windows: the machine running other things only ever adds.
+  // The runtime's share: the app page with the runtime and no dock around it
+  // (the dock's render loop and glass blur are S2's, reported separately).
+  // Best of three windows: other load on the machine only ever adds.
+  const rtPage = await browser.newPage()
   let runtimeOnly = Infinity
-  for (let i = 0; i < 3; i++) {
-    const a = await get()
-    await page.waitForTimeout(3000)
-    const z = await get()
-    runtimeOnly = Math.min(runtimeOnly, (z.TaskDuration - a.TaskDuration) / (z.Timestamp - a.Timestamp))
-  }
+  for (let i = 0; i < 3; i++) runtimeOnly = Math.min(runtimeOnly, await measure(rtPage, URL_ + "?__wb=app"))
+  await rtPage.close()
   results.idleCpuPlain = +(plain * 100).toFixed(2)
   results.idleCpuDocked = +(docked * 100).toFixed(2)
   results.idleCpuRuntimeOnly = +(runtimeOnly * 100).toFixed(2)
@@ -106,6 +98,26 @@ test("10 minutes of recording: < 5 MB, serialises without blocking a frame, fits
     return performance.now() - t0
   })
   results.stringifyMs = +ms.toFixed(1)
+  // PT.serialize(): the same JSON, built in idle slices, so saving never blocks a frame.
+  const ser = await page.evaluate(async () => {
+    const f = document.querySelector("#wb-stage iframe.live").contentWindow
+    const slices = []
+    let last = performance.now()
+    let running = true
+    const tick = () => {
+      const now = performance.now()
+      slices.push(now - last)
+      last = now
+      if (running) setTimeout(tick, 0)
+    }
+    setTimeout(tick, 0)
+    const json = await f.__wayback.serialize()
+    running = false
+    return { longest: Math.max(...slices), same: json === f.JSON.stringify(f.__wayback.history()) }
+  })
+  results.serializeLongestGapMs = Math.round(ser.longest)
+  expect(ser.same).toBe(true)
+  expect(ser.longest).toBeLessThan(16) // the page stays responsive throughout
   const cdp = await page.context().newCDPSession(page)
   for (let i = 0; i < 2; i++) await cdp.send("HeapProfiler.collectGarbage")
   results.heapMB = +((await cdp.send("Runtime.getHeapUsage")).usedSize / 1e6).toFixed(1)

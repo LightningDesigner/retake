@@ -128,6 +128,29 @@ Object.assign(PT, {
     if (shell && rec.start != null) shell.branchOff(JSON.stringify(rec), rec.end, clock.now)
   },
   isPaused: () => !clock.playing,
+  // The recording as JSON, built in idle slices (~8ms each) so saving a long
+  // session never blocks a frame. Same format as JSON.stringify(history()).
+  async serialize() {
+    const r = rec
+    const n = r.events.length
+    const pk = packer(r)
+    const idleWait = () => new Promise((res) => (real.idle ? real.idle(res, { timeout: 100 }) : real.setTimeout(res, 0)))
+    const parts = []
+    let slice = real.perfNow()
+    for (let i = 0; i < n; i += 1000) {
+      const chunk = []
+      for (let j = i; j < Math.min(n, i + 1000); j++) chunk.push(pk.event(r.events[j]))
+      const str = JSON.stringify(chunk)
+      if (str.length > 2) parts.push(str.slice(1, -1))
+      if (real.perfNow() - slice > 8) {
+        await idleWait()
+        slice = real.perfNow()
+      }
+    }
+    // Tables are complete once every event (and clip) has been packed.
+    const head = pk.head("__EVENTS__")
+    return JSON.stringify(head).replace('"__EVENTS__"', () => "[" + parts.join(",") + "]")
+  },
   // Checkpoint frames: build in idle slices (true) or at full speed (false).
   setBackground(on) {
     background = !!on
