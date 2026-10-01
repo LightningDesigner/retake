@@ -293,6 +293,9 @@ export async function runMcp({ url } = {}) {
   }
 
   let buf = ""
+  let inFlight = 0
+  let ended = false
+  const maybeExit = () => ended && inFlight === 0 && process.exit(0)
   process.stdin.setEncoding("utf8")
   process.stdin.on("data", (chunk) => {
     buf += chunk
@@ -308,8 +311,18 @@ export async function runMcp({ url } = {}) {
         error(null, -32700, "parse error")
         continue
       }
-      handle(msg).catch((err) => msg.id !== undefined && error(msg.id, -32603, err.message))
+      inFlight++
+      handle(msg)
+        .catch((err) => msg.id !== undefined && error(msg.id, -32603, err.message))
+        .finally(() => {
+          inFlight--
+          maybeExit()
+        })
     }
   })
-  process.stdin.on("end", () => process.exit(0))
+  // The client closed its end: answer what's still in flight, then leave.
+  process.stdin.on("end", () => {
+    ended = true
+    maybeExit()
+  })
 }

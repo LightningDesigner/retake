@@ -126,3 +126,17 @@ test("a clear error when no dev server is running", async () => {
     m.close()
   }
 })
+
+test("a client that closes its input right after asking still gets the answer", async ({ request }) => {
+  const token = await seed(request)
+  const { spawnSync } = await import("node:child_process")
+  const input = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_notes", arguments: {} } },
+  ].map((m) => JSON.stringify(m)).join("\n") + "\n"
+  const r = spawnSync(process.execPath, [BIN, "mcp", "--url", base], { input, encoding: "utf8", timeout: 15000 })
+  const replies = r.stdout.trim().split("\n").map((l) => JSON.parse(l))
+  expect(replies.map((x) => x.id)).toEqual([1, 2])
+  expect(JSON.parse(replies[1].result.content[0].text).notes[0].id).toBe("n1")
+  await request.put(base + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": token } })
+})

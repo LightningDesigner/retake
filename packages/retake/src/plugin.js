@@ -77,7 +77,7 @@ export function retake(options = {}) {
           const port = a && typeof a === "object" ? a.port : server.config.server.port
           const proto = server.config.server.https ? "https" : "http"
           const base = server.config.base || "/"
-          if (options.banner) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
+          if (options.banner !== false) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
           if (!fs.existsSync(path.join(server.config.root, "index.html"))) {
             server.config.logger.warn(
               `  retake: no index.html in ${server.config.root}. Retake docks into pages Vite serves from index.html (single-page apps). ` +

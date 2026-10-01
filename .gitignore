@@ -8,3 +8,4 @@ test/out
 test-results/
 playwright-report/
 *.tgz
+dist-pkg/

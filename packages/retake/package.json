@@ -1,7 +1,7 @@
 {
   "name": "retake-dev",
   "version": "0.4.0",
-  "description": "Retake: a time machine for Vite prototypes. Drag back on a timeline and your app is at that moment; hit + and take it again from there.",
+  "description": "Retake: a time machine for Vite prototypes. Drag back on a timeline and your app is at that moment; branch a new take from there.",
   "type": "module",
   "main": "./src/plugin.js",
   "exports": {
@@ -15,7 +15,9 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "!src/shell/mock",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"
