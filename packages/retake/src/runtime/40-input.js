@@ -21,6 +21,8 @@ const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", 
 
 let dispatching = 0
 let missingTargets = 0
+let lastScreenOffset = null // recording
+let replayScreenOffset = [0, 0] // replay
 
 // True from an input event until the current task ends (a message on a
 // private channel clears it at the start of the next task).
@@ -112,7 +114,12 @@ function serialize(e) {
   const ev = { type: e.type, path: pathOf(e.target) }
   for (const k of ["bubbles", "cancelable", "composed"]) put(ev, k, e[k])
   if (e instanceof MouseEvent) {
-    for (const k of ["clientX", "clientY", "screenX", "screenY", "button", "buttons", "detail", "movementX", "movementY"]) put(ev, k, e[k])
+    for (const k of ["clientX", "clientY", "buttons", "detail", "movementX", "movementY"]) put(ev, k, e[k])
+    // button: -1 is usual for moves, 0 otherwise
+    if (e.button !== (/move|over|out|enter|leave/.test(e.type) ? -1 : 0)) ev.button = e.button
+    // screen = client + the window's offset, stored only when it changes
+    const so = [e.screenX - e.clientX, e.screenY - e.clientY]
+    if (!lastScreenOffset || lastScreenOffset[0] !== so[0] || lastScreenOffset[1] !== so[1]) ev.so = lastScreenOffset = so
     if (e.relatedTarget) ev.related = pathOf(e.relatedTarget)
   }
   if (e instanceof PointerEvent) for (const k of ["pointerId", "pointerType", "isPrimary", "width", "height", "pressure"]) put(ev, k, e[k])
@@ -296,8 +303,25 @@ function onInput(e) {
       const ev = rec.events[i]
       if (ev.t !== clock.now) break
       if (ev.type === "pointermove") {
-        if ((ev.clientX || 0) === e.clientX && (ev.clientY || 0) === e.clientY && !ev.mm) {
+        if (Math.abs((ev.clientX || 0) - e.clientX) < 1 && Math.abs((ev.clientY || 0) - e.clientY) < 1 && !ev.mm) {
           ev.mm = 1
+          return
+        }
+        break
+      }
+    }
+  }
+  // mouseover/mouseout mirror the pointerover/pointerout just before them:
+  // folded in the same way (replayed right after their pointer twin).
+  if (e.type === "mouseover" || e.type === "mouseout") {
+    const twin = e.type === "mouseover" ? "pointerover" : "pointerout"
+    const path = pathOf(e.target)
+    for (let i = rec.events.length - 1, n = 0; i >= 0 && n < 6; i--, n++) {
+      const ev = rec.events[i]
+      if (ev.t !== clock.now) break
+      if (ev.type === twin) {
+        if (!ev.mo && ev.path + "" === path + "") {
+          ev.mo = 1
           return
         }
         break
@@ -451,6 +475,12 @@ function withLegacyKeys(event, ev) {
 function replayOne(ev, target) {
   if (ev.type.startsWith("pointer") || ev.type.startsWith("mouse")) replayHover(ev, target)
   const init = { ...DEFAULTS, ...ev, view: W }
+  if (ev.so) replayScreenOffset = ev.so
+  if (ev.clientX != null || ev.so) {
+    if (init.screenX == null) init.screenX = (ev.clientX || 0) + replayScreenOffset[0]
+    if (init.screenY == null) init.screenY = (ev.clientY || 0) + replayScreenOffset[1]
+  }
+  if (init.button == null && /move|over|out|enter|leave/.test(ev.type)) init.button = -1
   if (ev.related) init.relatedTarget = resolvePath(ev.related)
   switch (true) {
     case ev.type === "scroll": {
@@ -508,6 +538,7 @@ function replayOne(ev, target) {
     case POINTER.includes(ev.type): {
       target.dispatchEvent(new PointerEvent(ev.type, init))
       if (ev.mm) target.dispatchEvent(new MouseEvent("mousemove", init))
+      if (ev.mo) target.dispatchEvent(new MouseEvent(ev.type === "pointerover" ? "mouseover" : "mouseout", init))
       return
     }
     case ev.type === "wheel":

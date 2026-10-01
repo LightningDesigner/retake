@@ -48,56 +48,97 @@ const cursor = { event: 0, frame: 0 }
 // halves the size. readRec() takes either form back. The in-memory object
 // (history()) keeps plain paths.
 function packRec(r) {
-  const table = []
-  const index = new Map()
-  const ref = (path) => {
-    if (path == null) return path
-    const key = Array.isArray(path) ? path.join(",") : "=" + path
-    let i = index.get(key)
+  const tables = { paths: [], strs: [] }
+  const idx = { paths: new Map(), strs: new Map() }
+  const ref = (kind, v) => {
+    if (v == null) return v
+    const key = typeof v === "string" ? v : Array.isArray(v) ? v.join(",") : "=" + v
+    let i = idx[kind].get(key)
     if (i == null) {
-      i = table.length
-      table.push(path)
-      index.set(key, i)
+      i = tables[kind].length
+      tables[kind].push(v)
+      idx[kind].set(key, i)
     }
     return i
   }
+  // An event's time is usually exactly a frame boundary: store the frame's index.
+  const frameAt = new Map()
+  r.frames.forEach((f, i) => frameAt.set(f, i))
+  let lastF = 0
   const events = r.events.map((ev) => {
-    if (ev.path === undefined && ev.related === undefined) return ev
     const out = { ...ev }
-    if ("path" in out) {
-      out.p = ref(out.path)
-      delete out.path
+    out.y = ref("strs", out.type)
+    delete out.type
+    if ("path" in out) (out.p = ref("paths", out.path)), delete out.path
+    if ("related" in out) (out.rp = ref("paths", out.related)), delete out.related
+    if (out.css != null) (out.c = ref("strs", out.css)), delete out.css
+    const fi = frameAt.get(out.t)
+    if (fi != null) {
+      out.f = fi - lastF
+      lastF = fi
+      delete out.t
     }
-    if ("related" in out) {
-      out.rp = ref(out.related)
-      delete out.related
-    }
+    return out
+  })
+  const clips = (r.clips || []).map((c) => {
+    const out = { ...c }
+    if (out.selector != null) (out.s = ref("strs", out.selector)), delete out.selector
+    if (out.component != null) (out.co = ref("strs", out.component)), delete out.component
+    if (out.label != null) (out.l = ref("strs", out.label)), delete out.label
+    if (out.path != null) (out.p = ref("paths", out.path)), delete out.path
     return out
   })
   const out = {}
   for (const k of Object.keys(r)) out[k] = r[k]
-  out.v = 2
+  out.v = 3
   out.events = events
-  out.paths = table
+  if (r.clips) out.clips = clips
+  out.paths = tables.paths
+  out.strs = tables.strs
   return out
 }
 function unpackRec(o) {
   if (o && o.v === 2 && o.paths) {
+    // v2: paths table only
     const table = o.paths
     o.events = o.events.map((ev) => {
-      if (ev.p === undefined && ev.rp === undefined) return ev
       const out = { ...ev }
-      if ("p" in out) {
-        out.path = table[out.p]
-        delete out.p
-      }
-      if ("rp" in out) {
-        out.related = table[out.rp]
-        delete out.rp
-      }
+      if ("p" in out) (out.path = table[out.p]), delete out.p
+      if ("rp" in out) (out.related = table[out.rp]), delete out.rp
       return out
     })
     delete o.paths
+    o.v = 1
+  } else if (o && o.v === 3) {
+    const P = o.paths
+    const S = o.strs
+    let lastF = 0
+    o.events = o.events.map((ev) => {
+      const out = { ...ev }
+      out.type = S[out.y]
+      delete out.y
+      if ("p" in out) (out.path = P[out.p]), delete out.p
+      if ("rp" in out) (out.related = P[out.rp]), delete out.rp
+      if ("c" in out) (out.css = S[out.c]), delete out.c
+      if ("f" in out) {
+        lastF += out.f
+        out.t = o.frames[lastF]
+        delete out.f
+      }
+      return out
+    })
+    if (o.clips) {
+      o.clips = o.clips.map((c) => {
+        const out = { ...c }
+        if ("s" in out) (out.selector = S[out.s]), delete out.s
+        if ("co" in out) (out.component = S[out.co]), delete out.co
+        if ("l" in out) (out.label = S[out.l]), delete out.l
+        if ("p" in out) (out.path = P[out.p]), delete out.p
+        return out
+      })
+    }
+    delete o.paths
+    delete o.strs
     o.v = 1
   }
   return withPacking(o)
