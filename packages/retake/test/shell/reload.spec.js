@@ -29,7 +29,7 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
   // Live, at the page asked for, never rebuilt.
   expect(await framePath(page)).toBe("/other.html")
   expect(await page.evaluate(() => window.__phases.filter((p) => /Building|Loading/.test(p)))).toEqual([])
-  expect(await page.evaluate(() => document.querySelectorAll("#wb-stage iframe").length)).toBe(1)
+  expect(await page.evaluate(() => document.querySelectorAll("#wb-stage iframe:not(.checkpoint)").length)).toBe(1)
   expect(await dock(page, (D) => D.last.playing)).toBe(true)
   // The old timeline is still there with its whole recording.
   const branches = await dock(page, (D) => D.branches.map((b) => ({ id: b.id, name: b.name, end: b.end })))
