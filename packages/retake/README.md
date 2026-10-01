@@ -1,65 +1,103 @@
 # Retake
 
-A time machine for Vite prototypes. A timeline docks at the bottom of your app.
-Drag it back and the app is at that moment. Hit **+** to start a new take from
-there; the old one stays as a lane you can click back into.
+A time machine for Vite prototypes. A timeline docks over the bottom of your
+app and records everything from page load. Drag it back and the app is at that
+moment. Ctrl-click the timeline to start a new take from there; the old one
+stays as a lane you can click back into. Dev only: nothing ships in builds.
+
+## Getting started
+
+### Requirements
+- Node 18 or newer
+- A Vite 5+ app served from an `index.html` (React, Vue, Svelte, plain JS).
+  SSR/framework setups (Next, Remix, React Router framework mode, Astro) aren't supported yet.
+- Chrome, Edge or another Chromium browser (that's what it's tested on)
+
+### Try it without installing
+From your app's folder:
 
 ```sh
-npx retake-dev .                  # npm
-pnpm dlx retake-dev .             # pnpm
-yarn dlx retake-dev .             # yarn (berry)
-bunx retake-dev .                 # bun
+npx retake-dev .          # npm
+pnpm dlx retake-dev .     # pnpm
+yarn dlx retake-dev .     # yarn (berry)
+bunx retake-dev .         # bun
 ```
 
-Or install it in the project and use the short name:
+Open the URL it prints (default http://localhost:3014). Your files aren't
+touched: it runs your own `vite.config` through a wrapper kept in your temp folder.
+Retake keeps its session in a `.retake/` folder in the app (it git-ignores itself).
 
+> Use the full name `retake-dev` with `npx`/`dlx`. The short `retake` command only
+> exists after you install `retake-dev` in the project (an unrelated npm package
+> is called `retake`).
+
+### Install it in the project
 ```sh
-npm i -D retake-dev     # or: pnpm add -D / yarn add -D / bun add -d
-npx retake .
+npm i -D retake-dev       # or: pnpm add -D retake-dev / yarn add -D retake-dev / bun add -d retake-dev
+npx retake .              # same as above, now from node_modules
 ```
 
-```sh
-retake <project>                     # run the project's dev server with the timeline
-retake <project> --port 4000
-retake <project> --code-branches     # each timeline keeps its own version of the code
-retake <project> -- --host           # anything after -- goes to vite
-retake init                          # print the vite.config lines instead
+Or keep your usual `npm run dev` and add the plugin to `vite.config`:
+
+```js
+import { retake } from "retake-dev"
+
+export default defineConfig({
+  plugins: [retake(), /* ...your plugins */],
+})
 ```
 
-Prefer it in the config? `import { retake } from "retake-dev"` and add
-`retake()` to `plugins`. It only runs in `vite dev`; nothing ships in builds.
+`retake()` only runs in `vite dev`; `vite build` output has no Retake code in it.
 
-- **Recording** is on from page load. **Pause** (`⌥P`) freezes timers,
-  animations and requests.
-- **Scrubbing**: drag the playhead back to see the past; let go and the moment
-  is rebuilt for real.
-- **Timelines**: while paused or rewound, hover the timeline and click **+** to
-  start a new timeline from that moment. Only **+** creates timelines; acting
-  in the past doesn't branch on its own. Click a lane to go there;
-  right-click to delete it.
-- **Notes**: while paused, hold ⌘ (or pick the comment tool), click any
-  element and write what should change. Notes keep their moment and timeline,
-  show as pins, and copy as a prompt (element, selector, React component, size)
-  for a coding agent.
-- **Code per timeline** (`--code-branches`): when the source changes, the
-  timeline you are on takes the new code; the others keep theirs. Stepping into
-  a timeline checks its code out on disk, so use it on prototypes.
-- Opt out for one load with `?retake=0`.
-
-## Notes for your coding agent (MCP)
-
-Notes you leave in the dock can go straight to a coding agent. Add Retake's MCP
-server once:
+### Connect Claude Code (MCP)
+Notes you leave in the dock can go straight to Claude Code. Once, from the app folder:
 
 ```sh
 claude mcp add retake -- npx -y retake-dev mcp
 ```
 
-Run it from the project folder, the same place you ran `retake`: it finds the
-running dev server from `.retake/server.json` (or pass `--url
-http://localhost:3014`). The agent gets `list_notes`, `get_note`,
+With the dev server running, Claude can `list_notes`, `get_note`,
 `get_active_timeline`, `acknowledge`, `resolve`, `reply` and `watch_notes`.
-Acknowledging and resolving show up on the note's pin in the dock right away.
+It finds the server through `.retake/server.json` (or pass `--url http://localhost:3014`).
+Acknowledging and resolving show up on the note in the dock right away.
+
+### The first 60 seconds
+1. **Use your app** for a few seconds: it's being recorded already.
+2. **Pause** with space (or ⌥P, or the play button). The app goes view-only:
+   you can scroll, not click.
+3. **Rewind**: drag the playhead back. Let go and the moment is rebuilt for real.
+   ⌘-scroll on the timeline zooms in; ←/→ step frame by frame; F fits everything.
+4. **Branch**: Ctrl-click the timeline at a moment to start a new take there.
+   It starts paused: press play and do something different. Click the other
+   lane to go back to the first take.
+5. **Note**: hold ⌘ and click an element (or one of its animation layers),
+   write what should change, press Enter. "Copy for Claude" copies a prompt with
+   the element, its React component, source file:line and CSS; or let Claude
+   pick it up over MCP.
+
+### Uninstall
+```sh
+npm uninstall retake-dev          # or pnpm remove / yarn remove / bun remove
+rm -rf .retake                    # Retake's session and recordings
+claude mcp remove retake          # if you added the MCP server
+```
+Remove `retake()` from `vite.config` if you added it.
+
+## Commands
+```sh
+retake <project>                     # run the project's dev server with the timeline
+retake <project> --port 4000
+retake <project> --code-branches     # each timeline keeps its own version of the code (rewrites files!)
+retake <project> -- --host           # anything after -- goes to vite
+retake init                          # print the vite.config lines
+retake mcp                           # the MCP server (what `claude mcp add` runs)
+```
+Opt out for one page load with `?retake=0`.
+
+**Code per timeline** (`--code-branches`): when the source changes, the timeline
+you're on takes the new code; the others keep theirs. Stepping into a timeline
+checks its code out on disk (snapshots are kept in `.retake/`, and the newest
+code is put back when the server stops), but use it on prototypes, not shared repos.
 
 ## How going back works
 
