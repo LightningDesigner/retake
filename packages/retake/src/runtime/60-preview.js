@@ -35,6 +35,7 @@ function endAnim(a) {
 // ---- DOM log --------------------------------------------------------------------
 
 function logMutations(records) {
+  if (records.length) appRan = true // style may have changed: look for new animations
   for (let i = 0; i < records.length; i++) {
     const r = records[i]
     const later = (pred) => records.slice(i + 1).find(pred)
@@ -128,6 +129,7 @@ const liveTimes = new Map() // each live animation's state before the preview
 
 function preview(t, scope) {
   if (!previewing) {
+    reclaimNative()
     logMutations(observer.takeRecords())
     observer.disconnect()
     previewing = true

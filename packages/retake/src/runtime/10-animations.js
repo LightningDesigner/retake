@@ -39,6 +39,8 @@ function adopt(a) {
     v: clock.now,
     userPaused: ps === "paused",
     done: ps === "finished",
+    native: false,
+    checks: 0,
   }
   managed.set(a, s)
   if (!s.done && !s.userPaused) orig.pause.call(a)
@@ -67,10 +69,13 @@ function catchUp(a, s) {
 }
 
 let syncCount = 0
-function syncAnimations() {
+// scan: look for new animations too. A new CSS animation needs a style
+// change, which comes from a DOM change, input, a timer or a frame callback;
+// when none of those happened, only the running ones need driving.
+function syncAnimations(scan = true) {
   // While previewing another moment, the preview owns every animation.
   if (previewing) return
-  for (const a of document.getAnimations()) adopt(a)
+  if (scan) for (const a of document.getAnimations()) adopt(a)
   // Finished animations are only checked for removal now and then; a long
   // session collects hundreds of them.
   const sweep = ++syncCount % 30 === 0
@@ -84,11 +89,42 @@ function syncAnimations() {
     if (s.done) continue
     catchUp(a, s)
     const rate = rateOf(a)
+    // An endless loop (a spinner, a shimmer) runs natively on the compositor
+    // while recording at normal pace, lined up with the virtual clock and
+    // re-lined if it drifts; the clock takes it back on pause, seek or preview.
+    const endless = endOf(a) === Infinity && !s.userPaused && !cssPaused(a)
+    const native = endless && clock.playing && !clock.seeking && clock.rate === 1 && !hasFuture()
+    if (native) {
+      if (!s.native) {
+        orig.currentTime.set.call(a, s.t)
+        orig.play.call(a)
+        orig.currentTime.set.call(a, s.t)
+        s.native = true
+      } else if (++s.checks % 30 === 0 && Math.abs((Number(orig.currentTime.get.call(a)) || 0) - s.t) > 20) {
+        orig.currentTime.set.call(a, s.t)
+      }
+      continue
+    }
+    if (s.native) {
+      orig.pause.call(a)
+      s.native = false
+    }
+    s.checks = 0
     if ((rate > 0 && s.t >= endOf(a)) || (rate < 0 && s.t <= 0)) {
       finishNow(a, s)
     } else {
       orig.currentTime.set.call(a, s.t)
     }
+  }
+}
+
+// The clock stopped or jumped: endless loops come back under its control now.
+function reclaimNative() {
+  for (const [a, s] of managed) {
+    if (!s.native) continue
+    orig.pause.call(a)
+    s.native = false
+    orig.currentTime.set.call(a, s.t)
   }
 }
 

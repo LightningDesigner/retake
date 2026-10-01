@@ -24,7 +24,7 @@ function restoreStorage(store, snap) {
 }
 
 function newRecording() {
-  return {
+  return withPacking({
     v: 1,
     url: location.href,
     seed: Math.floor(real.random() * 2 ** 32),
@@ -36,11 +36,79 @@ function newRecording() {
     events: [],
     fetches: [],
     end: 0,
-  }
+  })
 }
 
 let rec = null
 const cursor = { event: 0, frame: 0 }
+
+// ---- compact serialisation ----------------------------------------------------------
+// JSON.stringify(rec) writes a compact form (v: 2): every DOM path is stored
+// once in a table and events refer to it by index, which on a deep DOM
+// halves the size. readRec() takes either form back. The in-memory object
+// (history()) keeps plain paths.
+function packRec(r) {
+  const table = []
+  const index = new Map()
+  const ref = (path) => {
+    if (path == null) return path
+    const key = Array.isArray(path) ? path.join(",") : "=" + path
+    let i = index.get(key)
+    if (i == null) {
+      i = table.length
+      table.push(path)
+      index.set(key, i)
+    }
+    return i
+  }
+  const events = r.events.map((ev) => {
+    if (ev.path === undefined && ev.related === undefined) return ev
+    const out = { ...ev }
+    if ("path" in out) {
+      out.p = ref(out.path)
+      delete out.path
+    }
+    if ("related" in out) {
+      out.rp = ref(out.related)
+      delete out.related
+    }
+    return out
+  })
+  const out = {}
+  for (const k of Object.keys(r)) out[k] = r[k]
+  out.v = 2
+  out.events = events
+  out.paths = table
+  return out
+}
+function unpackRec(o) {
+  if (o && o.v === 2 && o.paths) {
+    const table = o.paths
+    o.events = o.events.map((ev) => {
+      if (ev.p === undefined && ev.rp === undefined) return ev
+      const out = { ...ev }
+      if ("p" in out) {
+        out.path = table[out.p]
+        delete out.p
+      }
+      if ("rp" in out) {
+        out.related = table[out.rp]
+        delete out.rp
+      }
+      return out
+    })
+    delete o.paths
+    o.v = 1
+  }
+  return withPacking(o)
+}
+function withPacking(o) {
+  if (o && typeof o === "object" && !Object.prototype.hasOwnProperty.call(o, "toJSON")) {
+    Object.defineProperty(o, "toJSON", { value: function () { return packRec(this) }, enumerable: false, configurable: true })
+  }
+  return o
+}
+const readRec = (json) => unpackRec(typeof json === "string" ? JSON.parse(json) : json)
 
 // Segments: a recording starts one on load, and another each time the app
 // reloads itself. A moment is rebuilt from the start of its segment: that
@@ -50,6 +118,7 @@ function segmentsOf(r = rec) {
   return [first, ...(r.segments || [])]
 }
 function segmentIndex(t, r = rec) {
+  if (typeof r === "string") r = readRec(r)
   let i = 0
   for (const s of r.segments || []) if (s.t <= t) i++
   return i

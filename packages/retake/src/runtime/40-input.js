@@ -290,11 +290,18 @@ function onInput(e) {
   // Only Play starts the clock.
   if (!clock.playing || hasFuture()) return viewOnly(e)
   // A mousemove right after the pointermove it mirrors is one event.
+  // (It may come after the pointerover/out events the same move fired.)
   if (e.type === "mousemove") {
-    const last = rec.events[rec.events.length - 1]
-    if (last && last.type === "pointermove" && last.t === clock.now && (last.clientX || 0) === e.clientX && (last.clientY || 0) === e.clientY) {
-      last.mm = 1
-      return
+    for (let i = rec.events.length - 1, n = 0; i >= 0 && n < 8; i--, n++) {
+      const ev = rec.events[i]
+      if (ev.t !== clock.now) break
+      if (ev.type === "pointermove") {
+        if ((ev.clientX || 0) === e.clientX && (ev.clientY || 0) === e.clientY && !ev.mm) {
+          ev.mm = 1
+          return
+        }
+        break
+      }
     }
   }
   // Wheel ticks within one frame add up to one event.
@@ -310,6 +317,7 @@ function onInput(e) {
   if (e.type === "focusin") vFocus = e.target
   if (e.type === "focusout" && vFocus === e.target) vFocus = null
   if (e.type === "scroll" && ignoreRestoredScroll(e)) return
+  appRan = true // the app is handling input: it may start animations
   const ev = serialize(e)
   if (ev.type === "scroll" && ev.path) noteScroll(ev)
   if (ev.path) {

@@ -13,6 +13,11 @@
 // shell page and written to <root>/.retake/server.json for local tools (MCP).
 import fs from "node:fs"
 import path from "node:path"
+import zlib from "node:zlib"
+import { promisify } from "node:util"
+
+const gzip = promisify(zlib.gzip)
+const gunzip = promisify(zlib.gunzip)
 
 const STATUSES = new Set(["pending", "acknowledged", "resolved", "dismissed"])
 const MAX_BODY = 256 * 1024 * 1024
@@ -58,24 +63,38 @@ export function sessionStore(root) {
     putSession(s) {
       atomic(sessionFile, JSON.stringify({ ...EMPTY(), ...s }))
     },
-    getRecording(id) {
+    // Recordings are gzipped on disk (JSON compresses ~10×), written off the
+    // request path and atomically.
+    async getRecording(id) {
+      const f = recFile(id)
       try {
-        return fs.readFileSync(recFile(id), "utf8")
-      } catch (err) {
-        if (err.status) throw err
+        return (await gunzip(await fs.promises.readFile(f + ".gz"))).toString("utf8")
+      } catch {}
+      try {
+        return await fs.promises.readFile(f, "utf8") // older, uncompressed
+      } catch {
         return null
       }
     },
-    putRecording(id, text) {
-      atomic(recFile(id), text)
+    async putRecording(id, text) {
+      const f = recFile(id)
+      const tmp = `${f}.gz.${process.pid}-${Date.now()}.tmp`
+      await fs.promises.writeFile(tmp, await gzip(text, { level: 6 }))
+      await fs.promises.rename(tmp, f + ".gz")
+      fs.rmSync(f, { force: true })
     },
     deleteRecording(id) {
-      fs.rmSync(recFile(id), { force: true })
+      const f = recFile(id)
+      fs.rmSync(f, { force: true })
+      fs.rmSync(f + ".gz", { force: true })
     },
     // Drop recordings of branches the session no longer has ("Start fresh", deletes).
     prune(session) {
       const keep = new Set((session.branches || []).map((b) => `${b.id}.json`))
-      for (const f of fs.readdirSync(recDir)) if (f.endsWith(".json") && !keep.has(f)) fs.rmSync(path.join(recDir, f), { force: true })
+      for (const f of fs.readdirSync(recDir)) {
+        const base = f.replace(/\.gz$/, "")
+        if (base.endsWith(".json") && !keep.has(base)) fs.rmSync(path.join(recDir, f), { force: true })
+      }
     },
   }
 }
@@ -199,13 +218,13 @@ export function sessionApi(server, { token, bus }) {
       if (route[0] === "recording" && route.length === 2) {
         const id = decodeURIComponent(route[1])
         if (req.method === "GET") {
-          const text = store.getRecording(id)
+          const text = await store.getRecording(id)
           return text == null ? send(res, 404, { error: "no recording" }) : send(res, 200, text)
         }
         if (req.method === "PUT") {
           const text = await readBody(req)
           JSON.parse(text) // must be valid JSON
-          store.putRecording(id, text)
+          await store.putRecording(id, text)
           return send(res, 200, { ok: true })
         }
         if (req.method === "DELETE") {

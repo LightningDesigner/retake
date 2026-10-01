@@ -68,17 +68,29 @@ async function processBoundary(B) {
   runRaf()
   tickWorkers(B)
   while (futureFrame() != null && futureFrame() <= B) cursor.frame++
+  const own0 = real.perfNow()
   recordFrame(B)
+  let own = real.perfNow() - own0
   if (!clock.seeking || appRan || appMessages > 0 || idbBusy > 0 || nextAnimationEnd() <= B) {
-    syncAnimations()
+    const s0 = real.perfNow()
+    syncAnimations(appRan || clock.seeking)
+    own += real.perfNow() - s0
     await settle()
     // Live, whatever the app started while settling belongs to this moment
     // too (a rebuild takes recorded starts instead).
-    if (!clock.seeking) syncAnimations()
+    if (!clock.seeking && appRan) syncAnimations()
     appRan = false
   }
   await dispatchUpTo(B)
+  const a0 = real.perfNow()
   sampleActivity()
+  own += real.perfNow() - a0
+  // The runtime's own work per recorded frame (not the app's), for the perf budget.
+  if (!clock.seeking) {
+    stats.ownFrames = (stats.ownFrames || 0) + 1
+    stats.ownMs = (stats.ownMs || 0) + own
+    if (own > (stats.ownMax || 0)) stats.ownMax = own
+  }
   if (hoverChain.length && !clock.seeking && !hasFuture()) clearHover()
 }
 
@@ -97,6 +109,10 @@ function nextBoundary(limit, skipping) {
   return B
 }
 
+function catchUpAll() {
+  for (const [a, st] of managed) if (!st.done) catchUp(a, st)
+}
+
 // A frame being built in the background (a checkpoint) replays in idle
 // slices, so the frame you're looking at stays smooth.
 let background = false
@@ -105,6 +121,7 @@ const idleSlice = () => new Promise((r) => (W.requestIdleCallback && real.idle ?
 async function runSeek() {
   const seekStart = real.perfNow()
   clock.seeking = true
+  reclaimNative()
   syncMedia()
   PT.emit()
   let lastPaint = real.perfNow()
@@ -173,7 +190,7 @@ async function drive() {
           if (seekTarget != null || !clock.playing) break
         }
       }
-      syncAnimations()
+      syncAnimations(appRan) // new ones only if something happened since the frame
       syncMedia()
       PT.emit()
     } catch (err) {
@@ -204,12 +221,16 @@ function play() {
 function pause() {
   const was = clock.playing
   clock.playing = false
+  catchUpAll()
+  reclaimNative()
   syncMedia()
   PT.emit()
   if (was) playStateChanged()
 }
 
 function setRate(rate) {
+  catchUpAll()
+  reclaimNative()
   clock.rate = rate
   syncMedia()
   PT.emit()
@@ -240,7 +261,7 @@ function seek(t, then) {
 function rewind(t, playAfter, json = JSON.stringify(rec)) {
   let url
   try {
-    url = segmentAt(t, typeof json === "string" ? JSON.parse(json) : json).url
+    url = segmentAt(t, readRec(json)).url
   } catch {}
   if (shell) shell.rebuild({ rec: json, target: t, play: playAfter, rate: clock.rate, url })
 }

@@ -34,7 +34,7 @@ if (pending && pending.reloaded) {
   // new segment of the recording starts here, at this URL, with the storage
   // as it is now. Nothing is replayed; later rebuilds to a moment in this
   // segment start from here too.
-  rec = JSON.parse(pending.rec)
+  rec = readRec(pending.rec)
   const seg = {
     t: pending.target,
     ev: rec.events.length,
@@ -54,7 +54,7 @@ if (pending && pending.reloaded) {
     if (snap) seg.idb = snap
   })
 } else if (pending) {
-  rec = JSON.parse(pending.rec)
+  rec = readRec(pending.rec)
   const seg = segmentAt(pending.target)
   if (seg.url && sameDocUrl(seg.url) === false) {
     // This moment lives in a segment that started on another URL: go there
@@ -160,7 +160,7 @@ Object.assign(PT, {
     }
     let next
     try {
-      next = typeof json === "string" ? JSON.parse(json) : json
+      next = readRec(json)
     } catch {
       return no("not JSON")
     }

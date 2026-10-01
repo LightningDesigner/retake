@@ -260,6 +260,7 @@ function render() {
   document.body.style.setProperty("--dock-h", dh + "px")
   if (!s || !D.frame) return
   autoStart(s)
+  if (D.perfNoDraw) return // (perf measurements: the runtime alone)
   const active = activeBranch()
   // Only the active timeline's own frame says how far it goes: mid-switch the
   // visible frame is still the timeline we're leaving.
@@ -408,7 +409,7 @@ function openMoreMenu(btn) {
 const MIN_H = 96
 // Never so short that the lanes (at their closest) don't fit under the ruler.
 const dockHeight = () => {
-  const min = Math.max(MIN_H, 56 + 24 + D.branches.length * 10 + 8)
+  const min = Math.max(MIN_H, 56 + 24 + D.branches.length * 10 + 16)
   return Math.round(clamp(D.height, min, Math.max(min, innerHeight * 0.7)))
 }
 
