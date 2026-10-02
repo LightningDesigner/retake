@@ -1,7 +1,8 @@
 // The dock. Lives in the top window; the prototype runs in a frame on the
 // stage above it, with the time runtime inside. Going to another moment builds
-// it in a second frame behind the visible one and swaps it in when it's ready,
-// so there's no flash.
+// it in a second frame behind the visible one (invisible, one at a time) and
+// swaps it in when it's ready, so there's no flash; going back, the visible
+// frame previews the moment meanwhile (goTo() in 25-input.js).
 const stage = $("#wb-stage")
 const dock = $("#wb-dock")
 const track = $(".track")
@@ -20,14 +21,30 @@ function resetBranches() {
 }
 resetBranches()
 
+// The Vite plugin knows the dock's frame by `?__wb=app` in its URL. Behind the
+// front server (marker "header") the URL stays the app's own: the server knows
+// a frame by its Sec-Fetch-Dest, and the runtime by isAppFrame() below.
+const MARKER = (window.__retakeConfig && window.__retakeConfig.marker) || "url"
 const appUrl = (() => {
   const u = new URL(location.href)
-  u.searchParams.set("__wb", "app")
+  if (MARKER !== "header") u.searchParams.set("__wb", "app")
   return u.pathname + u.search + u.hash
 })()
+// Every frame the dock makes (the one on show, one being built, checkpoints).
+const appFrames = new WeakSet()
+
+// A static build has no server to tell `?__wb=app` from the dock's own page,
+// so it ships the app as a file of its own and the frame always loads that.
+const APP_PAGE = window.__retakeConfig && window.__retakeConfig.appPage
 
 function makeFrame(src, stash) {
+  if (APP_PAGE) {
+    const u = new URL(src, location.href)
+    u.pathname = APP_PAGE
+    src = u.pathname + u.search + u.hash
+  }
   const f = document.createElement("iframe")
+  appFrames.add(f)
   f.title = "Prototype"
   f.className = "building"
   if (stash) f.__retakeStash = stash
@@ -36,27 +53,86 @@ function makeFrame(src, stash) {
   return f
 }
 
-function swapIn(f, pt) {
-  if (D.frame && D.frame !== f) D.frame.remove()
-  D.frame = f
-  D.frameBranch = D.building ? D.building.branchId : D.activeId
-  noteBuilt(D.building)
-  D.frame.className = "live"
-  // Built at the recorded size; the visible frame fills the stage again.
-  D.frame.style.width = D.frame.style.height = ""
-  D.PT = pt
-  D.building = null
-  window.__waybackShell.rebuilding = false
-  hookFrameKeys(f.contentWindow)
+const frameRuntime = (f) => {
+  try {
+    return f.contentWindow.__retake || null
+  } catch {
+    return null
+  }
 }
 
-window.__waybackShell = {
+// The frame built behind takes the visible one's place, in one task: it shows
+// the moment the old one was previewing, scrolled where the user had it, so
+// nothing on screen moves (a page with a canvas, whose pixels the preview
+// couldn't take back, fades in over 120ms).
+function swapIn(b) {
+  const f = b.frame
+  const pt = b.pt
+  const old = D.frame && D.frame !== f ? D.frame : null
+  // What the user scrolled to look at, copied into this window (the old frame
+  // is going) and taken by the new one in its own (no frame keeps another alive).
+  // Only into a moment of a recording: a fresh frame (Start fresh) is a live
+  // page recording from its first moment, where a scroll it didn't record
+  // would be lost on the next rebuild.
+  let view = []
+  try {
+    if (old && b.target != null && D.PT && typeof D.PT.viewScroll === "function") view = JSON.parse(JSON.stringify(D.PT.viewScroll()))
+  } catch {}
+  // Built at the recorded size; the visible frame fills the stage again.
+  f.style.width = f.style.height = ""
+  try {
+    if (view.length && typeof pt.applyView === "function") pt.applyView(view)
+  } catch {}
+  f.className = "live"
+  f.removeAttribute("aria-hidden")
+  if (old) {
+    let canvas = false
+    try {
+      canvas = !!old.contentDocument.querySelector("canvas")
+    } catch {}
+    if (canvas) {
+      f.dataset.enter = ""
+      old.className = "leaving"
+      setTimeout(() => old.remove(), 140)
+      setTimeout(() => delete f.dataset.enter, 200)
+    } else old.remove()
+  }
+  D.frame = f
+  D.PT = pt
+  D.frameBranch = b.branchId != null ? b.branchId : D.activeId
+  D.building = null
+  window.__retakeShell.rebuilding = false
+  D.scopeEl = null // an element of the old frame
+  noteBuilt(b)
+  hookFrameKeys(f.contentWindow)
+  if (b.fork) forkNow()
+  else if (b.play) pt.play()
+}
+
+window.__retakeShell = {
   rebuilding: false,
-  // The runtime hands over keys it blocks in the view-only past. True if the
+  storageOwner: null, // which frame's app last ran (see takeStorage in the runtime)
+  fastReplay: true, // false: every replay settle is a full task round trip (a kill switch)
+  // The runtime hands over keys it blocks in the view-only past (or that a
+  // frame built behind got because its replay focused a field). True if the
   // dock used it.
   key(e) {
     try {
-      return dockKey(e)
+      return dockKey(e, true)
+    } catch {
+      return false
+    }
+  },
+  // Did the dock make this iframe? The injected runtime asks before it runs
+  // (an iframe the app embeds gets `__retake = { inert: true }`).
+  isAppFrame(el) {
+    return !!el && appFrames.has(el)
+  },
+  // Is this window the frame on show? (One built behind, a checkpoint or one
+  // fading out isn't: its keys are the dock's, ⌥P too.)
+  shows(win) {
+    try {
+      return !!D.frame && D.frame.contentWindow === win
     } catch {
       return false
     }
@@ -68,7 +144,7 @@ window.__waybackShell = {
     for (const f of stage.querySelectorAll("iframe")) {
       let mine = false
       try {
-        mine = "__retakeStash" in f && !!f.contentWindow.__wayback
+        mine = "__retakeStash" in f && !!f.contentWindow.__retake
       } catch {}
       if (!mine) continue
       const p = f.__retakeStash
@@ -78,35 +154,96 @@ window.__waybackShell = {
     return null
   },
   attach(pt) {
-    if (D.building && D.building.frame.contentWindow.__wayback === pt) D.building.pt = pt
-    else if (D.cp && D.cp.frame.contentWindow.__wayback === pt) D.cp.pt = pt
-    else if (!D.frame || D.frame.contentWindow.__wayback === pt) {
+    const b = D.building
+    const cp = D.cp
+    if (b && b.frame && frameRuntime(b.frame) === pt) {
+      // A frame that reloaded itself mid-build (a Vite full reload) comes back
+      // as something else: build it again, never swap that in.
+      if (b.id != null && pt.buildId !== b.id) return restartBuild(b)
+      b.pt = pt
+      try {
+        if (b.target != null && typeof pt.retarget === "function") pt.retarget(b.target)
+        if (typeof pt.setBackground === "function") pt.setBackground(D.dragT != null || D.keyT != null)
+      } catch {}
+      return
+    }
+    if (cp && frameRuntime(cp.frame) === pt) {
+      if (cp.id != null && pt.buildId !== cp.id) return dropCheckpoint()
+      cp.pt = pt
+      try {
+        if (typeof pt.setBackground === "function") pt.setBackground(true)
+      } catch {}
+      return
+    }
+    if (!D.frame || frameRuntime(D.frame) === pt) {
+      // The frame on show started again (it reloaded itself under a preview):
+      // the page it shows now is the truth, and its recording has grown, so a
+      // moment of this timeline being built behind is out of date.
+      if (D.PT && D.PT !== pt && b && b.target != null && b.branchId === D.frameBranch) cancelBuild()
       D.PT = pt
-      hookFrameKeys(D.frame.contentWindow)
+      if (D.frame) hookFrameKeys(D.frame.contentWindow)
     }
   },
-  // Build a moment (a history and a time) in a fresh frame, swap when ready.
+  // Build a moment (a history and a time) in a frame behind the visible one,
+  // swap it in when it's ready. There's only ever one: a request for the
+  // moment already building keeps it, a later moment of the same recording on
+  // the same page moves it on (retarget), anything else replaces it.
   rebuild(payload) {
-    if (D.building) D.building.frame.remove()
-    if (useCheckpoint(payload)) return
+    const b = D.building
+    const sameRec = !!b && b.target != null && b.branchId === D.activeId && payload.sig != null && b.sig === payload.sig
+    if (sameRec && samePlace(b.target, payload.target)) {
+      b.play = b.play || !!payload.play
+      b.visible = true // asked for directly (the API): the dock's goTo() says otherwise if a preview shows it
+      return
+    }
+    if (sameRec && retargetBuild(b, payload.target)) {
+      b.via = "retarget"
+      b.play = !!payload.play
+      b.visible = true
+      return
+    }
+    cancelBuild()
+    // A frame built behind never plays by itself: the dock plays it once it's
+    // in (Play pressed meanwhile can be taken back).
+    const play = !!payload.play
+    payload = { ...payload, play: false }
+    if (useCheckpoint(payload)) {
+      Object.assign(D.building, { play, fork: false, visible: true, sig: payload.sig != null ? payload.sig : null })
+      return
+    }
     // Copied into this window: the payload object was made in the old frame,
     // and the new frame keeps what take() gives it for its whole life, so
     // passing it on would keep every earlier frame alive in a chain.
     const stash = own(payload)
-    window.__waybackShell.rebuilding = true
-    const rec = JSON.parse(payload.rec)
+    stash.buildId = ++D.buildSeq
+    let rec = null
+    const parsed = () => rec || (rec = JSON.parse(payload.rec))
     // The page the target moment was on (the runtime says, per segment).
-    const url = new URL(payload.url || urlAt(rec, payload.target), location.href)
-    // It's built for whichever timeline is active now (a switch sets that
-    // before it loads the target's recording).
-    D.building = { frame: makeFrame(url.pathname + url.search + url.hash, stash), pt: null, branchId: D.activeId, target: payload.target, startedAt: performance.now() }
+    const u = new URL(payload.url || urlAt(parsed(), payload.target), location.href)
     // Replay at the size it was recorded at, or layout, media queries and
     // virtual lists come out differently (F18).
-    const vp = recordedViewport(rec)
-    if (vp) {
-      D.building.frame.style.width = vp.w + "px"
-      D.building.frame.style.height = vp.h + "px"
+    const vp = okViewport(stash.viewport) || recordedViewport(parsed())
+    window.__retakeShell.rebuilding = true
+    // It's built for whichever timeline is active now (a switch sets that
+    // before it loads the target's recording).
+    D.building = {
+      id: stash.buildId,
+      frame: null,
+      pt: null,
+      stash,
+      url: u.pathname + u.search + u.hash,
+      viewport: vp,
+      branchId: D.activeId,
+      sig: payload.sig != null ? payload.sig : null,
+      target: payload.target,
+      play,
+      fork: false,
+      visible: true,
+      startedAt: performance.now(),
+      via: "replay",
+      restarts: 0,
     }
+    startBuildFrame(D.building)
   },
   // The runtime is about to cut off its future at `at`: keep it as a branch.
   branchOff(json, end, at) {
@@ -143,30 +280,142 @@ function own(payload) {
 
 // The viewport a recording was made at: the recording says, or the runtime's
 // timeline() does.
+const okViewport = (v) => (v && v.w > 0 && v.h > 0 ? { w: v.w, h: v.h } : null)
 function recordedViewport(rec) {
-  const ok = (v) => v && v.w > 0 && v.h > 0
-  if (ok(rec.viewport)) return rec.viewport
+  if (okViewport(rec.viewport)) return okViewport(rec.viewport)
   try {
     const v = D.PT && D.PT.timeline && D.PT.timeline().viewport
-    if (ok(v)) return v
+    if (okViewport(v)) return okViewport(v)
   } catch {}
   return null
 }
 
+// Behind the front server (config.docs) every page the frame loads is kept as
+// it came, and a build asks for the copy its recording was made on with a
+// one-shot cookie (the server takes it out as it serves it), so a server whose
+// data or clock has moved on doesn't change the rebuilt page (F56).
+const DOCS = !!(window.__retakeConfig && window.__retakeConfig.docs)
+function askStoredDoc(doc, url) {
+  if (!DOCS || !doc || !/^[0-9a-f]{16}$/.test(doc)) return
+  try {
+    document.cookie = `__retake_doc=${doc}; path=${new URL(url, location.href).pathname}; max-age=10; samesite=strict`
+  } catch {}
+}
+
+// The frame for a build (again, after a restart), hidden behind the visible one.
+function startBuildFrame(b) {
+  askStoredDoc(b.stash && b.stash.doc, b.url)
+  b.frame = makeFrame(b.url, b.stash)
+  b.frame.setAttribute("aria-hidden", "true")
+  if (b.viewport) {
+    b.frame.style.width = b.viewport.w + "px"
+    b.frame.style.height = b.viewport.h + "px"
+  }
+  b.pt = null
+  b.startedAt = performance.now()
+}
+
+// Does the frame on show (its state vs) show the moment build b is making:
+// previewing it, or standing at it (a build of its own recording: an API seek,
+// or a frame whose IndexedDB another frame has changed since)?
+function showsMoment(vs, b) {
+  if (!vs || b.branchId !== D.frameBranch) return false
+  if (vs.previewing) return samePlace(vs.previewAt, b.target)
+  return b.sig != null && !vs.seeking && vs.target == null && samePlace(vs.now, b.target)
+}
+
+// Which page (segment) of the active recording a moment is on.
+function segOf(t) {
+  let i = 0
+  try {
+    for (const s of D.PT.history().segments || []) if (s.t <= t) i++
+  } catch {}
+  return i
+}
+
+// Move the build in flight on to t, if it can get there (same page, not
+// past it already). Before its runtime starts that's just a new target in
+// the stash it will take (if the dock can tell it's the same page: it's the
+// recording on show); after, the runtime decides (PT.retarget).
+function retargetBuild(b, t) {
+  if (!b.frame) return false
+  if (!b.pt) {
+    if (!b.stash || b.sig == null || segOf(t) !== segOf(b.target)) return false
+    b.stash.target = b.target = t
+    return true
+  }
+  let ok = false
+  try {
+    ok = typeof b.pt.retarget === "function" && !!b.pt.retarget(t)
+  } catch {}
+  if (ok) b.target = t
+  return ok
+}
+
+// The same build from the start in a new frame (its frame reloaded itself,
+// never started, or ran by itself). Twice at most.
+function restartBuild(b) {
+  if (D.building !== b) return
+  if (b.restarts >= 2 || (!b.stash && !(b.target != null && b.branchId === D.frameBranch && D.PT && typeof D.PT.buildAt === "function"))) {
+    cancelBuild()
+    flash("Couldn't build that moment")
+    return
+  }
+  if (!b.stash) {
+    // A checkpoint's frame (there's no stash to start it from again): the
+    // frame on show asks for the moment afresh, and the user's wishes carry over.
+    const { target, play, fork, restarts } = b
+    cancelBuild()
+    try {
+      D.PT.buildAt(target)
+    } catch {}
+    const nb = D.building
+    if (nb && nb !== b) Object.assign(nb, { play, fork, restarts: restarts + 1 })
+    return
+  }
+  b.restarts++
+  try {
+    b.frame.remove()
+  } catch {}
+  b.stash = { ...own(b.stash), target: b.target, buildId: b.id }
+  startBuildFrame(b)
+}
+
+// A build whose frame hasn't started after a while (D.buildWatchdogMs): a page
+// that finished loading without starting it (an error page, a page without the
+// runtime) never will. One still loading (a slow module script, a cold dev
+// server optimizing its dependencies) is left to load, unless it takes
+// absurdly long.
+const BUILD_GIVE_UP = 60000
+function buildStalled(b) {
+  const waited = performance.now() - b.startedAt
+  if (waited <= D.buildWatchdogMs) return false
+  let doc = null
+  try {
+    doc = b.frame.contentDocument
+  } catch {}
+  if (!doc) return true // not this app's page any more (another origin, an error page)
+  if (doc.readyState === "complete" && doc.URL !== "about:blank") return true
+  return waited > BUILD_GIVE_UP
+}
+
+// Drop the build in flight (and a checkpoint still being built: one frame
+// runs the app at a time). A checkpoint that's ready stays.
 function cancelBuild() {
-  dropCheckpoint()
-  if (!D.building) return
-  D.building.frame.remove()
+  if (D.cp && !checkpointReady(D.cp)) dropCheckpoint()
+  const b = D.building
+  if (!b) return
   D.building = null
-  window.__waybackShell.rebuilding = false
+  window.__retakeShell.rebuilding = false
+  if (b.frame && b.frame !== D.frame) b.frame.remove()
 }
 
 // A fresh prototype: no history.
 function freshFrame() {
-  if (D.building) D.building.frame.remove()
+  cancelBuild()
   dropCheckpoint()
-  D.building = { frame: makeFrame(appUrl), pt: null, branchId: D.activeId }
-  window.__waybackShell.rebuilding = true
+  D.building = { id: null, frame: makeFrame(appUrl), pt: null, branchId: D.activeId, target: null, play: false, fork: false, visible: true, startedAt: performance.now(), via: "fresh", restarts: 0 }
+  window.__retakeShell.rebuilding = true
 }
 
 // The first frame is opened by restore() (15-session.js) once it knows what
@@ -178,18 +427,56 @@ function openFirstFrame(stash, branchId) {
   D.frameBranch = branchId
 }
 
-// The frame being built is ready once its runtime has booted and reached its
-// moment.
+// Each dock frame: keep the build in flight honest, and swap it in once it's
+// at its moment. Unless the user is waiting for it, that also waits for
+// nothing to be in hand: a drag, a key step, a note being written, a picking
+// tool, a scoped preview (they all point into the frame on show).
 function checkBuilding() {
   const b = D.building
-  if (!b || !b.pt) return
+  if (!b) return
+  let vs = null
+  try {
+    vs = D.PT && D.PT.state()
+  } catch {}
+  if (b.target != null) {
+    // Built for a timeline we've since left.
+    if (b.branchId !== D.activeId) return cancelBuild()
+    // The frame on show runs its app again (played, ⌥P, an in-place seek
+    // somewhere; not one just stopped for a preview): that's where the user
+    // is now, not this moment.
+    if (vs && (vs.playing || (vs.seeking && vs.target != null && vs.target > vs.now))) return cancelBuild()
+    // The Select tool scoped a preview: it stays a picture.
+    if (D.scopeEl && !waits(b)) return cancelBuild()
+  }
+  // Is the moment on screen meanwhile (the frame on show previews it, or is
+  // at it)? If not (the preview was ended from elsewhere, or it's on an
+  // earlier page), the user is waiting for it.
+  if (b.target != null && D.dragT == null && D.keyT == null) b.visible = !showsMoment(vs, b)
+  if (!b.pt) {
+    if (buildStalled(b)) restartBuild(b)
+    return
+  }
   let s
   try {
     s = b.pt.state()
   } catch {
     return
   }
-  if (s.booted && s.target == null && !s.seeking) swapIn(b.frame, b.pt)
+  // A moment built behind never runs by itself (only the dock plays a frame,
+  // once it's in): one that does has left its moment. Build it again. (A fresh
+  // frame does: it records from its first moment.)
+  if (b.target != null && s.playing) {
+    try {
+      b.pt.pause()
+    } catch {}
+    return restartBuild(b)
+  }
+  if (!s.booted || s.seeking || s.target != null) return
+  if (b.target != null && !samePlace(s.now, b.target)) return
+  if (D.holdSwap) return
+  if (!waits(b) && (D.dragT != null || D.keyT != null || composing() || mode() || D.scopeEl)) return
+  if (frameRuntime(b.frame) !== b.pt) return // it reloaded itself; attach() starts it again
+  swapIn(b)
 }
 
 // Returns true only if the switch happened.
@@ -223,16 +510,17 @@ async function switchTo(id, t) {
 function addFlag() {
   const s = state()
   if (!s || !s.started) return
-  const t = D.dragT != null ? D.dragT : s.previewing ? s.previewAt : s.now
-  D.markers.push({ id: ++D.markerSeq, t, branchId: D.activeId })
+  D.markers.push({ id: ++D.markerSeq, t: shownTime(s), branchId: D.activeId })
 }
 
-// Keep the address bar and title in step with the prototype's own route.
+// Keep the address bar and title in step with the prototype's own route (the
+// route at the moment previewed, while a preview is on show).
 setInterval(() => {
   try {
     const inner = new URL(D.frame.contentWindow.location.href)
     inner.searchParams.delete("__wb")
-    const next = inner.pathname + inner.search + inner.hash
+    const s = D.PT && D.PT.state()
+    const next = (s && s.previewing && s.route) || inner.pathname + inner.search + inner.hash
     if (next !== location.pathname + location.search + location.hash) history.replaceState(null, "", next)
     if (D.frame.contentDocument.title) document.title = D.frame.contentDocument.title
   } catch {}
@@ -248,9 +536,11 @@ const state = () => {
 }
 
 function render() {
+  D.frameNo++
   checkBuilding()
   dropStaleResume()
   tendCheckpoint()
+  guardFocus()
   // The active timeline can vanish under us (a delete racing a switch); stand
   // on the first one rather than draw nothing.
   if (!activeBranch()) D.activeId = D.branches[0].id
@@ -273,12 +563,33 @@ function render() {
   renderExtras(s)
 }
 
+// A frame built behind can take the window's focus (its replay focused a
+// field). If the user was typing in the dock (a note, a timeline's name),
+// they get it back.
+let dockField = null
+document.addEventListener("focusin", (e) => {
+  const el = e.target
+  if (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.isContentEditable)) dockField = el
+})
+function guardFocus() {
+  if (!dockField) return
+  const a = document.activeElement
+  if (a === dockField) return
+  if (dockField.isConnected && a && a.tagName === "IFRAME" && (a.classList.contains("building") || a.classList.contains("checkpoint"))) {
+    try {
+      dockField.focus({ preventScroll: true })
+      return
+    } catch {}
+  }
+  dockField = null
+}
+
 // A frame that reloads itself leaves shell.__resume for its next document.
 // A frame we removed can leave one too (pagehide runs as it goes), and that
 // object, made in its realm, would keep the whole old window alive.
 function dropStaleResume() {
-  const r = window.__waybackShell.__resume
-  if (r && (!r.frame || !r.frame.isConnected)) window.__waybackShell.__resume = null
+  const r = window.__retakeShell.__resume
+  if (r && (!r.frame || !r.frame.isConnected)) window.__retakeShell.__resume = null
 }
 
 // Recording is always on from page load: a runtime that waits for Record gets
@@ -364,12 +675,6 @@ document.addEventListener("click", (e) => {
   if (a === "fresh") return startFresh()
   if (a === "undo") return undoFresh()
   if (a === "live") return followLive()
-  if (a === "more") return openMoreMenu(b)
-  if (a === "reserve") {
-    menuEl.hidden = true
-    return setReserve(!D.reserve)
-  }
-  if (a === "notes") return toggleList()
   if (b.dataset.deleteTimeline) {
     menuEl.hidden = true
     deleteTimeline(Number(b.dataset.deleteTimeline)).then((ok) => ok || flash("Couldn't delete that timeline right now"))
@@ -385,24 +690,6 @@ document.addEventListener("click", (e) => {
   if (handleNoteClick(b)) return
   if (isInteractive()) refocus()
 })
-
-// "Don't cover app": the app ends above the notch instead of under it. Off by
-// default, so the app keeps one size whatever the dock does.
-D.reserve = !!store.get("reserve", false)
-function setReserve(on) {
-  D.reserve = on
-  store.set("reserve", on)
-  document.body.classList.toggle("reserve", on)
-}
-setReserve(D.reserve)
-
-function openMoreMenu(btn) {
-  menuEl.innerHTML = `<button data-a="reserve" role="menuitemcheckbox" aria-checked="${D.reserve}"><span class="check">${D.reserve ? "✓" : ""}</span>Don't cover app</button>`
-  menuEl.hidden = false
-  const r = btn.getBoundingClientRect()
-  menuEl.style.left = Math.min(r.left, innerWidth - menuEl.offsetWidth - 8) + "px"
-  menuEl.style.top = r.top - menuEl.offsetHeight - 8 + "px"
-}
 
 // The dock never grows by itself (that would resize the app mid-recording);
 // only the divider changes it.
@@ -434,11 +721,10 @@ divider.addEventListener("pointerdown", (e) => {
 })
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Meta") return window.__waybackShell.meta(true)
+  if (e.key === "Meta") return window.__retakeShell.meta(true)
   if (e.key === "Escape") {
     setPicking(null)
     closeCard()
-    closeList()
     return
   }
   if (e.altKey && e.code === "KeyP") {
@@ -463,5 +749,5 @@ function hookFrameKeys(win) {
     )
   } catch {}
 }
-window.addEventListener("keyup", (e) => e.key === "Meta" && window.__waybackShell.meta(false))
-window.addEventListener("blur", () => window.__waybackShell.meta(false))
+window.addEventListener("keyup", (e) => e.key === "Meta" && window.__retakeShell.meta(false))
+window.addEventListener("blur", () => window.__retakeShell.meta(false))

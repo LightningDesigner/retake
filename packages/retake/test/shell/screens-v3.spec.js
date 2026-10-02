@@ -1,5 +1,5 @@
 // Screenshots of the dock for review: v3 (notch, buttons, Control-click,
-// minimized, notes list) and the glass over a light page.
+// minimized, the notes count) and the glass over a light page.
 import { test, expect } from "@playwright/test"
 import { openDock, DOCK_URL, dock, recordSome, recordAndRewind, xOfTime, shot } from "./helpers.js"
 
@@ -26,7 +26,7 @@ test("v3 + glass screenshots", async ({ page }) => {
   await page.waitForTimeout(300)
   expect((await h.state()).playing).toBe(false)
   await shot(page, "dock-v3-new-branch.png")
-  // A note, then the notes list.
+  // A note, then its count on the notes icon.
   const b = await h.box("#card")
   await page.keyboard.down("Meta")
   await page.mouse.move(b.x + 30, b.y + 20)
@@ -34,9 +34,8 @@ test("v3 + glass screenshots", async ({ page }) => {
   await page.keyboard.up("Meta")
   await page.locator("#wb-note textarea").fill("Softer blue here")
   await page.locator("#wb-note textarea").press("Enter")
-  await page.locator('[data-a="notes"]').click()
-  await expect(page.locator("#wb-list")).toBeVisible()
-  await shot(page, "dock-v3-notes-list.png")
+  await expect(page.locator(".notes-count .n")).toHaveText("1")
+  await shot(page, "dock-v3-notes-count.png")
   await page.keyboard.press("Escape")
   // Minimized: colour dots.
   await dock(page, (D) => (D.height = 60))

@@ -25,10 +25,10 @@ test(":hover and its transition replay at the recorded moment, and in the previe
   const endT = (await h.state()).now
   expect(await bg(h)).toBe("rgb(0, 0, 255)")
   // preview (drag back) at the mid moment
-  await h.rt((t) => __wayback.preview(t), midT)
+  await h.rt((t) => __retake.preview(t), midT)
   await page.waitForTimeout(50)
   expect(await h.rt(() => document.getElementById("hov").hasAttribute("data-rt-hover"))).toBe(true)
-  await h.rt(() => __wayback.endPreview())
+  await h.rt(() => __retake.endPreview())
   // rebuild to the mid moment: same colour as live
   await h.seek(midT)
   expect(await bg(h)).toBe(mid)

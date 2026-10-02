@@ -1,7 +1,7 @@
 {
   "name": "retake-dev",
   "version": "0.4.0",
-  "description": "Retake: a time machine for Vite prototypes. Drag back on a timeline and your app is at that moment; branch a new take from there.",
+  "description": "Retake: a time machine for your dev server (Vite apps, Next.js, React Router). Drag back on a timeline and your app is at that moment; branch a new take from there.",
   "type": "module",
   "main": "./src/plugin.js",
   "exports": {
@@ -25,6 +25,11 @@
   "peerDependencies": {
     "vite": ">=5"
   },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@react-spring/web": "^10.1.2",
@@ -46,6 +51,8 @@
   "keywords": [
     "vite",
     "vite-plugin",
+    "nextjs",
+    "react-router",
     "time-travel",
     "prototype",
     "devtools",

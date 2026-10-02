@@ -6,11 +6,11 @@ import { openDock, DOCK_URL, dock, recordSome, shot } from "./helpers.js"
 const fork = async (h, page, parentId, t, record = 0) => {
   const n = await dock(page, (D) => D.branches.length)
   if ((await dock(page, (D) => D.activeId)) !== parentId) {
-    await dock(page, (D, id) => window.__waybackDock.switchTo(id, 1e9), parentId)
+    await dock(page, (D, id) => window.__retakeDock.switchTo(id, 1e9), parentId)
     await expect.poll(() => dock(page, (D, id) => D.activeId === id && !D.building, parentId)).toBe(true)
     await h.settle()
   }
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), t)
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), t)
   await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(n + 1)
   await h.settle()
   if (record) {
@@ -44,7 +44,7 @@ test("tree: 5 lanes with three siblings from one fork and a grandchild; nothing 
   await fork(h, page, 1, t, 300)
   const aState = await dock(page, (D, id) => D.branches.find((b) => b.id === id), a)
   await fork(h, page, a, aState.forkAt + 300, 200)
-  await dock(page, () => window.__waybackDock.switchTo(1, 1e9))
+  await dock(page, () => window.__retakeDock.switchTo(1, 1e9))
   await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
   await h.settle()
   await page.waitForTimeout(400)

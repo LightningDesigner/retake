@@ -9,8 +9,8 @@ const CB_URL = `http://localhost:${SHELL_PORTS.codeBranches}/`
 
 async function fakeCode(page, disk) {
   const calls = []
-  await page.route("**/__wayback/version", (r) => r.fulfill({ contentType: "application/json", body: JSON.stringify(disk) }))
-  await page.route("**/__wayback/checkout*", (r) => {
+  await page.route("**/__retake/version", (r) => r.fulfill({ contentType: "application/json", body: JSON.stringify(disk) }))
+  await page.route("**/__retake/checkout*", (r) => {
     const v = new URL(r.request().url()).searchParams.get("v")
     calls.push(v)
     const res = disk.onCheckout ? disk.onCheckout(v) : {}
@@ -25,7 +25,7 @@ async function twoTimelines(h, page) {
   await recordSome(h, ["#toggle", "#toggle"])
   await h.pause()
   const s = await h.state()
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   await page.waitForTimeout(300)
 }
@@ -43,13 +43,13 @@ test("switching away right after an edit: the timeline left keeps the edit (chec
   await h.settle()
   // Another edit, and a switch before the poll sees it: checkout snapshots it.
   disk.onCheckout = () => ({ left: "C" })
-  await dock(page, () => window.__waybackDock.switchTo(1, 0))
+  await dock(page, () => window.__retakeDock.switchTo(1, 0))
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(1)
   expect(calls).toEqual(["A"])
   expect(await dock(page, (D) => D.branches.map((b) => b.version))).toEqual(["A", "C"])
   await h.settle()
   delete disk.onCheckout
-  await dock(page, () => window.__waybackDock.switchTo(2, 0))
+  await dock(page, () => window.__retakeDock.switchTo(2, 0))
   await expect.poll(() => calls.slice()).toEqual(["A", "C"])
 })
 
@@ -66,7 +66,7 @@ test("without `left`, a snapshot that appeared during the checkout goes to the t
     disk.newest = "C"
     return {}
   }
-  await dock(page, () => window.__waybackDock.switchTo(1, 0))
+  await dock(page, () => window.__retakeDock.switchTo(1, 0))
   await expect.poll(() => dock(page, (D) => D.branches.map((b) => b.version))).toEqual(["A", "C"])
 })
 

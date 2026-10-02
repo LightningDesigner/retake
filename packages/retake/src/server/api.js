@@ -2,14 +2,14 @@
 // <root>/.retake, notes that agents can update, and an SSE stream so the dock
 // hears about changes live. See CONTRACT.md ("Server HTTP").
 //
-//   GET/PUT  /__wayback/session
-//   GET/PUT/DELETE /__wayback/recording/:branchId
-//   GET      /__wayback/notes
-//   GET      /__wayback/notes/:id
-//   PATCH    /__wayback/notes/:id          { status?, reply? }
-//   GET      /__wayback/events             SSE: note-updated, code-version, active-changed, session
+//   GET/PUT  /__retake/session
+//   GET/PUT/DELETE /__retake/recording/:branchId
+//   GET      /__retake/notes
+//   GET      /__retake/notes/:id
+//   PATCH    /__retake/notes/:id          { status?, reply? }
+//   GET      /__retake/events             SSE: note-updated, code-version, active-changed, session
 //
-// Mutating requests need `x-wayback-token`. The token is injected into the
+// Mutating requests need `x-retake-token`. The token is injected into the
 // shell page and written to <root>/.retake/server.json for local tools (MCP).
 import fs from "node:fs"
 import path from "node:path"
@@ -131,29 +131,35 @@ export function patchNote(note, body, from = "agent") {
   return note
 }
 
-export function sessionApi(server, { token, bus }) {
-  const root = server.config.root
-  const store = sessionStore(root)
-  const address = () => {
-    const a = server.httpServer && server.httpServer.address()
-    const port = a && typeof a === "object" ? a.port : server.config.server.port
-    return `${server.config.server.https ? "https" : "http"}://localhost:${port}`
+const cleanups = new Set()
+// <root>/.retake/server.json tells local tools (MCP) where the server is and
+// its token. Removed again when this process exits (if it's still ours).
+export function writeServerInfo({ root, url, token, base = "/" }) {
+  const dir = path.join(root, ".retake")
+  const file = path.join(dir, "server.json")
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ url, base, token, pid: process.pid }), { mode: 0o600 })
+  } catch {}
+  if (!cleanups.has(file)) {
+    cleanups.add(file)
+    process.once("exit", () => {
+      try {
+        if (JSON.parse(fs.readFileSync(file, "utf8")).pid === process.pid) fs.rmSync(file, { force: true })
+      } catch {}
+    })
   }
-  const writeServerInfo = () => {
-    try {
-      fs.writeFileSync(path.join(store.dir, "server.json"), JSON.stringify({ url: address(), base: server.config.base || "/", token, pid: process.pid }), { mode: 0o600 })
-    } catch {}
-  }
-  if (server.httpServer) server.httpServer.once("listening", writeServerInfo)
-  else writeServerInfo()
-  const cleanup = () => {
-    try {
-      const info = JSON.parse(fs.readFileSync(path.join(store.dir, "server.json"), "utf8"))
-      if (info.pid === process.pid) fs.rmSync(path.join(store.dir, "server.json"), { force: true })
-    } catch {}
-  }
-  process.once("exit", cleanup)
+}
 
+/**
+ * The /__retake/ API as a plain `(req, res, next)` handler, for any Node HTTP
+ * server (Vite's middleware stack, the front server, a bare http.Server).
+ * Requests outside it (and /__retake/ routes it doesn't know, like the code
+ * versions' ones) go to `next`, or get a 404 without one.
+ * @param {{ root: string, token: string, bus: ReturnType<typeof createBus> }} options
+ */
+export function createSessionHandler({ root, token, bus }) {
+  const store = sessionStore(root)
   const heartbeat = setInterval(() => {
     for (const res of bus.clients) res.write(": ping\n\n")
   }, 25_000)
@@ -166,11 +172,11 @@ export function sessionApi(server, { token, bus }) {
     res.end(typeof body === "string" ? body : JSON.stringify(body))
   }
 
-  server.middlewares.use(async (req, res, next) => {
+  const handler = async (req, res, next = () => send(res, 404, { error: "not found" })) => {
     const url = new URL(req.url, "http://x")
     const p = url.pathname
-    if (!p.startsWith("/__wayback/")) return next()
-    const route = p.slice("/__wayback/".length).split("/")
+    if (!p.startsWith("/__retake/")) return next()
+    const route = p.slice("/__retake/".length).split("/")
     const mutating = req.method !== "GET" && req.method !== "HEAD"
     if (route[0] === "tailwind" && req.method === "GET") {
       // Where Tailwind is configured: a v3 config file, or (v4) the CSS that imports it.
@@ -193,8 +199,8 @@ export function sessionApi(server, { token, bus }) {
       return send(res, 200, { config })
     }
     const known = ["session", "recording", "notes", "events"].includes(route[0])
-    if (!known) return next() // e.g. /__wayback/version and /checkout (code-versions)
-    if (mutating && req.headers["x-wayback-token"] !== token) return send(res, 403, { error: "missing or wrong x-wayback-token" })
+    if (!known) return next() // e.g. /__retake/version and /checkout (code-versions)
+    if (mutating && req.headers["x-retake-token"] !== token) return send(res, 403, { error: "missing or wrong x-retake-token" })
     try {
       if (route[0] === "events" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" })
@@ -251,6 +257,29 @@ export function sessionApi(server, { token, bus }) {
     } catch (err) {
       return send(res, err.status || (err instanceof SyntaxError ? 400 : 500), { error: err.message })
     }
-  })
-  return { store, address }
+  }
+  handler.store = store
+  // Ends the heartbeat and the open event streams (a front server closing).
+  handler.close = () => {
+    clearInterval(heartbeat)
+    for (const res of bus.clients) res.end()
+    bus.clients.clear()
+  }
+  return handler
+}
+
+// The Vite adapter: the handler on Vite's middleware stack, and server.json
+// written once Vite is listening.
+export function sessionApi(server, { token, bus, root = server.config.root }) {
+  const handler = createSessionHandler({ root, token, bus })
+  const address = () => {
+    const a = server.httpServer && server.httpServer.address()
+    const port = a && typeof a === "object" ? a.port : server.config.server.port
+    return `${server.config.server.https ? "https" : "http"}://localhost:${port}`
+  }
+  const info = () => writeServerInfo({ root, url: address(), token, base: server.config.base || "/" })
+  if (server.httpServer) server.httpServer.once("listening", info)
+  else info()
+  server.middlewares.use(handler)
+  return { store: handler.store, address }
 }

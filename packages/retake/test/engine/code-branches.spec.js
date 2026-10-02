@@ -46,9 +46,9 @@ test("F1 F2 switching to older code then stopping the server puts the newest wor
   const dir = makeApp()
   const child = await startServer(dir)
   const base = `http://localhost:${PORT}`
-  const version = async () => (await (await fetch(`${base}/__wayback/version`)).json()).version
+  const version = async () => (await (await fetch(`${base}/__retake/version`)).json()).version
   try {
-    const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+    const token = (await (await fetch(`${base}/`)).text()).match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
     const v1 = await version()
     await new Promise((r) => setTimeout(r, 800)) // let the file watcher finish its initial scan
     fs.writeFileSync(path.join(dir, "main.js"), 'document.getElementById("v").textContent = "V2"\nimport "./extra.js"\n')
@@ -57,7 +57,7 @@ test("F1 F2 switching to older code then stopping the server puts the newest wor
     let v2 = v1
     for (let i = 0; i < 50 && v2 === v1; i++) { await new Promise((r) => setTimeout(r, 100)); v2 = await version() }
     expect(v2).not.toBe(v1)
-    const r = await fetch(`${base}/__wayback/checkout?v=${v1}`, { method: "POST", headers: { "x-wayback-token": token } })
+    const r = await fetch(`${base}/__retake/checkout?v=${v1}`, { method: "POST", headers: { "x-retake-token": token } })
     expect((await r.json()).ok).toBe(true)
     expect(fs.readFileSync(path.join(dir, "main.js"), "utf8")).toContain("V1")
     expect(fs.existsSync(path.join(dir, "extra.js"))).toBe(false)
@@ -73,14 +73,14 @@ test("F1 after a crash on older code, the next start puts the newest work back",
   const dir = makeApp()
   let child = await startServer(dir)
   const base = `http://localhost:${PORT}`
-  const version = async () => (await (await fetch(`${base}/__wayback/version`)).json()).version
-  const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+  const version = async () => (await (await fetch(`${base}/__retake/version`)).json()).version
+  const token = (await (await fetch(`${base}/`)).text()).match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
   const v1 = await version()
   await new Promise((r) => setTimeout(r, 800))
   fs.writeFileSync(path.join(dir, "main.js"), "// V2 work\n")
   let v2 = v1
   for (let i = 0; i < 50 && v2 === v1; i++) { await new Promise((r) => setTimeout(r, 100)); v2 = await version() }
-  await fetch(`${base}/__wayback/checkout?v=${v1}`, { method: "POST", headers: { "x-wayback-token": token } })
+  await fetch(`${base}/__retake/checkout?v=${v1}`, { method: "POST", headers: { "x-retake-token": token } })
   // SIGKILL the whole tree: no exit handlers run.
   for (const pid of listeners()) process.kill(pid, "SIGKILL")
   child.kill("SIGKILL")
@@ -171,13 +171,13 @@ test("F28 checkout needs POST + token (cross-site GETs are refused)", async () =
   const dir = makeApp()
   const child = await startServer(dir)
   try {
-    const bad = await fetch(`http://localhost:${PORT}/__wayback/checkout?v=0000000000`, { headers: { "sec-fetch-site": "cross-site" } })
+    const bad = await fetch(`http://localhost:${PORT}/__retake/checkout?v=0000000000`, { headers: { "sec-fetch-site": "cross-site" } })
     expect(bad.status).toBe(403)
-    const noToken = await fetch(`http://localhost:${PORT}/__wayback/checkout?v=0000000000`, { method: "POST" })
+    const noToken = await fetch(`http://localhost:${PORT}/__retake/checkout?v=0000000000`, { method: "POST" })
     expect(noToken.status).toBe(403)
     const html = await (await fetch(`http://localhost:${PORT}/`)).text()
-    const token = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
-    const ok = await fetch(`http://localhost:${PORT}/__wayback/checkout?v=0000000000`, { method: "POST", headers: { "x-wayback-token": token } })
+    const token = html.match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
+    const ok = await fetch(`http://localhost:${PORT}/__retake/checkout?v=0000000000`, { method: "POST", headers: { "x-retake-token": token } })
     expect(ok.status).toBe(409) // authorised, but no such version
   } finally {
     await stop(child)
@@ -189,9 +189,9 @@ test("checkout reports the code it left, including edits the version poll hadn't
   const child = await startServer(dir)
   const base = `http://localhost:${PORT}`
   try {
-    const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
-    const post = async (v) => (await fetch(`${base}/__wayback/checkout?v=${v}`, { method: "POST", headers: { "x-wayback-token": token } })).json()
-    const v1 = (await (await fetch(`${base}/__wayback/version`)).json()).version
+    const token = (await (await fetch(`${base}/`)).text()).match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
+    const post = async (v) => (await fetch(`${base}/__retake/checkout?v=${v}`, { method: "POST", headers: { "x-retake-token": token } })).json()
+    const v1 = (await (await fetch(`${base}/__retake/version`)).json()).version
     await new Promise((r) => setTimeout(r, 800))
     fs.writeFileSync(path.join(dir, "main.js"), "// EDIT-2, switched away from within 20ms\n")
     await new Promise((r) => setTimeout(r, 20))
@@ -211,15 +211,15 @@ test("GET /version says restored:true after the server put code back at startup,
   const dir = makeApp()
   let child = await startServer(dir)
   const base = `http://localhost:${PORT}`
-  const version = async () => (await fetch(`${base}/__wayback/version`)).json()
-  const token = (await (await fetch(`${base}/`)).text()).match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+  const version = async () => (await fetch(`${base}/__retake/version`)).json()
+  const token = (await (await fetch(`${base}/`)).text()).match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
   const v1 = (await version()).version
   expect((await version()).restored).toBe(false)
   await new Promise((r) => setTimeout(r, 800))
   fs.writeFileSync(path.join(dir, "main.js"), "// V2 work\n")
   let v2 = v1
   for (let i = 0; i < 50 && v2 === v1; i++) { await new Promise((r) => setTimeout(r, 100)); v2 = (await version()).version }
-  await fetch(`${base}/__wayback/checkout?v=${v1}`, { method: "POST", headers: { "x-wayback-token": token } })
+  await fetch(`${base}/__retake/checkout?v=${v1}`, { method: "POST", headers: { "x-retake-token": token } })
   for (const pid of listeners()) process.kill(pid, "SIGKILL")
   child.kill("SIGKILL")
   for (let i = 0; i < 30 && listeners().length; i++) await new Promise((r) => setTimeout(r, 100))

@@ -1,6 +1,6 @@
 # Retake
 
-A time machine for Vite prototypes: `npx retake-dev .`
+A time machine for your dev server (Vite apps, Next.js, React Router...): `npx retake-dev .`
 
 - The tool: [`packages/retake`](packages/retake/README.md)
 - Landing page: `apps/site`

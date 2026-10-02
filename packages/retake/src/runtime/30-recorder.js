@@ -23,6 +23,34 @@ function restoreStorage(store, snap) {
   } catch {}
 }
 
+// ---- frames take turns with the origin's storage ------------------------------------
+// The visible frame, a frame being built behind it and a checkpoint all share
+// the origin's web storage and cookies, and a frame that boots puts them back
+// to its own segment's start. So whichever frame last ran app code "owns" them
+// (shell.storageOwner): a frame keeps a copy of its own when it stops running
+// app code, and puts that copy back before it runs app code again if another
+// frame took over meanwhile. IndexedDB can't be put back synchronously: a frame
+// of an app that uses it reports storageOk false, and the dock rebuilds rather
+// than resume it.
+const storageId = real.random()
+let ownStorage = null
+let idbOpened = false
+function keepStorage() {
+  if (shell && shell.storageOwner !== storageId) return
+  ownStorage = { local: snapshotStorage(real.local), session: snapshotStorage(real.session), cookies: snapshotCookies() }
+}
+function takeStorage() {
+  if (!shell || shell.storageOwner === storageId) return
+  if (ownStorage) {
+    restoreStorage(real.local, ownStorage.local)
+    restoreStorage(real.session, ownStorage.session)
+    restoreCookies(ownStorage.cookies)
+  }
+  shell.storageOwner = storageId
+}
+const usesIDB = () => idbOpened || segmentsOf().some((s) => s.idb && s.idb.length > 0)
+const storageOk = () => !shell || shell.storageOwner === storageId || !usesIDB()
+
 function newRecording() {
   return withPacking({
     v: 1,
@@ -32,6 +60,10 @@ function newRecording() {
     storage: { local: snapshotStorage(real.local), session: snapshotStorage(real.session) },
     // Replays run in a frame of this size, so layout matches (F18).
     viewport: { w: W.innerWidth, h: W.innerHeight },
+    // Element paths start at an id and skip scripts (F51; see pathOf).
+    pathV: 2,
+    // The front server's kept copy of this page (F56; RT.docId).
+    ...(RT.docId ? { doc: RT.docId } : {}),
     frames: [],
     events: [],
     fetches: [],
@@ -166,7 +198,7 @@ const readRec = (json) => unpackRec(typeof json === "string" ? JSON.parse(json) 
 // reloads itself. A moment is rebuilt from the start of its segment: that
 // segment's URL, storage and seed, replaying only what came after it.
 function segmentsOf(r = rec) {
-  const first = { t: 0, ev: 0, fr: 0, url: r.url, storage: r.storage, cookies: r.cookies, idb: r.idb, seed: r.seed }
+  const first = { t: 0, ev: 0, fr: 0, url: r.url, storage: r.storage, cookies: r.cookies, idb: r.idb, seed: r.seed, doc: r.doc, docDebug: r.docDebug }
   return [first, ...(r.segments || [])]
 }
 function segmentIndex(t, r = rec) {
@@ -211,9 +243,20 @@ function fork() {
   PT.emit()
 }
 
+// The frame boundary whose recorded input (live, or replayed) is being handled:
+// the DOM changes that follow are logged just after it (see logMutations).
+// Moves, hovers, wheel and scroll don't count: they come every frame while the
+// pointer moves, in between the frame's own work, which would be logged late.
+let inputAt = null
+const CONTINUOUS = /^(pointermove|mousemove|pointerover|pointerout|pointerenter|pointerleave|mouseover|mouseout|mouseenter|mouseleave|wheel|scroll|touchmove)$/
+const markInput = (ev) => {
+  if (!CONTINUOUS.test(ev.type)) inputAt = clock.now
+}
+
 function recordEvent(ev) {
   if (hasFuture()) return
   ev.t = clock.now
+  markInput(ev)
   const last = rec.events[rec.events.length - 1]
   // Collapse pointer moves within one frame; only the latest position matters.
   if (ev.type === "pointermove" && last && last.type === "pointermove" && last.t === ev.t && last.path + "" === ev.path + "") {

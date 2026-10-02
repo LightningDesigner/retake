@@ -36,10 +36,10 @@ test("⌘ over a skeleton lists its layers incl. the ::after shimmer; wheel cycl
   const n = await dock(page, (D) => D.notes[D.notes.length - 1])
   expect(n.el.pseudo).toMatchObject({ pseudoElement: "::after", keyframes: "shimmer", duration: 1200, iterations: "infinite" })
   expect(n.el.label).toBe("<div#skel>::after")
-  const p = await page.evaluate(() => { const d = window.__waybackDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
+  const p = await page.evaluate(() => { const d = window.__retakeDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
   expect(p).toContain("Animation: The ::after shimmer animation (keyframes `shimmer`, 1.2s, infinite) on .skel")
   // The CSS source line, when the runtime can find it.
-  const hasCss = await h.rt(() => typeof __wayback.cssSourceFor === "function")
+  const hasCss = await h.rt(() => typeof __retake.cssSourceFor === "function")
   if (hasCss) {
     await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.cssSource && D.notes[D.notes.length - 1].el.cssSource.line)).toBeGreaterThan(0)
   }

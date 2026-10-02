@@ -18,19 +18,33 @@ MP.play = function () {
     // Where the media was when it started, on the virtual clock.
     el.__ptAt = clock.now
     el.__ptFrom = el.currentTime || 0
+    mediaRun(el, el.__ptFrom, true)
   })
 }
 MP.pause = function () {
+  if (this.__ptWants) mediaRun(this, this.currentTime || 0, false)
   this.__ptWants = false
   return mediaOrig.pause.call(this)
+}
+
+// Each element's runs on the virtual clock: { at, from, on } from `at` on, it
+// played from `from` (on) or stood at it (off). The preview places media at
+// the run in effect at its moment (F50), including media removed since.
+function mediaRun(el, from, on) {
+  const runs = el.__ptRuns || (el.__ptRuns = [])
+  const last = runs[runs.length - 1]
+  if (last && last.at === clock.now) runs.pop()
+  runs.push({ at: clock.now, from, on, src: el.currentSrc || el.src || "" })
 }
 
 function syncMedia() {
   const live = clock.playing && !clock.seeking
   for (const el of media) {
     if (el.__ptAlign && el.readyState >= 1 && !clock.seeking && !previewing) alignMedia()
-    if (!el.isConnected && el.paused) {
-      media.delete(el)
+    // Removed media is kept (the DOM log keeps it too): a preview of a moment
+    // when it was there puts it back, at its time then.
+    if (!el.isConnected) {
+      if (!el.paused) mediaOrig.pause.call(el)
       continue
     }
     if (!live && !el.paused) mediaOrig.pause.call(el)
@@ -43,6 +57,10 @@ function syncMedia() {
 // moment on the virtual clock.
 function alignMedia(at = clock.now) {
   for (const el of media) {
+    if (previewing && el.__ptRuns && el.__ptRuns.length) {
+      placeMedia(el, at)
+      continue
+    }
     if (!el.__ptWants || el.__ptAt == null) continue
     // Too early to seek (no metadata yet): syncMedia does it once it can.
     if (el.readyState < 1) {
@@ -56,6 +74,19 @@ function alignMedia(at = clock.now) {
       el.currentTime = el.loop && Number.isFinite(end) && end > 0 ? t % end : Math.min(t, end)
     } catch {}
   }
+}
+
+// The preview: where it was at `at`, from its runs (before the first: where that one started).
+function placeMedia(el, at) {
+  if (el.readyState < 1) return
+  const runs = el.__ptRuns
+  let run = runs[0]
+  for (const r of runs) if (r.at <= at) run = r
+  const t = run.on && run.at <= at ? run.from + ((at - run.at) / 1000) * (el.playbackRate || 1) : run.from
+  const end = Number.isFinite(el.duration) ? el.duration : Infinity
+  try {
+    el.currentTime = el.loop && Number.isFinite(end) && end > 0 ? t % end : Math.min(t, end)
+  } catch {}
 }
 
 // ---- readiness events ------------------------------------------------------------
@@ -95,6 +126,7 @@ function startedAt(el, from) {
   if (el.__ptAt == null) {
     el.__ptAt = clock.now
     el.__ptFrom = from || 0
+    mediaRun(el, el.__ptFrom, true)
   }
 }
 document.addEventListener(

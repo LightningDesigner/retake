@@ -2,51 +2,54 @@
 // timeline docked at the bottom (like DevTools) and the prototype in a frame
 // above it. The frame's own request (`?__wb=app`) gets the real page with the
 // time runtime injected as its first script, before any app code. Dev only.
+import { AsyncLocalStorage } from "node:async_hooks"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
 import { codeVersions } from "./code-versions.js"
+import { injectResponse, runtimeSource, runtimeTag, shellHtml } from "./core.js"
 import { createBus, sessionApi } from "./server/api.js"
+import { frontRuntime } from "./server/detect.js"
 
-const SRC = path.dirname(fileURLToPath(import.meta.url))
-const read = (...p) => fs.readFileSync(path.join(SRC, ...p), "utf8")
-
-// Read on every page load, so edits to the tool apply on refresh.
-export function runtimeSource() {
-  const dir = path.join(SRC, "runtime")
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).sort()
-  const body = files.map((f) => `// ---- ${f}\n${read("runtime", f)}`).join("\n")
-  return `;(function () {\n"use strict";\nif (window.__wayback) return;\n${body}\n})();`
-}
-
-export function shellHtml(options = {}) {
-  return read("shell", "shell.html")
-    .replace(
-      "/*CONFIG*/",
-      () =>
-        `window.__waybackConfig = ${JSON.stringify({ codeBranches: !!options.codeBranches, features: ["continue", "segments", "serialize"] })};` +
-        (options.token ? `window.__WAYBACK_TOKEN = ${JSON.stringify(options.token)};` : ""),
-    )
-    .replace("/*CSS*/", () => read("shell", "shell.css"))
-    .replace("/*JS*/", () => {
-      const files = fs.readdirSync(path.join(SRC, "shell")).filter((f) => f.endsWith(".js")).sort()
-      return `;(function () {\n"use strict";\n${files.map((f) => read("shell", f)).join("\n")}\n})();`
-    })
-}
+// The site's deployed build (apps/site/app/retake-dock, retake-runtime) and the tests import these from here.
+export { runtimeSource, shellHtml, runtimeTag, injectHtml } from "./core.js"
 
 const NESTED_DEST = new Set(["iframe", "frame", "embed", "object"])
+const pageKind = new AsyncLocalStorage()
 
 /**
- * @param {{ enabled?: boolean, codeBranches?: boolean, token?: string }} [options]
+ * @param {{ enabled?: boolean, codeBranches?: boolean, token?: string, root?: string }} [options]
  *   `codeBranches`: each timeline keeps its own version of the code; stepping
  *   into a timeline checks its code out on disk (see code-versions.js).
+ *   `root`: where .retake/ goes (default: Vite's root).
  * @returns {import("vite").Plugin[]}
  */
 export function retake(options = {}) {
-  // Mutating /__wayback/ requests must carry this (see CONTRACT.md).
+  // Mutating /__retake/ requests must carry this (see CONTRACT.md).
   options = { ...options, token: options.token || crypto.randomBytes(16).toString("hex") }
   const bus = createBus()
+  let ssr = false
+  // The dock for a top-level page load, the runtime injected into the dock's
+  // frame (Sec-Fetch-Dest: iframe; isAppFrame() tells it from an app's own
+  // iframe), and anything else left alone. Which one a request is stays known
+  // while the framework renders it (pageKind), for frameworks that call
+  // server.transformIndexHtml themselves.
+  const ssrPages = (req, res, next) => {
+    const url = new URL(req.url || "/", "http://x")
+    const mode = req.headers["sec-fetch-mode"]
+    const dest = req.headers["sec-fetch-dest"]
+    const optOut = url.searchParams.get("retake") === "0"
+    if (url.pathname.startsWith("/__retake/") || mode !== "navigate" || optOut) return pageKind.run("plain", next)
+    if (req.method === "GET" && dest === "document" && req.headers["sec-fetch-site"] !== "cross-site") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+      return res.end(shellHtml({ ...options, marker: "header" }))
+    }
+    if (dest !== "iframe" && dest !== "frame") return pageKind.run("plain", next)
+    delete req.headers["accept-encoding"]
+    // Set up like the front server's frames (clock at load, scripts held: see frontRuntime).
+    injectResponse(res, runtimeTag({ rt: { ...frontRuntime("vite"), marker: "header" } }))
+    pageKind.run("frame", next)
+  }
   const main = {
     name: "retake",
     apply: "serve",
@@ -57,10 +60,17 @@ export function retake(options = {}) {
     },
     configureServer(server) {
       if (options.enabled === false) return
+      // No index.html: a framework renders the pages itself (React Router,
+      // SvelteKit, Astro, TanStack Start...), and transformIndexHtml never sees
+      // them. Then pages are told apart by their Sec-Fetch-* headers, like the
+      // front server does (header marker), and the frame's HTML is injected as
+      // it's written. The URL is never touched (a `__wb` would leak into the app).
+      ssr = !fs.existsSync(path.join(server.config.root, "index.html"))
+      if (ssr) server.middlewares.use(ssrPages)
       // Only a top-level page load gets the dock. An iframe the app itself
       // embeds (or a frame navigating to another page of a multi-page app)
       // gets its plain page. The dock's own frame asks for `?__wb=app`.
-      server.middlewares.use((req, res, next) => {
+      else server.middlewares.use((req, res, next) => {
         const dest = req.headers["sec-fetch-dest"]
         if (dest && NESTED_DEST.has(dest) && req.url && !/[?&]__wb=/.test(req.url)) {
           const add = (u) => u + (u.includes("?") ? "&" : "?") + "__wb=plain"
@@ -69,7 +79,7 @@ export function retake(options = {}) {
         }
         next()
       })
-      sessionApi(server, { token: options.token, bus })
+      sessionApi(server, { token: options.token, bus, root: options.root })
       if (options.codeBranches) codeVersions(server, { token: options.token, bus })
       if (server.httpServer) {
         server.httpServer.once("listening", () => {
@@ -77,13 +87,7 @@ export function retake(options = {}) {
           const port = a && typeof a === "object" ? a.port : server.config.server.port
           const proto = server.config.server.https ? "https" : "http"
           const base = server.config.base || "/"
-          if (options.banner !== false) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}\n`)
-          if (!fs.existsSync(path.join(server.config.root, "index.html"))) {
-            server.config.logger.warn(
-              `  retake: no index.html in ${server.config.root}. Retake docks into pages Vite serves from index.html (single-page apps). ` +
-                `SSR and framework setups (React Router framework mode, Remix, Astro, SvelteKit, Nuxt) aren't supported yet, so the timeline won't appear.`,
-            )
-          }
+          if (options.banner !== false) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}${ssr ? "  (server-rendered pages)" : ""}\n`)
         })
       }
     },
@@ -96,12 +100,14 @@ export function retake(options = {}) {
       order: "pre",
       handler(html, ctx) {
         if (options.enabled === false) return
+        // A server-rendered page (see ssrPages): the response is injected, if at all.
+        if (pageKind.getStore()) return
         const params = new URL(ctx.originalUrl || ctx.path, "http://x").searchParams
-        // `?retake=0` (or the old `?wayback=0`) opts a page load out entirely.
-        if (params.get("retake") === "0" || params.get("wayback") === "0") return
+        // `?retake=0` opts a page load out entirely.
+        if (params.get("retake") === "0") return
         if (params.get("__wb") === "plain") return
         if (params.get("__wb") !== "app") return shellHtml(options)
-        return [{ tag: "script", attrs: { "data-wayback": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
+        return [{ tag: "script", attrs: { "data-retake": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
       },
     },
   }
@@ -124,6 +130,4 @@ export function retake(options = {}) {
   return [main, stripClient]
 }
 
-// `wayback` is the old name, kept as an alias.
-export const wayback = retake
 export default retake

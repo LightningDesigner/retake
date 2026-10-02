@@ -1,6 +1,8 @@
 // Mock API used by the probes. Also stands in for "a project with its own plugin".
 import crypto from "node:crypto"
 let hits = 0
+const banners = {} // /api/banner.js loads per run
+const counts = {} // /api/count hits per id
 // Minimal WebSocket server (text frames only) for the probes.
 function wsFrame(text) {
   const b = Buffer.from(text)
@@ -48,6 +50,23 @@ export default {
           return setTimeout(() => { res.setHeader("content-type", "image/svg+xml"); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>') }, 600)
         }
         if (u.pathname === "/api/xhr") { hits++; return res.end("xhr-" + hits) }
+        // A third-party script: quick the first time a run asks, slow after (F51).
+        if (u.pathname === "/api/banner.js") {
+          const run = u.searchParams.get("run")
+          const n = (banners[run] = (banners[run] || 0) + 1)
+          return setTimeout(() => {
+            res.setHeader("content-type", "text/javascript")
+            res.setHeader("cache-control", "no-store")
+            res.end('document.body.appendChild(Object.assign(document.createElement("div"), { id: "banner", textContent: "cookies" }))')
+          }, n === 1 ? 20 : 1500)
+        }
+        // A slow request, counted per id (F52); ?hits reads the count.
+        if (u.pathname === "/api/count") {
+          const id = u.searchParams.get("id")
+          if (u.searchParams.has("hits")) return res.end(String(counts[id] || 0))
+          counts[id] = (counts[id] || 0) + 1
+          return setTimeout(() => res.end("counted-" + counts[id]), 1500)
+        }
         if (u.pathname === "/api/slow") { return setTimeout(() => res.end("slow"), 2500) }
         if (u.pathname === "/api/stream") {
           res.setHeader("content-type", "text/plain")

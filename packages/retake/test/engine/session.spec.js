@@ -9,7 +9,7 @@ const URL_ = `http://localhost:${PORTS.probe}/`
 test("recording is on from page load", async ({ page }) => {
   const h = await openDock(page, URL_)
   await page.waitForTimeout(800)
-  const r = await h.rt(() => __wayback.history())
+  const r = await h.rt(() => __retake.history())
   expect(r.frames.length).toBeGreaterThan(10)
 })
 
@@ -67,7 +67,7 @@ test("F10 a full reload of the app keeps the session", async ({ page }) => {
   const s = await h.settle()
   expect(s.started).toBe(true)
   expect(s.end).toBeGreaterThan(1000) // the recording resumed rather than starting over
-  expect((await h.rt(() => __wayback.history())).reloads.length).toBeGreaterThanOrEqual(1)
+  expect((await h.rt(() => __retake.history())).reloads.length).toBeGreaterThanOrEqual(1)
 })
 
 test("F16 a same-origin iframe inside the app gets its own page, not the dock", async ({ page }) => {
@@ -91,10 +91,10 @@ test("F16 a same-origin iframe inside the app gets its own page, not the dock", 
 })
 
 test("?retake=0 serves the plain app", async ({ request }) => {
-  for (const q of ["?retake=0", "?wayback=0"]) {
+  for (const q of ["?retake=0"]) {
     const html = await (await request.get(URL_ + q)).text()
     expect(html).not.toContain("wb-dock")
-    expect(html).not.toContain("data-wayback")
+    expect(html).not.toContain("data-retake")
     expect(html).toContain('src="/main.js')
   }
 })
@@ -122,5 +122,5 @@ test("a frame the dock removes after a rebuild doesn't leave a resume behind", a
   await h.pause()
   await h.seek(300)
   await h.seek(600)
-  expect(await page.evaluate(() => window.__waybackShell.__resume || null)).toBeNull()
+  expect(await page.evaluate(() => window.__retakeShell.__resume || null)).toBeNull()
 })

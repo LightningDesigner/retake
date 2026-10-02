@@ -12,28 +12,30 @@
       <div class="divider" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline"><span></span></div>
       <div class="head">
         <div class="left">
-          <button class="btn icon play" data-a="play" aria-label="Play">
-            <svg class="i-play" viewBox="0 0 16 16" width="14" height="14"><path d="M4.5 3.2v9.6L12.5 8z" fill="currentColor"/></svg>
-            <svg class="i-pause" viewBox="0 0 16 16" width="14" height="14"><rect x="4" y="3.5" width="2.6" height="9" fill="currentColor"/><rect x="9.4" y="3.5" width="2.6" height="9" fill="currentColor"/></svg>
-          </button>
-          <span class="readout" aria-live="off"><b class="t">00:00.00</b><span class="phase">Live</span></span>
+          <div class="transport">
+            <button class="play" data-a="play" aria-label="Play">
+              <svg class="i-play" viewBox="0 0 16 16" width="12" height="12"><path d="M5 3.4v9.2c0 .5.55.8.97.53l7.1-4.6a.63.63 0 0 0 0-1.06l-7.1-4.6A.63.63 0 0 0 5 3.4z" fill="currentColor"/></svg>
+              <svg class="i-pause" viewBox="0 0 16 16" width="12" height="12"><rect x="3.5" y="3" width="3" height="10" rx="1" fill="currentColor"/><rect x="9.5" y="3" width="3" height="10" rx="1" fill="currentColor"/></svg>
+            </button>
+            <span class="readout" aria-live="off"><b class="t">00:00.00</b><span class="phase">Live</span></span>
+          </div>
         </div>
         <div class="hint" aria-live="polite"></div>
         <div id="wb-toast" role="status" hidden><span>Session cleared</span><button data-a="undo">Undo</button></div>
         <div class="right">
           <div class="tools" role="tablist" aria-label="Tool">
-            <button class="btn icon" data-tool="hand" role="tab" aria-label="Hand">
+            <button class="tool" data-tool="hand" role="tab" aria-label="Hand">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
             </button>
-            <button class="btn icon" data-tool="comment" role="tab" aria-label="Comment">
+            <button class="tool" data-tool="comment" role="tab" aria-label="Comment">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
             </button>
           </div>
-          <button class="btn notes-btn" data-a="notes" aria-label="Notes">Notes <span class="n">0</span></button>
+          <span class="notes-count" role="status" aria-label="No notes on this timeline" title="Notes on this timeline">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+            <span class="n">0</span>
+          </span>
           <button class="btn fresh" data-a="fresh">Start fresh</button>
-          <button class="btn icon more" data-a="more" aria-label="More">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
-          </button>
         </div>
       </div>
       <div class="body">
@@ -50,7 +52,6 @@
     <div id="wb-scope"></div>
     <div id="wb-pins"></div>
     <div id="wb-note" class="card" hidden></div>
-    <div id="wb-list" class="card list" hidden></div>
     <div id="wb-menu" class="card ctx" hidden></div>
     <script>/*CONFIG*/</script>
     <script>/*JS*/</script>

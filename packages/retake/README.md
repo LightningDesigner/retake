@@ -1,7 +1,7 @@
 # Retake
 
-A time machine for Vite prototypes. A timeline docks over the bottom of your
-app and records everything from page load. Drag it back and the app is at that
+A time machine for your dev server: Vite apps, Next.js, React Router and other
+frameworks. A timeline docks over the bottom of your app and records everything from page load. Drag it back and the app is at that
 moment. Ctrl-click the timeline to start a new take from there; the old one
 stays as a lane you can click back into. Dev only: nothing ships in builds.
 
@@ -9,8 +9,9 @@ stays as a lane you can click back into. Dev only: nothing ships in builds.
 
 ### Requirements
 - Node 18 or newer
-- A Vite 5+ app served from an `index.html` (React, Vue, Svelte, plain JS).
-  SSR/framework setups (Next, Remix, React Router framework mode, Astro) aren't supported yet.
+- A Vite 5+ app served from an `index.html` (React, Vue, Svelte, plain JS), or anything
+  else with a dev server that serves HTML (Next.js, React Router, Remix, Nuxt, SvelteKit, Astro...):
+  see [Frameworks](#frameworks).
 - Chrome, Edge or another Chromium browser (that's what it's tested on)
 
 ### Try it without installing
@@ -24,7 +25,8 @@ bunx retake-dev .         # bun
 ```
 
 Open the URL it prints (default http://localhost:3014). Your files aren't
-touched: it runs your own `vite.config` through a wrapper kept in your temp folder.
+touched: on a Vite app it runs your own `vite.config` through a wrapper kept in your temp
+folder; on a framework it runs your `dev` script and sits in front of it.
 Retake keeps its session in a `.retake/` folder in the app (it git-ignores itself).
 
 > Use the full name `retake-dev` with `npx`/`dlx`. The short `retake` command only
@@ -87,12 +89,76 @@ Remove `retake()` from `vite.config` if you added it.
 ```sh
 retake <project>                     # run the project's dev server with the timeline
 retake <project> --port 4000
-retake <project> --code-branches     # each timeline keeps its own version of the code (rewrites files!)
-retake <project> -- --host           # anything after -- goes to vite
+retake <project> --code-branches     # each timeline keeps its own version of the code (Vite apps; rewrites files!)
+retake <project> -- --host           # anything after -- goes to the dev server
+retake -- <dev command>              # run that command with the timeline in front (retake -- next dev)
+retake http://localhost:3000         # put the timeline in front of a dev server that's already running
 retake init                          # print the vite.config lines
 retake mcp                           # the MCP server (what `claude mcp add` runs)
 ```
-Opt out for one page load with `?retake=0`.
+`--root <dir>` puts `.retake/` somewhere else; `--verbose` logs every request the
+front server handles to `.retake/front.log`. Opt out for one page load with `?retake=0`.
+
+## Frameworks
+
+Retake needs to put a small script first in the page the dock frames. A Vite
+single-page app gets it from the Vite plugin. Anything that renders its own HTML
+gets it from Retake's **front server**: Retake listens on its port (3014), serves
+the dock there, and passes everything else through to your dev server, adding the
+script to the frame's page as it streams. Assets, data fetches, server actions,
+API routes and the HMR socket go through untouched. Your config isn't changed.
+
+`retake .` works out which one you have. A project that depends on Next, Nuxt,
+React Router (framework mode), Remix, SvelteKit, Astro, TanStack Start, SolidStart,
+Vike, Waku or Analog gets the front server, in front of its `dev` script (run with
+the package manager its lockfile names):
+
+| Framework | Run | Notes |
+|---|---|---|
+| Vite SPA (React, Vue, Svelte, plain) | `npx retake-dev .` | or `plugins: [retake()]` in `vite.config` |
+| Next.js | `npx retake-dev .` | tested on 16.3 (app and pages router, server actions) and 15.5 (app router), Turbopack |
+| React Router 7 framework mode | `npx retake-dev .` | or `plugins: [retake(), reactRouter()]` and your usual `npm run dev`; tested on 7.18 |
+| Remix 2 (Vite) | `npx retake-dev .` | tested on 2.17 |
+| Astro | `npx retake-dev .` | tested on 7.3 with React islands and `<ClientRouter />` |
+| SvelteKit | `npx retake-dev .` | tested on 3.0 (Svelte 5) |
+| Nuxt | `npx retake-dev .` | tested on 4.5; runs `nuxt dev` behind Retake (it ignores `PORT`: `npx retake-dev . -- --port 3001` picks its port) |
+| TanStack Start, SolidStart, Vike... | `npx retake-dev .` | untested; with Vite you can also add `retake()` to its Vite plugins |
+| Anything else that serves HTML | `npx retake-dev -- <your dev command>` | e.g. `npx retake-dev -- npm run dev` |
+| A dev server that's already running | `npx retake-dev http://localhost:3000` | `.retake/` goes in the current folder (or `--root`) |
+
+Tested means: the app hydrates in the dock with no warning, and recording, scrubbing back, the rebuilt moment, Play, hot
+updates and reloads all work, started either way (`retake .` or `retake http://localhost:…`). The untested ones go
+through the same front server and should work; say so if one doesn't.
+
+- **Which port?** Retake sets `PORT` to a free port for the dev command (or keeps
+  yours), and otherwise uses the first `http://localhost:…` the command prints, so
+  tools that ignore `PORT` work too. Ctrl-C stops the dev server with it.
+- **The plugin in a Vite-based framework.** With `retake()` in `vite.config` and
+  no `index.html` in the Vite root, the plugin docks into the pages your framework
+  renders, on your usual dev server port: no second server.
+- **Signing in.** Sign-in pages (OAuth) refuse to load inside a frame, so sign in
+  at your app's own port first (cookies on `localhost` are shared across ports),
+  then open Retake's. A sign-in redirect that comes back from another site gets the
+  plain page so it completes; reload to get the dock back.
+- **Next 16.** Next 16 sends React debug data for every request over its HMR
+  socket (`experimental.reactDebugChannel`). Retake keeps it with the recording and
+  hands it back on replay, so nothing needs changing. Other Next versions with a
+  debug channel aren't known yet: if replayed navigations or server actions don't
+  show, Retake's warning says to set `experimental: { reactDebugChannel: false }`.
+- **Exact replays on server-rendered pages.** Behind the front server the clock
+  starts once the page has loaded and nothing more is loading (so an app that
+  imports itself after load, like Nuxt's, has mounted), scripts and stylesheets added later (lazily
+  loaded chunks) run at their recorded moment, the dev server's own traffic (HMR)
+  is left out of the recording, and a rebuilt moment gets the page's HTML as it
+  was recorded (kept in `.retake/docs/`), not rendered again. Native `import()`
+  (Vite's lazy routes, Astro islands) can't be held to its moment.
+- **Bottom of the app hidden by the dock?** The dock floats over the bottom of
+  the app (a cookie banner's buttons, Next's dev badge). Drag the dock's divider
+  down, or open the app with `?retake=0`.
+- **Not rewound.** Retake rewinds the browser, not your server: database writes,
+  server sessions and server-action side effects stay as they are (replays answer
+  from the recording). Service workers are off while Retake is in front, and
+  `--code-branches` is Vite-only.
 
 **Code per timeline** (`--code-branches`): when the source changes, the timeline
 you're on takes the new code; the others keep theirs. Stepping into a timeline
@@ -116,4 +182,4 @@ It rewinds the browser, not your server, so it suits prototypes whose backends
 don't remember state. Not covered: the Cache API / service workers, and
 cross-origin iframes.
 
-Requires Node 18+ and Vite 5 or newer.
+Requires Node 18+, and Vite 5 or newer for Vite apps and the plugin.

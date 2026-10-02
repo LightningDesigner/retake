@@ -19,7 +19,7 @@ test("an in-app navigation starts a segment; rebuilds before and after it land o
   await h.click("#go")
   await page.waitForTimeout(400)
   await h.pause()
-  const hist = await h.rt(() => __wayback.history())
+  const hist = await h.rt(() => __retake.history())
   expect(hist.segments).toHaveLength(1)
   expect(hist.segments[0].url).toContain("p=2")
   const segT = hist.segments[0].t
@@ -42,18 +42,18 @@ test("continue: opening the dock at another URL carries the timeline on there, l
   await h.click("#go")
   await page.waitForTimeout(700)
   await h.pause()
-  const { json, end } = await h.rt(() => ({ json: JSON.stringify(__wayback.history()), end: __wayback.state().end }))
+  const { json, end } = await h.rt(() => ({ json: JSON.stringify(__retake.history()), end: __retake.state().end }))
   // What the dock does on load when the user typed a new URL (S2's 6a61825).
-  await page.evaluate(({ json, end }) => window.__waybackShell.rebuild({ rec: json, target: end, play: true, continue: true, url: "/?p=3&__wb=app" }), { json, end })
+  await page.evaluate(({ json, end }) => window.__retakeShell.rebuild({ rec: json, target: end, play: true, continue: true, url: "/?p=3&__wb=app" }), { json, end })
   await page.waitForTimeout(300)
   const s = await h.settle()
   expect(await h.rt(() => new URLSearchParams(location.search).get("p"))).toBe("3")
   expect(s.recording).toBe(true)
   expect(s.now).toBeGreaterThanOrEqual(end)
   expect(await h.rt(() => window.__probe.log.filter((e) => e.k === "click-random").length)).toBe(0) // nothing replayed
-  const tl = await h.rt(() => __wayback.timeline())
+  const tl = await h.rt(() => __retake.timeline())
   expect(tl.markers.filter((m) => m.kind === "route").map((m) => m.label)).toContain("/?p=3")
-  expect((await h.rt(() => __wayback.history().segments)).length).toBe(1)
+  expect((await h.rt(() => __retake.history().segments)).length).toBe(1)
   // and the earlier moment still rebuilds on the first page
   await h.pause()
   await h.seek(end - 300)

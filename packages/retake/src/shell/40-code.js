@@ -3,7 +3,7 @@
 // rebuilt on it. Each timeline remembers its code; stepping into one checks its
 // code back out, so timelines can differ in code as well as in what happened.
 
-const CODE_BRANCHES = !!(window.__waybackConfig && window.__waybackConfig.codeBranches)
+const CODE_BRANCHES = !!(window.__retakeConfig && window.__retakeConfig.codeBranches)
 
 // Checks a version out. { ok } once the files on disk are that version;
 // `left` is the snapshot the server took of the files just before (the real
@@ -24,7 +24,7 @@ async function checkoutCode(version) {
 const code = { newest: null }
 async function codeState() {
   try {
-    const v = await (await fetch("/__wayback/version")).json()
+    const v = await (await fetch("/__retake/version")).json()
     return v && v.version ? v : null
   } catch {
     return null

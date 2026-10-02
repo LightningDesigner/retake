@@ -4,7 +4,7 @@
 
 const shell = (() => {
   try {
-    return W.parent !== W && W.parent.__waybackShell ? W.parent.__waybackShell : null
+    return W.parent !== W && W.parent.__retakeShell ? W.parent.__retakeShell : null
   } catch {
     return null
   }
@@ -43,6 +43,7 @@ if (pending && (pending.reloaded || pending.continue)) {
     storage: { local: snapshotStorage(real.local), session: snapshotStorage(real.session) },
     cookies: snapshotCookies(),
     seed: (rec.seed ^ Math.imul((rec.segments || []).length + 1, 0x85ebca6b)) >>> 0,
+    ...(RT.docId ? { doc: RT.docId } : {}), // the front server's kept copy of this page (F56)
   }
   ;(rec.segments || (rec.segments = [])).push(seg)
   // A route marker for where the timeline carried on (a reload, or the URL
@@ -68,6 +69,7 @@ if (pending && (pending.reloaded || pending.continue)) {
     try {
       shell.__resume = { frame: W.frameElement, payload: pending, handoff: true }
     } catch {}
+    askStoredDoc(seg.doc, seg.url)
     location.replace(seg.url)
   }
   // (If handing off, this page is going away: its clock never starts.)
@@ -95,6 +97,9 @@ if (pending && (pending.reloaded || pending.continue)) {
 }
 epoch = rec.epoch
 seedRandom(pending ? segmentAt(clock.now).seed : rec.seed)
+// This frame's app is the one about to run: the origin's storage is its own
+// now (a rebuild has just put it back to its segment's start).
+if (shell && !handingOff) shell.storageOwner = storageId
 
 // Record starts the timeline, or resumes it from where it last got to.
 function record() {
@@ -124,6 +129,67 @@ Object.assign(PT, {
     if (previewing) endPreview()
     return seek(Math.max(t, rec.start), andPlay ? play : undefined)
   },
+  // Build the moment for real in a new frame (the dock's rebuild), leaving
+  // whatever this frame shows (a preview of that moment) as it is meanwhile.
+  buildAt(t) {
+    if (rec.start == null) return false
+    rewind(Math.max(t, rec.start), false)
+    return true
+  },
+  // A frame built (or being built) to one moment goes on to a later one on
+  // the same page instead of the dock starting another: before it boots, while
+  // it replays, or once it's there. False if it can't (that moment is behind
+  // where it has got to, or after a reload).
+  retarget(t) {
+    if (!pending || pending.reloaded || pending.continue || previewing || clock.playing) return false
+    t = Math.max(t, rec.start ?? 0)
+    const at = !clock.booted ? pending.target : (seekTarget ?? clock.now)
+    if (segmentIndex(t) !== segmentIndex(at)) return false
+    if (!clock.booted) {
+      pending.target = t // boot() reads it
+      return true
+    }
+    if (t < clock.now) return false
+    if (seekTarget != null) {
+      seekTarget = t // runSeek reads it at every frame
+      return true
+    }
+    seek(t)
+    return true
+  },
+  // Do a and b show exactly the same thing? Same page, under 50ms apart, and
+  // nothing recorded in between: no frame boundary in (lo, hi], no input in [lo, hi).
+  sameMoment(a, b) {
+    if (a == null || b == null) return false
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    if (hi - lo >= 50 || segmentIndex(lo) !== segmentIndex(hi)) return false
+    const fr = rec.frames
+    let i = 0
+    let j = fr.length
+    while (i < j) {
+      const m = (i + j) >> 1
+      if (fr[m] <= lo) i = m + 1
+      else j = m
+    }
+    if (i < fr.length && fr[i] <= hi) return false
+    const ev = rec.events
+    i = 0
+    j = ev.length
+    while (i < j) {
+      const m = (i + j) >> 1
+      if (ev[m].t < lo) i = m + 1
+      else j = m
+    }
+    return !(i < ev.length && ev[i].t < hi)
+  },
+  // The scrolling the user did to look while paused, and taking it on from
+  // the frame this one replaces (see viewScroll in 40-input).
+  viewScroll,
+  applyView,
+  // Which build this frame is (the dock's number, through the stash); a frame
+  // that reloaded itself mid-build has none, and isn't swapped in.
+  buildId: (pending && pending.buildId) || null,
   // Start a new branch at this moment, even if nothing lies ahead yet.
   // The new timeline starts paused at this moment; recording into it starts
   // when the user presses Play.
@@ -193,6 +259,7 @@ Object.assign(PT, {
       return no("not JSON")
     }
     if (!next || clock.seeking || previewing) return no("busy")
+    if (!storageOk()) return no("another frame has changed this app's IndexedDB since")
     if (next.seed !== rec.seed || next.epoch !== rec.epoch) return no("a different recording")
     if (next.events.length < cursor.event || next.frames.length < cursor.frame) return no("shorter than this frame's past")
     const same = (a, b) => a === b || (!!a && !!b && a.t === b.t && a.type === b.type)
@@ -212,6 +279,7 @@ Object.assign(PT, {
     started: rec.start != null,
     previewing,
     previewAt,
+    route: previewing ? routeAt(previewAt) : null, // the app's route at the moment previewed (its own location doesn't change)
     start: rec.start ?? 0,
     now: clock.now,
     end: Math.max(rec.end, clock.now),
@@ -220,6 +288,14 @@ Object.assign(PT, {
     seeking: clock.seeking,
     rate: clock.rate,
     future: hasFuture(),
+    // This document's page: where it starts on the timeline (a preview can't
+    // show earlier), and where the next page starts (null: none).
+    docStart: segmentAt(clock.now).t,
+    segEnd: nextSegmentStart(),
+    from: seekFrom, // where the current (or last) seek started
+    storageOk: storageOk(), // this frame can run its app as it is (see takeStorage)
+    idb: usesIDB(),
+    buildId: PT.buildId,
   }),
   timeline,
   clipAt,
@@ -237,20 +313,44 @@ Object.assign(PT, {
   }),
 })
 
-// Alt+P record/pause while focus is inside the prototype.
+function nextSegmentStart() {
+  for (const s of rec.segments || []) if (s.t > clock.now) return s.t
+  return null
+}
+
+// Alt+P record/pause while focus is inside the prototype. A frame built behind
+// the one on show (or parked as a checkpoint) can have the window's focus (its
+// replay focused a field), but it must never run by itself: there, the key is
+// the dock's Play/Pause, as if pressed in the dock.
 PT.shortcut = function (e) {
   if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== "KeyP") return false
   e.preventDefault()
   e.stopImmediatePropagation()
-  if (e.type === "keydown" && !e.repeat) clock.playing && rec.start != null ? pause() : record()
+  if (e.type !== "keydown" || e.repeat) return true
+  if (!onShow()) {
+    try {
+      shell.key(e)
+    } catch {}
+    return true
+  }
+  clock.playing && rec.start != null ? pause() : record()
   return true
+}
+// Is this the frame the dock shows? (Without a dock, or one that can't say: yes.)
+function onShow() {
+  try {
+    return !shell || typeof shell.shows !== "function" || !!shell.shows(W)
+  } catch {
+    return true
+  }
 }
 
 // The app navigating its frame to another of its pages (location.href = …)
 // must stay in the time machine: the frame's marker (?__wb=app) is kept on
-// the new URL, so that page gets the runtime and starts a new segment.
+// the new URL, so that page gets the runtime and starts a new segment. (With
+// the header marker the server knows the frame's navigations without it.)
 try {
-  if (W.navigation && shell) {
+  if (W.navigation && shell && RT.marker !== "header") {
     W.navigation.addEventListener("navigate", (e) => {
       if (e.hashChange || !e.cancelable || e.downloadRequest || (e.destination && e.destination.sameDocument)) return
       const url = new URL(e.destination.url)
@@ -278,6 +378,9 @@ W.addEventListener("pagehide", () => {
 
 function boot() {
   observe()
+  // The page's own SVG animations (SMIL) run from the page's start.
+  findSmil(document)
+  syncSmil(clock.now, null, segmentAt(clock.now).t)
   if (shell) shell.attach(PT)
   if (shell) W.addEventListener("blur", () => shell.meta && shell.meta(false))
   // Let the first render settle on real frames before time starts moving.
@@ -295,6 +398,62 @@ function boot() {
   )
 }
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true })
-else boot()
+// When the clock starts. At DOMContentLoaded (the Vite plugin's default) on
+// an index.html app, whose scripts have all run by then. A server-rendered
+// page streams most of its scripts in after that, live in real time but from
+// the cache on a rebuild, so hydration landed at different virtual moments
+// (F47): behind the front server (RT.bootAt "load") the clock starts at the
+// window's load, when they've all run, live and rebuilt alike. A page that
+// takes over 10s to load after DOMContentLoaded starts anyway (rec.bootCap).
+// Then it waits until nothing has finished loading for BOOT_QUIET ms (at most
+// BOOT_QUIET_CAP): a framework that imports its app after load (Nuxt's entry,
+// Astro's islands: native import(), which can't be held, F48) mounted at +60
+// to +300 ms live but before the clock started on a rebuild (from the cache),
+// or after the replay had run past it (still loading), so every timer the app
+// started on mount was off (F61). Now it has mounted before the clock starts,
+// live and rebuilt alike.
+const BOOT_CAP = 10000
+const BOOT_QUIET = 150
+const BOOT_QUIET_CAP = 3000
+function whenQuiet(fn) {
+  const start = real.perfNow()
+  let last = start
+  let po = null
+  try {
+    po = new PerformanceObserver(() => (last = real.perfNow()))
+    po.observe({ type: "resource" })
+  } catch {}
+  const check = () => {
+    const now = real.perfNow()
+    if (now - last < BOOT_QUIET && now - start < BOOT_QUIET_CAP) return real.setTimeout(check, BOOT_QUIET - (now - last))
+    if (po) po.disconnect()
+    fn()
+  }
+  real.setTimeout(check, BOOT_QUIET)
+}
+function whenLoaded(fn) {
+  if (RT.bootAt !== "load") {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn, { once: true })
+    else fn()
+    return
+  }
+  if (document.readyState === "complete") return whenQuiet(fn)
+  let done = false
+  const go = () => {
+    if (done) return
+    done = true
+    whenQuiet(fn)
+  }
+  W.addEventListener("load", go, { once: true })
+  const cap = () =>
+    real.setTimeout(() => {
+      if (done) return
+      console.warn(`[retake] this page took over ${BOOT_CAP / 1000}s to load; its clock starts before it has`)
+      if (rec) rec.bootCap = (rec.bootCap || 0) + 1
+      go()
+    }, BOOT_CAP)
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", cap, { once: true })
+  else cap()
+}
+whenLoaded(boot)
 drive()

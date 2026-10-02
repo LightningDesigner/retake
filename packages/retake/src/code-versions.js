@@ -329,14 +329,14 @@ export function codeVersions(server, { token, bus } = {}) {
 
   server.middlewares.use((req, res, next) => {
     const url = new URL(req.url, "http://x")
-    if (url.pathname === "/__wayback/version") return json(res, 200, { version: current, newest, restored: restoredAtStart })
-    if (url.pathname === "/__wayback/checkout") {
+    if (url.pathname === "/__retake/version") return json(res, 200, { version: current, newest, restored: restoredAtStart })
+    if (url.pathname === "/__retake/checkout") {
       // POST + token. A GET is accepted only from the dock's own origin
       // (Sec-Fetch-Site can't be forged by other sites) while the dock moves over.
-      const tokenOk = token && req.headers["x-wayback-token"] === token
+      const tokenOk = token && req.headers["x-retake-token"] === token
       const sameOrigin = req.headers["sec-fetch-site"] === "same-origin"
       if (!(req.method === "POST" && tokenOk) && !(req.method === "GET" && sameOrigin)) {
-        return json(res, 403, { ok: false, error: "checkout needs POST with x-wayback-token" })
+        return json(res, 403, { ok: false, error: "checkout needs POST with x-retake-token" })
       }
       const r = checkout(url.searchParams.get("v"))
       // left: the snapshot taken just before switching, i.e. the real code of

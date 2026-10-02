@@ -11,7 +11,7 @@ test("replayed keys reach the field the recording focused, even if the rebuildin
     if (!location.search.includes("__wb=app")) return
     document.addEventListener("focusin", () => {
       try {
-        if (window.__wayback && window.__wayback.state().seeking) queueMicrotask(() => document.querySelector(":focus")?.blur())
+        if (window.__retake && window.__retake.state().seeking) queueMicrotask(() => document.querySelector(":focus")?.blur())
       } catch {}
     }, true)
   })

@@ -83,13 +83,13 @@ test("F15 fetches made in the past don't fork a new timeline", async ({ page }) 
   await h.pause()
   const end = (await h.state()).end
   await h.seek(200)
-  const before = await page.evaluate(() => (window.__waybackDock && window.__waybackDock.branches ? window.__waybackDock.branches().length : 1))
+  const before = await page.evaluate(() => (window.__retakeDock && window.__retakeDock.branches ? window.__retakeDock.branches().length : 1))
   await h.rt(() => fetch("/api/json?unrecorded=1")) // not in the recording
   await page.waitForTimeout(300)
   const s = await h.state()
   expect(s.future).toBe(true)
   expect(s.end).toBeGreaterThanOrEqual(end - 1)
-  const after = await page.evaluate(() => (window.__waybackDock && window.__waybackDock.branches ? window.__waybackDock.branches().length : 1))
+  const after = await page.evaluate(() => (window.__retakeDock && window.__retakeDock.branches ? window.__retakeDock.branches().length : 1))
   expect(after).toBe(before)
 })
 
@@ -105,7 +105,7 @@ test("a response whose body the app never reads is still recorded whole and repl
   await h.click("#unread")
   await page.waitForTimeout(2200) // the (unread) stream finishes on the server
   await h.pause()
-  const entry = await h.rt(() => __wayback.history().fetches.find((f) => f && f.key.includes("unread")))
+  const entry = await h.rt(() => __retake.history().fetches.find((f) => f && f.key.includes("unread")))
   expect(entry.done).toBe(true)
   expect(entry.chunks.length).toBeGreaterThan(1)
   let hits = 0
@@ -113,4 +113,19 @@ test("a response whose body the app never reads is still recorded whole and repl
   await h.seek((await h.state()).now - 1)
   expect(pick(await h.log(), "unread")).toHaveLength(1)
   expect(hits).toBe(0)
+})
+
+test("a prefetch and a navigation of one URL each replay their own answer (router headers are in the key)", async ({ page }) => {
+  const h = await openDock(page, URL_ + "?rsc")
+  await page.waitForTimeout(300)
+  await h.click("#rsc")
+  await page.waitForTimeout(800)
+  await h.pause()
+  const live = pick(await h.log(), "rsc")
+  expect(live).toHaveLength(1)
+  expect(live[0].v[1]).toBe(live[0].v[0] + 1) // the prefetch went first, live
+  const keys = await h.rt(() => __retake.history().fetches.filter((f) => f && f.key.includes("route=a")).map((f) => f.key))
+  expect(keys).toEqual(["GET /api/json?route=a rsc=1 next-router-prefetch=1", "GET /api/json?route=a rsc=1"])
+  await h.seek((await h.state()).now - 10) // rebuilt: the navigation asks first (so it lands later)
+  expect(pick(await h.log(), "rsc").map((e) => e.v)).toEqual(live.map((e) => e.v))
 })

@@ -1,10 +1,10 @@
 // Keeping the session. Timelines, notes and bookmarks go to the dev server
-// (/__wayback/session, kept on disk under <project>/.retake/) so a reload or a
+// (/__retake/session, kept on disk under <project>/.retake/) so a reload or a
 // restart doesn't lose them; each timeline's recording goes to
-// /__wayback/recording/:id. Agents reply to notes over /__wayback/events.
+// /__retake/recording/:id. Agents reply to notes over /__retake/events.
 // When the server has no session API (it answers 404), everything stays in
 // memory for this page.
-const TOKEN = window.__WAYBACK_TOKEN || ""
+const TOKEN = window.__RETAKE_TOKEN || ""
 const net = {
   on: true, // false: in-memory only
   restoring: true, // nothing is saved until what's on disk has been read
@@ -16,15 +16,15 @@ const net = {
 
 async function api(method, path, body) {
   const headers = {}
-  if (method !== "GET") headers["x-wayback-token"] = TOKEN
+  if (method !== "GET") headers["x-retake-token"] = TOKEN
   if (body !== undefined) headers["content-type"] = "application/json"
-  const res = await fetch("/__wayback/" + path, {
+  const res = await fetch("/__retake/" + path, {
     method,
     headers,
     body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
   })
   if (res.status === 404) return { missing: true }
-  if (!res.ok) throw new Error(`${method} /__wayback/${path}: ${res.status}`)
+  if (!res.ok) throw new Error(`${method} /__retake/${path}: ${res.status}`)
   const text = await res.text()
   return { value: text && (res.headers.get("content-type") || "").includes("json") ? JSON.parse(text) : text }
 }
@@ -65,7 +65,7 @@ async function recordingOf(b) {
 
 // The page the user asked for, without the frame's own parameter.
 const askedFor = location.pathname + location.search + location.hash
-const FEATURES = (window.__waybackConfig && window.__waybackConfig.features) || []
+const FEATURES = (window.__retakeConfig && window.__retakeConfig.features) || []
 
 // On load: read what was saved, then open the app at the page the user asked
 // for, live. The saved timelines stay; the active one carries on from its end
@@ -185,7 +185,7 @@ setInterval(() => {
 // Agent replies and other outside changes arrive as server events.
 function listen() {
   if (!window.EventSource || !net.on) return
-  const es = new EventSource("/__wayback/events")
+  const es = new EventSource("/__retake/events")
   const read = (e) => {
     try {
       return JSON.parse(e.data)
@@ -240,7 +240,6 @@ function startFresh() {
   D.markers = []
   D.markerSeq = 0
   closeCard()
-  closeList()
   resetBranches()
   invalidateGutter()
   freshFrame()

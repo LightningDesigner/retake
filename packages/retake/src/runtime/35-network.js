@@ -7,8 +7,14 @@
 //   answer) replays token by token.
 // - At the live edge while paused, arrivals are held and delivered when time
 //   moves again, so pausing freezes streams too.
-// - Only complete exchanges are replayed. Anything still in flight when the
-//   recording was cut goes to the network for real.
+// - Only complete exchanges are replayed. One still in flight when the
+//   recording was cut waits until its frame is on show at the live edge, then
+//   goes to the network for real, once (F52); so does anything a frame built
+//   behind (or a checkpoint) asks that the recording can't answer. In the frame
+//   on show, the view-only past just goes to the network, unrecorded.
+// - The dev server's own traffic (HMR sockets, overlays; by call stack or by
+//   URL, see isExemptUrl) goes straight to the real API: never recorded, held
+//   or replayed. Its sockets are kept in `devSockets`.
 // - Nothing here forks a timeline; only the dock's + does.
 
 const NET = { fetch: "fetches", xhr: "xhrs", sse: "sses", ws: "sockets" }
@@ -50,9 +56,32 @@ function bodyHash(body) {
   return "?" // FormData, Blob, streams: not hashed; matched by order
 }
 
-function urlKey(url, method) {
+// Request headers that decide which answer a URL gets (Next's router asks the
+// same URL for a prefetch, a page's RSC payload or a server action): part of
+// the key, so a prefetch and a navigation never swap answers on replay.
+const KEY_HEADERS = ["rsc", "next-router-prefetch", "next-router-segment-prefetch", "next-action"]
+function urlKey(url, method, headers) {
   const u = new URL(String(url), location.href)
-  return `${(method || "GET").toUpperCase()} ${u.origin === location.origin ? u.pathname + u.search : u.href}`
+  // Our frame marker, and Next's `_rsc` (a cache-busting hash of the request's
+  // headers, which are in the key themselves), aren't part of what's asked.
+  for (const p of ["__wb", "_rsc"]) if (u.searchParams.has(p)) u.searchParams.delete(p)
+  let key = `${(method || "GET").toUpperCase()} ${u.origin === location.origin ? u.pathname + u.search : u.href}`
+  if (headers) for (const h of KEY_HEADERS) if (headers.has(h)) key += ` ${h}=${headers.get(h)}`
+  return key
+}
+// A request's headers as a Headers object (fetch's init wins over a Request's).
+function headersOf(input, init) {
+  try {
+    if (init && init.headers) return new Headers(init.headers)
+    if (typeof Request !== "undefined" && input instanceof Request) return input.headers
+  } catch {}
+  return null
+}
+// The body hash, plus Next's router state (which page it's coming from): the
+// exact one is preferred, any other still matches in order.
+function requestHash(body, headers) {
+  const tree = headers && headers.get("next-router-state-tree")
+  return bodyHash(body) + (tree ? "~" + hashText(tree) : "")
 }
 
 // Find a recorded, complete, unused exchange: same key and body first, then
@@ -65,6 +94,14 @@ function match(list, key, hash) {
   if (i < 0) i = arr.findIndex((e, j) => ok(e, j))
   if (i >= 0) used[list].add(i)
   return i
+}
+// Was this request in flight when the recording was cut (recorded, never
+// answered)? Then it waits for the live edge in any frame (see defer below).
+function cutInFlight(list, key) {
+  const arr = rec[list] || []
+  const j = arr.findIndex((e, k) => e && e.key === key && !e.done && !(e.body != null || e.error != null) && !used[list].has(k))
+  if (j >= 0) used[list].add(j)
+  return j >= 0
 }
 
 // Live arrivals: delivered now, or (at the live edge while paused) held until
@@ -81,6 +118,45 @@ function releaseHeld() {
 function netEvent(ev) {
   recordEvent(ev)
 }
+
+// ---- frames built behind don't go to the network ---------------------------------
+// A frame built behind the one on show (or a checkpoint) replays the past.
+// A request there that the recording has no complete answer for (the
+// recording was cut while it was in flight) would reach the server again from
+// every such frame, ones that change data included. It waits instead, and goes
+// out for real (recorded) once this frame is on show at the live edge. So does
+// one cut in flight that the frame on show makes again, playing the past.
+const deferred = []
+const hiddenFrame = () => !!shell && !onShow()
+function defer(go) {
+  const d = { go, dead: false }
+  deferred.push(d)
+  return d
+}
+function releaseDeferred() {
+  if (!deferred.length || hasFuture() || clock.seeking || !onShow()) return
+  for (const d of deferred.splice(0)) {
+    if (d.dead) continue
+    d.dead = true
+    d.go()
+  }
+}
+function deferFetch(input, init, key, hash, signal, headers) {
+  return new Promise((resolve, reject) => {
+    const d = defer(() => liveFetch(input, init, key, hash, !hasFuture(), headers).then(resolve, reject))
+    if (!signal) return
+    const abort = () => {
+      if (d.dead) return
+      d.dead = true
+      reject(new DOMException("The operation was aborted.", "AbortError"))
+    }
+    if (signal.aborted) return abort()
+    signal.addEventListener("abort", abort, { once: true })
+  })
+}
+
+// The dev server's own sockets (HMR), live and unrecorded: 37-next.js talks to them.
+const devSockets = new Set()
 
 // Recorded net events during replay.
 function deliverNet(ev) {
@@ -136,8 +212,10 @@ function makeResponse(entry, body) {
   return res
 }
 
-function replayFetch(i, signal) {
+function replayFetch(i, signal, headers) {
   const entry = rec.fetches[i]
+  // (Next 16 waits for debug data about this request over its HMR socket.)
+  const ended = () => nextReplayEnd(headers)
   return new Promise((resolve, reject) => {
     let controller = null
     let settled = false
@@ -161,6 +239,8 @@ function replayFetch(i, signal) {
       onReplay("fetches", i, () => {
         settled = true
         doneReplay("fetches", i)
+        nextReplayStart(entry, headers)
+        ended()
         entry.error ? reject(netError(entry.error)) : resolve(makeResponse(entry, entry.body))
       })
       return
@@ -168,6 +248,7 @@ function replayFetch(i, signal) {
     onReplay("fetches", i, (ev) => {
       if (ev.kind === "error") {
         doneReplay("fetches", i)
+        ended()
         if (!settled) reject(netError(entry.error))
         else if (controller) controller.error(netError(entry.error))
         settled = true
@@ -175,6 +256,7 @@ function replayFetch(i, signal) {
       }
       if (ev.kind === "head") {
         settled = true
+        nextReplayStart(entry, headers)
         const stream = new ReadableStream({ start: (c) => (controller = c) })
         resolve(makeResponse(entry, stream))
         return
@@ -186,6 +268,7 @@ function replayFetch(i, signal) {
       }
       if (ev.kind === "end") {
         doneReplay("fetches", i)
+        ended()
         try {
           controller && controller.close()
         } catch {}
@@ -194,15 +277,17 @@ function replayFetch(i, signal) {
   })
 }
 
-function liveFetch(input, init, key, hash, record) {
+function liveFetch(input, init, key, hash, record, headers) {
   const list = listOf("fetches")
   const idx = record ? list.length : -1
   const entry = { key, hash, t0: clock.now, chunks: [] }
   if (record) {
     list.push(entry)
     used.fetches.add(idx)
+    nextLiveRequest(entry, headers)
   }
   const ev = (kind, extra) => record && netEvent({ type: "net", list: "fetches", i: idx, kind, ...extra })
+  ;[input, init] = nextLiveInit(input, init) // (a kept Next page: its own socket's id)
   return new Promise((resolve, reject) => {
     real.fetch(input, init).then(
       (res) => {
@@ -285,21 +370,31 @@ function liveFetch(input, init, key, hash, record) {
 W.fetch = function (input, init) {
   if (isExempt()) return real.fetch(input, init)
   let key
+  let hash
+  let headers
   try {
-    key = urlKey(typeof input === "string" || input instanceof URL ? input : input.url, (init && init.method) || (input && input.method))
+    const url = typeof input === "string" || input instanceof URL ? input : input.url
+    if (isExemptUrl(url)) return real.fetch(input, init)
+    headers = headersOf(input, init)
+    // Next's router refetching the page after a server component edit: the dev
+    // server's traffic too (F77), but with its socket's id like a live request.
+    if (nextHmrRefresh(headers)) return real.fetch(...nextLiveInit(input, init))
+    key = urlKey(url, (init && init.method) || (input && input.method), headers)
+    hash = requestHash(init && init.body, headers)
   } catch {
     return real.fetch(input, init)
   }
-  const hash = bodyHash(init && init.body)
   const signal = (init && init.signal) || (input && input.signal)
   if (hasFuture()) {
     const i = match("fetches", key, hash)
-    if (i >= 0) return replayFetch(i, signal)
-    // Not in the recording (or it was cut mid-flight): the past is view-only,
-    // so just go to the network, unrecorded.
-    return liveFetch(input, init, key, hash, false)
+    if (i >= 0) return replayFetch(i, signal, headers)
+    // Cut mid-flight, or (in a frame built behind) not in the recording: it
+    // waits until the frame is on show at the live edge. Anything else in the
+    // view-only past just goes to the network, unrecorded.
+    if (hiddenFrame() || cutInFlight("fetches", key)) return deferFetch(input, init, key, hash, signal, headers)
+    return liveFetch(input, init, key, hash, false, headers)
   }
-  return liveFetch(input, init, key, hash, true)
+  return liveFetch(input, init, key, hash, true, headers)
 }
 
 // ---- XMLHttpRequest -------------------------------------------------------------------
@@ -338,6 +433,7 @@ class RetakeXHR extends EventTarget {
     this._method = String(method || "GET").toUpperCase()
     this._url = url
     this._async = async !== false
+    this._exempt = isExempt() || isExemptUrl(url) // the dev server's own: straight through
     this._fire("readystatechange", 1)
   }
   setRequestHeader(k, v) {
@@ -360,6 +456,7 @@ class RetakeXHR extends EventTarget {
   }
   abort() {
     this._aborted = true
+    if (this._deferred) this._deferred.dead = true
     if (this._real) this._real.abort()
     if (this.readyState > 0 && this.readyState < 4) {
       this._fire("readystatechange", 4)
@@ -410,9 +507,14 @@ class RetakeXHR extends EventTarget {
     this._fire("loadend")
   }
   send(body) {
-    const key = urlKey(this._url, this._method)
-    const hash = bodyHash(body)
+    let headers = null
+    try {
+      headers = new Headers(this._headers)
+    } catch {}
+    const key = urlKey(this._url, this._method, headers)
+    const hash = requestHash(body, headers)
     this._fire("loadstart")
+    if (this._exempt) return this._live(body, key, hash, false, true)
     if (hasFuture()) {
       const i = match("xhrs", key, hash)
       if (i >= 0) {
@@ -426,11 +528,16 @@ class RetakeXHR extends EventTarget {
         })
         return
       }
+      if (hiddenFrame() || cutInFlight("xhrs", key)) {
+        this._deferred = defer(() => this._live(body, key, hash, !hasFuture()))
+        return
+      }
       return this._live(body, key, hash, false)
     }
     return this._live(body, key, hash, true)
   }
-  _live(body, key, hash, record) {
+  // raw: the dev server's own request, delivered as it comes (never held).
+  _live(body, key, hash, record, raw) {
     const x = (this._real = new RealXHR())
     x.open(this._method, this._url, this._async)
     if (this._async) x.responseType = "arraybuffer"
@@ -448,7 +555,7 @@ class RetakeXHR extends EventTarget {
       used.xhrs.add(idx)
     }
     const finish = (fail) =>
-      arrive(() => {
+      (raw ? (fn) => fn() : arrive)(() => {
         if (this._aborted) return
         if (fail) entry.fail = fail
         else {
@@ -480,7 +587,7 @@ const RealES = W.EventSource
 if (RealES) {
   class RetakeEventSource extends EventTarget {
     constructor(url, opts) {
-      if (isExempt()) return new RealES(url, opts)
+      if (isExempt() || isExemptUrl(url)) return new RealES(url, opts)
       super()
       this.url = new URL(String(url), location.href).href
       this.withCredentials = !!(opts && opts.withCredentials)
@@ -493,6 +600,10 @@ if (RealES) {
         if (i >= 0) {
           this._i = i
           onReplay("sses", i, (ev) => this._play(rec.sses[i].msgs[ev.n]))
+          return
+        }
+        if (hiddenFrame() || cutInFlight("sses", key)) {
+          this._deferred = defer(() => this._live(url, opts, key, !hasFuture()))
           return
         }
         return this._live(url, opts, key, false)
@@ -521,14 +632,18 @@ if (RealES) {
       this._emit(m)
     }
     addEventListener(type, fn, o) {
-      if (this._real && !this._types.has(type)) {
+      if (!this._types.has(type)) {
         this._types.add(type)
-        this._real.addEventListener(type, (e) => this._got({ type, data: e.data, id: e.lastEventId }))
+        if (this._real) this._wire(type)
       }
       return super.addEventListener(type, fn, o)
     }
+    _wire(type) {
+      this._real.addEventListener(type, (e) => this._got({ type, data: e.data, id: e.lastEventId }))
+    }
     _live(url, opts, key, record) {
       const es = (this._real = new RealES(url, opts))
+      for (const type of this._types) if (type !== "message" && type !== "open" && type !== "error") this._wire(type)
       const list = listOf("sses")
       this._record = record
       this._entry = { key, t0: clock.now, msgs: [] }
@@ -553,6 +668,7 @@ if (RealES) {
     }
     close() {
       this.readyState = 2
+      if (this._deferred) this._deferred.dead = true
       if (this._real) this._real.close()
       if (this._entry) this._entry.done = true
       if (this._i != null) doneReplay("sses", this._i)
@@ -567,8 +683,15 @@ const RealWS = W.WebSocket
 if (RealWS) {
   class RetakeWebSocket extends EventTarget {
     constructor(url, protocols) {
-      // The dev server's own socket (Vite's HMR client) stays real and unheld.
-      if (isExempt()) return new RealWS(url, protocols)
+      // The dev server's own socket (Vite's or Next's HMR client) stays real and unheld.
+      if (isExempt() || isExemptUrl(url) || [].concat(protocols || []).some((p) => p === "vite-hmr" || p === "vite-ping")) {
+        const ws = new RealWS(nextSocketUrl(url), protocols)
+        devSockets.add(ws)
+        ws.addEventListener("open", () => (nextDocReplay(), flushNext()))
+        ws.addEventListener("message", nextDevMessage)
+        ws.addEventListener("close", () => devSockets.delete(ws))
+        return ws
+      }
       super()
       this.url = new URL(String(url), location.href).href
       this.readyState = 0
@@ -583,6 +706,10 @@ if (RealWS) {
         if (i >= 0) {
           this._i = i
           onReplay("sockets", i, (ev) => this._play(rec.sockets[i].msgs[ev.n]))
+          return
+        }
+        if (hiddenFrame() || cutInFlight("sockets", key)) {
+          this._deferred = defer(() => this._live(url, protocols, key, !hasFuture()))
           return
         }
         return this._live(url, protocols, key, false)
@@ -643,6 +770,7 @@ if (RealWS) {
       if (this._real) this._real.send(data) // a replayed socket talks to no one
     }
     close(code, reason) {
+      if (this._deferred) this._deferred.dead = true
       if (this._real) this._real.close(code, reason)
       else if (this.readyState < 2) {
         this.readyState = 3

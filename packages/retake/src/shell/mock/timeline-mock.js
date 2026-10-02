@@ -10,7 +10,7 @@
 ;(function () {
   if (!/[?&]__wb=app\b/.test(location.search)) return
   const install = () => {
-    const PT = window.__wayback
+    const PT = window.__retake
     if (!PT || !PT.state || !PT.history) return false
     if (!PT.timeline) {
       PT.__mock = true

@@ -3,7 +3,7 @@
 // files are concatenated into one IIFE by the Vite plugin, in filename order.
 
 const W = window
-const PT = (W.__wayback = { emit() {} })
+const PT = (W.__retake = { emit() {} })
 const real = {
   setTimeout: W.setTimeout.bind(W),
   clearTimeout: W.clearTimeout.bind(W),
@@ -18,13 +18,30 @@ const real = {
   session: W.sessionStorage,
 }
 
-const KEY = "wayback:"
+const KEY = "retake:"
 // performance.now() and rAF timestamps are offset so they never read 0 (lots of
 // code treats a 0 timestamp as "unset").
 const PERF_BASE = 1000
 // Timers created by the dev server itself must keep real time, or HMR stalls
-// whenever the clock is paused.
-const EXEMPT = /@vite\/client|@react-refresh|vite\/dist\/client/
+// whenever the clock is paused. (Turbopack's HMR client is a chunk of its own.)
+const EXEMPT = /@vite\/client|@react-refresh|vite\/dist\/client|dev_hmr-client_hmr-client/
+// The dev server's own traffic, by URL (RT.exemptUrls, picked by the server
+// for the framework): its HMR socket, overlay and hot-update requests. A call
+// stack can't always tell (Turbopack bundles Next's router and its HMR client
+// together), a URL can. Exempt traffic is never recorded, held or replayed.
+let exemptUrlRe = null
+try {
+  if (RT.exemptUrls && RT.exemptUrls.length) exemptUrlRe = new RegExp(RT.exemptUrls.join("|"))
+} catch {}
+function isExemptUrl(url) {
+  if (!exemptUrlRe) return false
+  try {
+    const u = new URL(String(url), location.href)
+    return exemptUrlRe.test(u.pathname + u.search)
+  } catch {
+    return false
+  }
+}
 
 const clock = { now: 0, rate: 1, playing: false, seeking: false, booted: false }
 
@@ -61,9 +78,9 @@ function nextTimer() {
   return best
 }
 
-// Debug aid: `window.__waybackTrace = []` before load collects a log of
+// Debug aid: `window.__retakeTrace = []` before load collects a log of
 // what ran when, to diff a recording against its replay.
-const trace = (...entry) => W.__waybackTrace && W.__waybackTrace.push([clock.now, ...entry])
+const trace = (...entry) => W.__retakeTrace && W.__retakeTrace.push([clock.now, ...entry])
 
 function runTimer(t) {
   trace("timer", t.due, String(t.fn).slice(0, 80))
@@ -114,7 +131,7 @@ let rafQueue = new Map()
 let rafSeq = 1
 
 W.requestAnimationFrame = function (cb) {
-  if (W.__waybackTrace) trace("req", (new Error().stack || "").split("\n")[2])
+  if (W.__retakeTrace) trace("req", (new Error().stack || "").split("\n")[2])
   const id = rafSeq++
   rafQueue.set(id, cb)
   return id
@@ -245,16 +262,32 @@ Object.defineProperty(MPP, "onmessage", {
   },
 })
 
-const stats = { settles: 0, stuck: 0, yields: 0, idbWaits: 0 }
+const stats = { settles: 0, stuck: 0, yields: 0, idbWaits: 0, fastSettles: 0 }
+// Set when a replay hands the app something that may finish in real time (a
+// network reply, a worker message, media readiness): the next settle then
+// yields a real task, whatever else is true.
+let dispatchedSinceYield = true
 // Wait until the app is idle: no pending MessageChannel work (React's
-// scheduler) and no IndexedDB work in flight (it answers in real time).
-async function settle() {
+// scheduler) and no IndexedDB work or replayed script load in flight (they
+// answer in real time).
+// fastOk (replay only): when the app has nothing queued, a few microtask turns
+// do instead of a task round trip, which is most of a canvas-heavy page's
+// rebuild time. The dock's `fastReplay = false` turns it off (a kill switch).
+async function settle(fastOk) {
   stats.settles++
+  if (fastOk && clock.seeking && !dispatchedSinceYield && appMessages === 0 && !otherBusy() && !(shell && shell.fastReplay === false)) {
+    for (let i = 0; i < 8; i++) await null
+    if (appMessages === 0) {
+      stats.fastSettles++
+      return
+    }
+  }
   const deadline = real.perfNow() + 2000
   for (let round = 0; round < 20; round++) {
     let i = 0
     for (; i < 60; i++) {
       await yieldTask()
+      dispatchedSinceYield = false
       stats.yields++
       if (appMessages === 0) break
     }
@@ -262,8 +295,11 @@ async function settle() {
       stats.stuck++
       appMessages = 0 // lost count (a port we can't see); don't stall forever
     }
-    if (typeof idbBusy === "undefined" || idbBusy <= 0 || real.perfNow() > deadline) return
+    if (!otherBusy() || real.perfNow() > deadline) return
     stats.idbWaits++
-    while (idbBusy > 0 && real.perfNow() < deadline) await new Promise((r) => real.setTimeout(r, 0))
+    while (otherBusy() && real.perfNow() < deadline) await new Promise((r) => real.setTimeout(r, 0))
   }
 }
+// Work that answers in real time and that time waits for: IndexedDB requests
+// (32-state.js) and, replaying, scripts the recording loaded at this moment (36-scripts.js).
+const otherBusy = () => (typeof idbBusy !== "undefined" && idbBusy > 0) || (typeof scriptBusy !== "undefined" && scriptBusy > 0)

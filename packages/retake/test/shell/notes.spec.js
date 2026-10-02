@@ -9,7 +9,7 @@ const REACT_URL = `http://localhost:${SHELL_PORTS.reactNotes}/`
 
 // Rewind to `ms` after the first #toggle-like click (mid-transition).
 async function intoFirstClick(h, ms) {
-  const tl = await h.rt(() => __wayback.timeline())
+  const tl = await h.rt(() => __retake.timeline())
   const click = tl.markers.find((m) => m.kind === "click")
   await h.seek(click.t + ms)
   await h.page.waitForTimeout(250)
@@ -53,7 +53,7 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   await expect(page.locator(".canvas-pin")).toHaveCount(1)
   await expect.poll(() => dock(page, (D) => D.scene.notes.length)).toBe(1)
 
-  const p = await page.evaluate(() => window.__waybackDock.prompt(window.__waybackDock.state.notes[0]))
+  const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
   expect(p).toContain("## Make this slide slower")
   expect(p).toContain("Selector: #card")
   expect(p).toContain("Classes: card primary-card off")
@@ -88,6 +88,24 @@ test("F23: selectors are escaped for ids like :r1: and 1st", async ({ page }) =>
   await expect(page.locator(".canvas-pin")).toHaveCount(2)
 })
 
+test("a note on a disabled button: it gets no click, its pointerup picks it (F72)", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await intoFirstClick(h, 50)
+  // "This shouldn't be disabled here": a disabled button (with a label inside) at that moment.
+  await h.rt(() => {
+    const b = document.createElement("button")
+    b.id = "busy"
+    b.disabled = true
+    b.innerHTML = "<span>Adding...</span>"
+    b.style.cssText = "position:fixed;left:40px;top:40px;width:160px;height:40px;z-index:99"
+    document.body.append(b)
+  })
+  const n = await noteOn(h, "#busy span", "Shouldn't be disabled", "tool")
+  expect(n.el.selector).toMatch(/#busy/)
+})
+
 test("F23: React components through memo/forwardRef, with source file:line", async ({ page }) => {
   const h = await openDock(page, REACT_URL)
   await recordSome(h, ["#fancy"])
@@ -100,7 +118,7 @@ test("F23: React components through memo/forwardRef, with source file:line", asy
   expect(n.el.source.file).toMatch(/\/src\/main\.jsx$/)
   expect(n.el.source.line).toBeGreaterThan(3)
   expect(n.el.source.line).toBeLessThan(12)
-  const p = await page.evaluate(() => window.__waybackDock.prompt(window.__waybackDock.state.notes[0]))
+  const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
   expect(p).toContain("Component: FancyButton")
   expect(p).toMatch(/Source: \/src\/main\.jsx:\d+/)
   expect(p).toContain("Classes: btn primary")
@@ -124,11 +142,11 @@ test("agent replies show inline; the list shows this timeline's notes", async ({
   await fakeServer(page, { store, events: [{ type: "note-updated", data: { id: "n7", status: "acknowledged", replies: [{ from: "agent", text: "Changed radius to 16px in main.css", at: 1 }] } }] })
   const h = await openDock(page, DOCK_URL)
   await expect.poll(() => dock(page, (D) => D.notes[0] && D.notes[0].status)).toBe("acknowledged")
-  await page.locator('[data-a="notes"]').click()
-  await expect(page.locator("#wb-list .list-row")).toHaveCount(1)
-  await expect(page.locator("#wb-list")).toContainText("Rounder corners")
-  await expect(page.locator("#wb-list")).toContainText(/acknowledged/i)
-  await page.locator("#wb-list .list-row").click()
+  // The dock shows only the count; the note opens from its pin.
+  await expect(page.locator(".notes-count .n")).toHaveText("1")
+  await expect(page.locator(".notes-count")).toHaveAttribute("aria-label", "1 note on this timeline")
+  await page.locator('#wb-pins [data-note="n7"]').click()
+  await expect(page.locator("#wb-note")).toContainText("Rounder corners")
   await expect(page.locator("#wb-note .reply.agent")).toContainText("Changed radius to 16px")
   await expect(page.locator("#wb-note .status")).toHaveText(/acknowledged/i)
   expect(h.dockErrors).toEqual([])
@@ -168,7 +186,7 @@ test("source lines are the original lines (source-mapped), components skip libra
   expect(n.el.styles.transition.length).toBeLessThan(80)
   expect(n.el.styles.transition).toContain("10 properties")
   expect(n.el.styles.transition).toContain("0.15s")
-  const p = await page.evaluate(() => { const d = window.__waybackDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
+  const p = await page.evaluate(() => { const d = window.__retakeDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
   expect(p).toContain(`Source: /src/Shifted.tsx:${n.el.source.line}`)
   expect(h.dockErrors).toEqual([])
 })
@@ -200,7 +218,7 @@ test("a note on a still element has no clip, even while something else animates"
   const n = await noteOn(h, "#count", "Bigger number")
   expect(n.el.selector).toBe("#count")
   expect(n.clip).toBeNull()
-  const p = await page.evaluate(() => window.__waybackDock.prompt(window.__waybackDock.state.notes[0]))
+  const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
   expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, nothing animating/)
   // The animating element itself still gets its clip.
   const m = await noteOn(h, "#card", "Slower")

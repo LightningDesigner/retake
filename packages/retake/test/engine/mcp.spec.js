@@ -36,7 +36,7 @@ function mcp(args = [], cwd = process.cwd()) {
 
 async function seed(request) {
   const html = await (await request.get(base + "/")).text()
-  const token = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
+  const token = html.match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
   const session = {
     branches: [{ id: 1, parentId: null, forkAt: 0, name: "Timeline 1" }, { id: 2, parentId: 1, forkAt: 1500, name: "Timeline 2", codeVersion: "abc1234567" }],
     activeId: 2,
@@ -47,7 +47,7 @@ async function seed(request) {
       { id: "n4", branchId: 1, t: 6000, selector: "#bar", clip: { id: "c32", offset: 5550, duration: null, label: "fm-note-rise" }, text: "Less bounce", status: "dismissed", replies: [] },
     ],
   }
-  await request.put(base + "/__wayback/session", { data: session, headers: { "x-wayback-token": token } })
+  await request.put(base + "/__retake/session", { data: session, headers: { "x-retake-token": token } })
   return token
 }
 
@@ -79,11 +79,11 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     expect(active.json.openNotes.map((n) => n.id)).toEqual(["n1"])
 
     expect((await m.tool("acknowledge", { id: "n1", message: "on it" })).isError).toBe(false)
-    let n1 = await (await request.get(base + "/__wayback/notes/n1")).json()
+    let n1 = await (await request.get(base + "/__retake/notes/n1")).json()
     expect(n1.status).toBe("acknowledged")
     await m.tool("reply", { id: "n1", text: "blue as in #2563eb?" })
     expect((await m.tool("resolve", { id: "n1", summary: "Button is #2563eb now" })).isError).toBe(false)
-    n1 = await (await request.get(base + "/__wayback/notes/n1")).json()
+    n1 = await (await request.get(base + "/__retake/notes/n1")).json()
     expect(n1.status).toBe("resolved")
     expect(n1.replies.map((r) => [r.from, r.text])).toEqual([["agent", "on it"], ["agent", "blue as in #2563eb?"], ["agent", "Button is #2563eb now"]])
 
@@ -93,7 +93,7 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     expect(missing.text).toContain("no note with id nope")
   } finally {
     m.close()
-    await request.put(base + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": token } })
+    await request.put(base + "/__retake/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-retake-token": token } })
   }
 })
 
@@ -104,14 +104,14 @@ test("watch_notes returns when the user adds a note", async ({ request }) => {
     await m.rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {} })
     const watching = m.tool("watch_notes", { timeout_seconds: 20 })
     await new Promise((r) => setTimeout(r, 500))
-    const session = await (await request.get(base + "/__wayback/session")).json()
+    const session = await (await request.get(base + "/__retake/session")).json()
     session.notes.push({ id: "n3", branchId: 2, t: 3000, selector: "#pad", text: "Bigger pad", status: "pending", replies: [] })
-    await request.put(base + "/__wayback/session", { data: session, headers: { "x-wayback-token": token } })
+    await request.put(base + "/__retake/session", { data: session, headers: { "x-retake-token": token } })
     const got = await watching
     expect(got.json.changed).toEqual([expect.objectContaining({ id: "n3", new: true, text: "Bigger pad" })])
   } finally {
     m.close()
-    await request.put(base + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": token } })
+    await request.put(base + "/__retake/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-retake-token": token } })
   }
 })
 
@@ -138,5 +138,5 @@ test("a client that closes its input right after asking still gets the answer", 
   const replies = r.stdout.trim().split("\n").map((l) => JSON.parse(l))
   expect(replies.map((x) => x.id)).toEqual([1, 2])
   expect(JSON.parse(replies[1].result.content[0].text).notes[0].id).toBe("n1")
-  await request.put(base + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": token } })
+  await request.put(base + "/__retake/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-retake-token": token } })
 })

@@ -188,7 +188,8 @@ function timeline() {
 
 // Clips on an element and everything inside it (for the dock's ⌘-hover
 // lens). Clips carry the DOM path of their element from when they were
-// recorded, so this is a prefix match, in any frame.
+// recorded, so this is a prefix match, in any frame (or, for a path that
+// starts at an id inside the element, where it leads).
 const clipKeys = new WeakMap()
 function clipsFor(target) {
   let el = target
@@ -208,6 +209,11 @@ function clipsFor(target) {
     let k = clipKeys.get(c)
     if (k == null) clipKeys.set(c, (k = c.path.join(",")))
     if (k === key || k.startsWith(key + ",")) out.push(c)
+    else if (pathV2()) {
+      // Paths start at the nearest id (F51): one inside el can start below it.
+      const node = resolvePath(c.path)
+      if (node && node !== el && el.contains(node)) out.push(c)
+    }
   }
   return out
 }
@@ -247,13 +253,28 @@ function isInteractive() {
 
 // ---- routes (for markers) ---------------------------------------------------------
 
+const cleanRoute = (path) => path.replace(/([?&])__wb=app&?/, "$1").replace(/[?&]$/, "")
 function noteRoute() {
   if (!rec || clock.seeking || hasFuture()) return
-  const path = location.pathname + location.search + location.hash
   const routes = rec.routes || (rec.routes = [])
-  const clean = path.replace(/([?&])__wb=app&?/, "$1").replace(/[?&]$/, "")
+  const clean = cleanRoute(location.pathname + location.search + location.hash)
   if (routes.length && routes[routes.length - 1].path === clean) return
   routes.push({ t: clock.now, path: clean })
+}
+// The app's route at t on this document's page: its last pushState/replaceState
+// (or popstate) by then, else the URL the page loaded at. A preview shows the
+// DOM of t without touching history, so the dock's address bar asks this.
+function routeAt(t) {
+  const seg = segmentAt(t)
+  let path = null
+  for (const r of rec.routes || []) if (r.t >= seg.t && r.t <= t) path = r.path
+  if (path) return path
+  try {
+    const u = new URL(seg.url)
+    return cleanRoute(u.pathname + u.search + u.hash)
+  } catch {
+    return null
+  }
 }
 for (const m of ["pushState", "replaceState"]) {
   const orig = history[m]

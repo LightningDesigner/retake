@@ -34,7 +34,7 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
   // The old timeline is still there with its whole recording.
   const branches = await dock(page, (D) => D.branches.map((b) => ({ id: b.id, name: b.name, end: b.end })))
   expect(branches.find((b) => b.id === 1).end).toBeGreaterThanOrEqual(savedEnd - 1)
-  const features = await page.evaluate(() => (window.__waybackConfig && window.__waybackConfig.features) || [])
+  const features = await page.evaluate(() => (window.__retakeConfig && window.__retakeConfig.features) || [])
   if (features.includes("continue")) {
     // Continued on the same timeline, with a marker where the page changed.
     expect(branches.length).toBe(1)
@@ -46,7 +46,7 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
     expect(branches.length).toBe(2)
     expect(branches[1].name).toBe("→ /other.html")
     expect(await dock(page, (D) => D.activeId)).toBe(2)
-    await dock(page, () => window.__waybackDock.switchTo(1, 1e9))
+    await dock(page, () => window.__retakeDock.switchTo(1, 1e9))
   }
   await expect.poll(() => framePath(page), { timeout: 15000 }).toBe("/")
   // And the address bar follows the app.
@@ -55,7 +55,7 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
 })
 
 test("with no saved session, the page opens live at once", async ({ page }) => {
-  await page.route("**/__wayback/session", (r) => r.fulfill({ status: 404, body: "" }))
+  await page.route("**/__retake/session", (r) => r.fulfill({ status: 404, body: "" }))
   const h = await openDock(page, DOCK_URL + "other.html", { fake: false })
   expect(await framePath(page)).toBe("/other.html")
   expect(await dock(page, (D) => D.branches.length)).toBe(1)

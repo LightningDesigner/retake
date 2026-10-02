@@ -44,7 +44,7 @@ function rawActivity() {
   let removedFrom = null
   for (let i = actDomAt; i < domLog.length && els.size < ACT_MAX_ELS; i++) {
     const e = domLog[i]
-    if (e.kind === "attr") els.add(e.node)
+    if (e.kind === "attr" || e.kind === "value") els.add(e.node)
     else if (e.kind === "text") e.node.parentElement && els.add(e.node.parentElement)
     else {
       for (const n of e.added) if (n.nodeType === 1) els.add(n)

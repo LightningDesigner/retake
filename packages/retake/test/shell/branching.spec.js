@@ -58,7 +58,7 @@ test("Control-click branches the active timeline at the clicked time (not the pl
 test("a plain click on another lane selects it, paused; the empty track moves the playhead", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.8)
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   await h.settle()
   const x = await xOfTime(page, s.start + (s.end - s.start) * 0.2)
@@ -78,7 +78,7 @@ test("a plain click on another lane selects it, paused; the empty track moves th
 test("click a grey lane to switch; right-click deletes (not the first); double-click renames", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle"], 0.5)
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.now)
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.now)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   await page.waitForTimeout(400)
   await h.pause()
@@ -117,10 +117,10 @@ test("a short dock: lanes close up and the names become colour dots (name on hov
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h, ["#toggle", "#toggle", "#toggle"], 0.9)
   for (let i = 0; i < 3; i++) {
-    await dock(page, () => window.__waybackDock.switchTo(1, 1e9))
+    await dock(page, () => window.__retakeDock.switchTo(1, 1e9))
     await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
     await h.settle()
-    await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * (0.2 + i * 0.2))
+    await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.start + (s.end - s.start) * (0.2 + i * 0.2))
     await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(i + 2)
     await h.settle()
   }
@@ -147,7 +147,7 @@ test("+ while a rewind is still building waits for it: Timeline 1 keeps its whol
   // seek, then + at that moment straight away, before the rebuild lands.
   await dock(page, (D, t) => {
     D.PT.seek(t)
-    window.__waybackDock.newTimelineAt(t)
+    window.__retakeDock.newTimelineAt(t)
   }, t)
   await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(2)
   await expect.poll(() => dock(page, (D) => !D.building && D.activeId === 2)).toBe(true)
@@ -162,7 +162,7 @@ test("+ while a rewind is still building waits for it: Timeline 1 keeps its whol
   expect(Math.abs(r.fork - t)).toBeLessThan(40)
   expect(r.future).toBe(false)
   // And going back to Timeline 1 shows its whole recording.
-  await dock(page, (D) => window.__waybackDock.switchTo(1, 1e9))
+  await dock(page, (D) => window.__retakeDock.switchTo(1, 1e9))
   await expect.poll(() => h.state().then((x) => x.end).catch(() => 0)).toBeGreaterThanOrEqual(s.end - 1)
   expect(h.dockErrors).toEqual([])
 })
@@ -177,7 +177,7 @@ test("+ at the visible moment while another moment is building doesn't let the s
   const here = (await h.state()).now
   await dock(page, (D, [t2, here]) => {
     D.PT.seek(t2) // a rebuild starts...
-    window.__waybackDock.newTimelineAt(here) // ...and + is pressed where the visible frame is
+    window.__retakeDock.newTimelineAt(here) // ...and + is pressed where the visible frame is
   }, [s.start + (s.end - s.start) * 0.2, here])
   await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(2)
   await expect.poll(() => dock(page, (D) => !D.building && D.activeId === 2)).toBe(true)
@@ -197,7 +197,7 @@ test("switching back to a shorter timeline keeps its own end (not the frame it's
   await h.pause()
   const s = await h.state()
   const t1End = s.end
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.start + (s.end - s.start) * 0.5)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
   // Timeline 2 runs on well past Timeline 1's end.
   await h.settle()
@@ -205,7 +205,7 @@ test("switching back to a shorter timeline keeps its own end (not the frame it's
   await page.waitForTimeout(1500)
   await h.pause()
   expect((await h.state()).end).toBeGreaterThan(t1End + 500)
-  await dock(page, () => window.__waybackDock.switchTo(1, 0))
+  await dock(page, () => window.__retakeDock.switchTo(1, 0))
   await expect.poll(() => dock(page, (D) => D.activeId === 1 && !D.building)).toBe(true)
   await page.waitForTimeout(300)
   const end = await dock(page, (D) => D.branches[0].end)

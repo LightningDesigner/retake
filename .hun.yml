@@ -1,4 +1,4 @@
-name: wayback-machine
+name: retake
 services:
     app:
         cmd: echo 'replace with your command'

@@ -37,7 +37,7 @@ export function createClient({ url, token } = {}) {
     info = info || findServerInfo()
     if (info && info.token && (!url || info.url.replace(/\/$/, "") === base())) return (token = info.token)
     const html = await (await fetch(base() + "/")).text()
-    const m = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)
+    const m = html.match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)
     if (!m) throw new Error(`${base()} doesn't look like a Retake dev server`)
     return (token = m[1])
   }
@@ -46,7 +46,7 @@ export function createClient({ url, token } = {}) {
     try {
       res = await fetch(base() + p, {
         method,
-        headers: body !== undefined || method !== "GET" ? { "content-type": "application/json", "x-wayback-token": await getToken() } : {},
+        headers: body !== undefined || method !== "GET" ? { "content-type": "application/json", "x-retake-token": await getToken() } : {},
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     } catch (err) {
@@ -58,16 +58,16 @@ export function createClient({ url, token } = {}) {
   }
   return {
     base,
-    session: () => call("GET", "/__wayback/session"),
-    notes: () => call("GET", "/__wayback/notes"),
-    note: (id) => call("GET", `/__wayback/notes/${encodeURIComponent(id)}`),
-    patch: (id, body) => call("PATCH", `/__wayback/notes/${encodeURIComponent(id)}`, body),
+    session: () => call("GET", "/__retake/session"),
+    notes: () => call("GET", "/__retake/notes"),
+    note: (id) => call("GET", `/__retake/notes/${encodeURIComponent(id)}`),
+    patch: (id, body) => call("PATCH", `/__retake/notes/${encodeURIComponent(id)}`, body),
     // Resolves on the next matching SSE event (or null after `ms`).
     async nextEvent(types, ms) {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), ms)
       try {
-        const res = await fetch(base() + "/__wayback/events", { signal: ac.signal })
+        const res = await fetch(base() + "/__retake/events", { signal: ac.signal })
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
         let buf = ""
         for (;;) {

@@ -7,7 +7,7 @@ import { openDock, DOCK_URL, recordSome, dock, shot } from "./helpers.js"
 const laneY = (page, id) => dock(page, (D, id) => D.lanes.get(id ?? D.activeId).y + document.querySelector(".lines").getBoundingClientRect().top, id)
 const xOf = (page, t) =>
   page.evaluate((t) => {
-    const D = window.__waybackDock.state
+    const D = window.__retakeDock.state
     const r = document.querySelector(".lines").getBoundingClientRect()
     return r.left + 12 + ((t - D.view.from) / (D.view.to - D.view.from)) * (r.width - 30)
   }, t)

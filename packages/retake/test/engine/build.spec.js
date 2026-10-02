@@ -21,6 +21,6 @@ test("vite build with the plugin ships no runtime or dock", () => {
   expect(files.length).toBeGreaterThan(0)
   for (const f of files) {
     const text = fs.readFileSync(path.join(out, f), "utf8")
-    for (const needle of ["__wayback", "wb-dock", "data-wayback", "__wb"]) expect(text, `${f} contains ${needle}`).not.toContain(needle)
+    for (const needle of ["__retake", "wb-dock", "data-retake", "__wb"]) expect(text, `${f} contains ${needle}`).not.toContain(needle)
   }
 })

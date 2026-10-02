@@ -177,7 +177,7 @@ let tailwindConfig
 function tailwindConfigFile() {
   if (tailwindConfig !== undefined) return Promise.resolve(tailwindConfig)
   return real
-    .fetch("/__wayback/tailwind")
+    .fetch("/__retake/tailwind")
     .then((r) => (r.ok ? r.json() : {}))
     .then((j) => (tailwindConfig = j.config || null))
     .catch(() => (tailwindConfig = null))

@@ -17,7 +17,7 @@ const timeAtX = (page, x) =>
 test("zoom: ⌘-scroll zooms around the cursor, ticks get finer, F fits all", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s = await recordAndRewind(h)
-  await dock(page, () => window.__waybackDock.fitAll())
+  await dock(page, () => window.__retakeDock.fitAll())
   await page.waitForTimeout(400)
   const before = (await scene(page)).labels
   const v0 = await view(page)
@@ -73,7 +73,7 @@ test("layer 1: your actions are blue marks on the active lane (a typing burst is
   await page.waitForTimeout(300)
   await h.pause()
   await page.waitForTimeout(200)
-  const markers = await h.rt(() => __wayback.timeline().markers)
+  const markers = await h.rt(() => __retake.timeline().markers)
   const sc = await scene(page)
   const shown = ["click", "key", "input", "submit", "route"]
   expect(sc.actions.length).toBe(markers.filter((m) => shown.includes(m.kind)).length)
@@ -89,7 +89,7 @@ test("layer 1: your actions are blue marks on the active lane (a typing burst is
 test("layer 2: the change waveform, when the runtime has timeline().activity", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordAndRewind(h, ["#toggle", "#toggle"], 0.9)
-  const has = await h.rt(() => { const a = __wayback.timeline().activity; return !!(a && Array.isArray(a.values) && a.step > 0) })
+  const has = await h.rt(() => { const a = __retake.timeline().activity; return !!(a && Array.isArray(a.values) && a.step > 0) })
   const sc = await scene(page)
   if (has) expect(sc.waveCols).toBeGreaterThan(10)
   else expect(sc.waveCols).toBe(0)
@@ -163,7 +163,7 @@ test("drawing happens only when something changed", async ({ page }) => {
 test("scrubbing snaps to clip edges within 8px, alt moves freely", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordAndRewind(h, ["#toggle", "#toggle"], 0.9)
-  const all = await h.rt(() => __wayback.timeline().clips)
+  const all = await h.rt(() => __retake.timeline().clips)
   const c = all[all.length - 1]
   const g = await page.locator(".lines").boundingBox()
   const y = g.y + g.height - 6 // an empty part of the track
@@ -187,7 +187,7 @@ test("scrubbing snaps to clip edges within 8px, alt moves freely", async ({ page
 test("keys: arrows step a frame, shift+arrows jump edge to edge, space plays", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   const s0 = await recordAndRewind(h, ["#toggle", "#toggle"], 0.3)
-  const frames = await h.rt(() => __wayback.history().frames)
+  const frames = await h.rt(() => __retake.history().frames)
   const next = frames.find((f) => f > s0.now + 0.01)
   await page.keyboard.press("ArrowRight")
   await page.waitForTimeout(50)
@@ -201,7 +201,7 @@ test("keys: arrows step a frame, shift+arrows jump edge to edge, space plays", a
   await page.keyboard.press("Shift+ArrowRight")
   await page.waitForTimeout(50)
   const t = await shown()
-  const tl = await h.rt(() => __wayback.timeline())
+  const tl = await h.rt(() => __retake.timeline())
   const candidates = [...tl.clips.flatMap((c) => [c.start + 1, c.end]), ...tl.markers.map((m) => m.t + 1)].filter((x) => x > cur + 0.5)
   expect(t).toBeCloseTo(Math.min(...candidates), 1)
   await h.settle()
@@ -224,17 +224,25 @@ test("paused is view-only, and no hint text sits in the dock", async ({ page }) 
   expect(h.dockErrors).toEqual([])
 })
 
-test("a slow rebuild shows its progress in the readout while the preview stays up", async ({ page }) => {
+test("an API seek builds visibly: Building N% with the target time (never the live end)", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordAndRewind(h, ["#toggle", "#toggle", "#toggle"], 0.9)
   const s = await h.state()
+  const fmt = (ms) => {
+    const v = Math.max(0, ms) / 1000
+    return `${String(Math.floor(v / 60)).padStart(2, "0")}:${(v % 60).toFixed(2).padStart(5, "0")}`
+  }
   await page.evaluate(() => {
     window.__phases = []
-    const el = document.querySelector(".readout .phase")
-    new MutationObserver(() => window.__phases.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true })
+    const r = document.querySelector(".readout")
+    const seen = () => window.__phases.push([r.querySelector(".phase").textContent, r.querySelector(".t").textContent])
+    new MutationObserver(seen).observe(r, { childList: true, characterData: true, subtree: true })
   })
-  await h.seek(s.start + (s.end - s.start) * 0.2)
-  expect((await page.evaluate(() => window.__phases)).some((p) => /^Building( \d+%)?$/.test(p))).toBe(true)
+  const target = s.start + (s.end - s.start) * 0.2
+  await h.seek(target)
+  const building = (await page.evaluate(() => window.__phases)).filter(([p]) => /^Building( \d+%)?$/.test(p))
+  expect(building.length).toBeGreaterThan(0)
+  for (const [, t] of building) expect(t).toBe(fmt(target - s.start))
   await expect(page.locator(".readout .phase")).toHaveText("Paused")
 })
 

@@ -1,13 +1,14 @@
 // Drives the dock + app frame from Playwright. Works against the runtime API
-// (window.__wayback in the app frame) so specs don't depend on dock markup.
+// (window.__retake in the app frame) so specs don't depend on dock markup.
 // Start every spec from an empty persisted session (the dock restores
 // <project>/.retake/session.json on load).
 export async function resetSession(request, url) {
   const origin = new URL(url).origin
-  const html = await (await request.get(origin + "/")).text()
-  const m = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)
+  // As a top-level page load (the front server only serves the dock to those).
+  const html = await (await request.get(origin + "/", { headers: { accept: "text/html", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "none" } })).text()
+  const m = html.match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)
   if (!m) return
-  await request.put(origin + "/__wayback/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-wayback-token": m[1] } })
+  await request.put(origin + "/__retake/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers: { "x-retake-token": m[1] } })
 }
 
 export async function openDock(page, url, { fresh = true } = {}) {
@@ -21,7 +22,7 @@ export async function openDock(page, url, { fresh = true } = {}) {
       const el = await page.$("#wb-stage iframe.live")
       const f = el && (await el.contentFrame())
       if (f) {
-        const ok = await f.evaluate(() => !!(window.__wayback && window.__wayback.state)).catch(() => false)
+        const ok = await f.evaluate(() => !!(window.__retake && window.__retake.state)).catch(() => false)
         if (ok) return f
       }
       await page.waitForTimeout(100)
@@ -29,21 +30,22 @@ export async function openDock(page, url, { fresh = true } = {}) {
     throw new Error("no live app frame")
   }
   h.rt = async (fn, arg) => (await h.liveFrame()).evaluate(fn, arg)
-  h.state = () => h.rt(() => __wayback.state())
+  h.state = () => h.rt(() => __retake.state())
   h.settle = async () => {
     for (let i = 0; i < 600; i++) {
       await page.waitForTimeout(100)
-      const n = await page.evaluate(() => document.querySelectorAll("#wb-stage iframe").length)
+      // (A checkpoint frame parked behind can legitimately stay.)
+      const n = await page.evaluate(() => document.querySelectorAll("#wb-stage iframe:not(.checkpoint)").length)
       if (n > 1) continue
       const s = await h.state().catch(() => null)
       if (s && s.booted && !s.seeking && s.target == null) return s
     }
     throw new Error("dock never settled")
   }
-  h.record = () => h.rt(() => __wayback.record())
-  h.pause = () => h.rt(() => __wayback.pause())
+  h.record = () => h.rt(() => __retake.record())
+  h.pause = () => h.rt(() => __retake.pause())
   h.seek = async (t) => {
-    await h.rt((t) => __wayback.seek(t), t)
+    await h.rt((t) => __retake.seek(t), t)
     await page.waitForTimeout(150)
     return h.settle()
   }

@@ -98,7 +98,18 @@ function play() {
   const pt = D.PT
   const s = state()
   if (!pt || !s) return
-  if (typeof pt.play === "function") return pt.play()
+  // The moment on show is still being built behind: it plays once it's in.
+  const b = D.building
+  if (b && b.target != null) {
+    b.play = true
+    return
+  }
+  // A preview with nothing building (a scoped one): play from that moment.
+  if (s.previewing && typeof pt.buildAt === "function") return goTo(s.previewAt, { play: true })
+  if (typeof pt.play === "function") {
+    quietCheckpoint()
+    return pt.play()
+  }
   // (A seek to exactly where it is doesn't move, so nudge it a millisecond.)
   if (s.previewing) return pt.seek(Math.min(s.previewAt + 1, s.end), true)
   if (s.future) return pt.seek(Math.min(s.now + 1, s.end), true)
@@ -107,6 +118,19 @@ function play() {
 function togglePlay() {
   const s = state()
   if (!D.PT || !s) return
+  if (D.dragT != null) return // mid-drag: letting go decides
+  // Keys just stepped somewhere: play from there.
+  if (D.keyT != null) {
+    const t = D.keyT
+    D.keyT = null
+    clearTimeout(keyTimer)
+    return goTo(t, { play: true })
+  }
+  // Waiting to play a moment being built: stop waiting (it carries on behind).
+  if (D.building && D.building.play) {
+    D.building.play = false
+    return
+  }
   if (s.playing) D.PT.pause()
   else play()
 }

@@ -8,6 +8,7 @@
     "test": "pnpm -r --if-present test",
     "test:engine": "pnpm --filter retake-dev test:engine",
     "test:shell": "pnpm --filter retake-dev test:shell",
-    "dev:site": "pnpm --filter ./apps/site --if-present dev"
+    "dev:site": "pnpm --filter ./apps/site --if-present dev",
+    "check:site": "pnpm --filter ./apps/site check:build"
   }
 }

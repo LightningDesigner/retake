@@ -8,7 +8,7 @@ const snapshot = (h) =>
   h.rt(() => {
     const c = document.querySelector("#card")
     const cs = getComputedStyle(c)
-    return { count: document.querySelector("#count").textContent, cls: c.className, transform: cs.transform, opacity: cs.opacity, now: __wayback.state().now }
+    return { count: document.querySelector("#count").textContent, cls: c.className, transform: cs.transform, opacity: cs.opacity, now: __retake.state().now }
   })
 
 async function rewindTo(h, t) {
@@ -29,8 +29,8 @@ test("a rewind after a checkpoint seeks forward from it and matches a full repla
   await rewindTo(h, t1)
   expect(await dock(page, (D) => D.lastRebuild.via)).toBe("replay")
   // Quiet in the past: a checkpoint gets built behind.
-  await expect.poll(() => page.evaluate(() => window.__waybackDock.checkpoint()), { timeout: 15000 }).toMatchObject({ ready: true })
-  const cp = await page.evaluate(() => window.__waybackDock.checkpoint())
+  await expect.poll(() => page.evaluate(() => window.__retakeDock.checkpoint()), { timeout: 15000 }).toMatchObject({ ready: true })
+  const cp = await page.evaluate(() => window.__retakeDock.checkpoint())
   expect(cp.at).toBeLessThanOrEqual(t2)
   await page.evaluate(() => {
     window.__added = 0
@@ -63,10 +63,25 @@ test("a checkpoint isn't used across timelines, and a fork drops it", async ({ p
   const s = await h.state()
   await dock(page, (D) => (D.cpMinMs = 0))
   await rewindTo(h, s.end - 100)
-  await expect.poll(() => page.evaluate(() => window.__waybackDock.checkpoint()), { timeout: 15000 }).toMatchObject({ ready: true })
-  await dock(page, (D, t) => window.__waybackDock.newTimelineAt(t), s.end - 200)
+  await expect.poll(() => page.evaluate(() => window.__retakeDock.checkpoint()), { timeout: 15000 }).toMatchObject({ ready: true })
+  await dock(page, (D, t) => window.__retakeDock.newTimelineAt(t), s.end - 200)
   await expect.poll(() => dock(page, (D) => D.activeId)).toBe(2)
-  await expect.poll(() => page.evaluate(() => window.__waybackDock.checkpoint())).toBe(null)
+  await expect.poll(() => page.evaluate(() => window.__retakeDock.checkpoint())).toBe(null)
+  expect(await page.evaluate(() => document.querySelectorAll("#wb-stage iframe.checkpoint").length)).toBe(0)
+  expect(h.dockErrors).toEqual([])
+})
+
+test("no checkpoint for an app that keeps state in IndexedDB (another frame's replay would change it under the one on show)", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL + "?idb")
+  await recordSome(h, ["#toggle", "#toggle"])
+  await h.pause()
+  const s = await h.state()
+  await dock(page, (D) => (D.cpMinMs = 0))
+  await rewindTo(h, s.end - 100)
+  expect((await h.state()).idb).toBe(true)
+  expect(await dock(page, (D) => D.heavy)).toBe(true)
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => window.__retakeDock.checkpoint())).toBe(null)
   expect(await page.evaluate(() => document.querySelectorAll("#wb-stage iframe.checkpoint").length)).toBe(0)
   expect(h.dockErrors).toEqual([])
 })

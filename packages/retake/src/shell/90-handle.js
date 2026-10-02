@@ -1,5 +1,5 @@
 // A handle for tests and debugging. `state` is the live dock state object.
-window.__waybackDock = {
+window.__retakeDock = {
   state: D,
   notes: () => D.notes,
   prompt: (n) => prompt(n),
@@ -10,4 +10,6 @@ window.__waybackDock = {
   newTimelineAt: (t) => newTimelineAt(t),
   fitAll: () => fitAll(),
   checkpoint: () => (D.cp ? { at: D.cp.at, branchId: D.cp.branchId, ready: checkpointReady(D.cp) } : null),
+  goTo: (t, opts) => goTo(t, opts),
+  building: () => (D.building ? { id: D.building.id, target: D.building.target, via: D.building.via, play: !!D.building.play, fork: !!D.building.fork, visible: !!D.building.visible, ready: !!D.building.pt } : null),
 }

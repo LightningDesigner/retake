@@ -12,7 +12,7 @@ test.afterAll(() => console.log("PERF " + JSON.stringify(results)))
 // and a click every 10 s (normal use is lighter than this).
 async function fabricate(h, min) {
   return h.rt((min) => {
-    const base = __wayback.history()
+    const base = __retake.history()
     const end = min * 60000
     const frames = []
     for (let t = 16.667; t < end; t += 16.667) frames.push(Math.round(t * 1000) / 1000)
@@ -34,7 +34,7 @@ test("recording overhead < 1 ms per frame; activity < 0.3 ms per sample", async 
   const b = await h.box("#pad")
   for (let i = 0; i < 40; i++) await page.mouse.move(b.x + 10 + i * 3, b.y + 20)
   await page.waitForTimeout(3000)
-  const d = await h.rt(() => __wayback.debug())
+  const d = await h.rt(() => __retake.debug())
   results.ownMsPerFrame = +(d.ownMs / d.ownFrames).toFixed(3)
   results.ownMaxMs = +d.ownMax.toFixed(2)
   results.activityMsPerSample = +(d.activity.ms / d.activity.samples).toFixed(3)
@@ -80,21 +80,21 @@ test("10 minutes of recording: < 5 MB, serialises without blocking a frame, fits
   expect(json.length).toBeLessThan(5e6)
   // on disk (gzipped by the server)
   const html = await (await request.get(URL_)).text()
-  const token = html.match(/__WAYBACK_TOKEN = "([0-9a-f]+)"/)[1]
-  await request.put(URL_ + "__wayback/recording/perf-10min", { data: json, headers: { "x-wayback-token": token, "content-type": "application/json" } })
+  const token = html.match(/__RETAKE_TOKEN = "([0-9a-f]+)"/)[1]
+  await request.put(URL_ + "__retake/recording/perf-10min", { data: json, headers: { "x-retake-token": token, "content-type": "application/json" } })
   const fs = await import("node:fs")
   const path = await import("node:path")
   const { FIXTURES } = await import("./servers.js")
   results.tenMinDiskMB = +(fs.statSync(path.join(FIXTURES, "probe", ".retake", "recordings", "perf-10min.json.gz")).size / 1e6).toFixed(3)
-  await request.delete(URL_ + "__wayback/recording/perf-10min", { headers: { "x-wayback-token": token } })
+  await request.delete(URL_ + "__retake/recording/perf-10min", { headers: { "x-retake-token": token } })
   // load it and time the serialisation the dock does every few seconds
-  await h.rt(({ json, end }) => __wayback.load(json, end), { json, end: 600000 - 1 })
+  await h.rt(({ json, end }) => __retake.load(json, end), { json, end: 600000 - 1 })
   await page.waitForTimeout(50)
   await h.settle()
   const ms = await page.evaluate(async () => {
     const f = document.querySelector("#wb-stage iframe.live").contentWindow
     const t0 = performance.now()
-    f.JSON.stringify(f.__wayback.history())
+    f.JSON.stringify(f.__retake.history())
     return performance.now() - t0
   })
   results.stringifyMs = +ms.toFixed(1)
@@ -111,9 +111,9 @@ test("10 minutes of recording: < 5 MB, serialises without blocking a frame, fits
       if (running) setTimeout(tick, 0)
     }
     setTimeout(tick, 0)
-    const json = await f.__wayback.serialize()
+    const json = await f.__retake.serialize()
     running = false
-    return { longest: Math.max(...slices), same: json === f.JSON.stringify(f.__wayback.history()) }
+    return { longest: Math.max(...slices), same: json === f.JSON.stringify(f.__retake.history()) }
   })
   results.serializeLongestGapMs = Math.round(ser.longest)
   expect(ser.same).toBe(true)
@@ -130,7 +130,7 @@ test("5-minute session: 10 random rewinds, each < 1.5 s", async ({ page }) => {
   await page.waitForTimeout(300)
   await h.pause()
   const json = await fabricate(h, 5)
-  await h.rt(({ json }) => __wayback.load(json, 1000), { json })
+  await h.rt(({ json }) => __retake.load(json, 1000), { json })
   await page.waitForTimeout(50)
   await h.settle()
   const times = []
@@ -139,7 +139,7 @@ test("5-minute session: 10 random rewinds, each < 1.5 s", async ({ page }) => {
     x = (x * 1103515245 + 12345) % 2147483648
     const t = 1000 + (x % 298000)
     const t0 = Date.now()
-    await h.rt(({ json, t }) => __wayback.load(json, t), { json, t })
+    await h.rt(({ json, t }) => __retake.load(json, t), { json, t })
     await page.waitForTimeout(20)
     const s = await h.settle()
     times.push(Date.now() - t0)

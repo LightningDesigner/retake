@@ -14,9 +14,6 @@ const CLIP = ["paste", "copy", "cut"]
 const COMPOSE = ["compositionstart", "compositionupdate", "compositionend"]
 const OTHER = ["input", "beforeinput", "change", "focusin", "focusout", "focus", "blur", "scroll", "wheel", "submit"]
 const HOVER = new Set(["pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave"])
-// Acting on a paused app at the live edge resumes recording (CONTRACT.md).
-// Input that "acts" (used to wake a scoped preview into a real rebuild).
-const RESUMES = new Set(["pointerdown", "mousedown", "keydown", "touchstart", "input", "beforeinput", "change", "paste", "cut", "drop", "compositionstart", "submit"])
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "])
 
 let dispatching = 0
@@ -49,9 +46,61 @@ Object.defineProperty(document, "activeElement", {
   },
 })
 
+// Paths to an element. A recording made since pathV 2 (F51) starts at the
+// nearest ancestor with a hand-written id (`["#banner", 0, 1]`) and counts
+// element children only, leaving out the ones that come and go with the
+// server or the dev tools (script, style, link, template, Next's portals,
+// Vite's overlay...), so content a script adds in real time elsewhere doesn't
+// shift it. A text node's last step is its child-node index, as -(i + 1).
+// Older recordings index every child node from <html>.
+const PATH_SKIP = /^(SCRIPT|STYLE|LINK|NOSCRIPT|TEMPLATE|NEXTJS-PORTAL|NEXT-ROUTE-ANNOUNCER|VITE-ERROR-OVERLAY|ASTRO-DEV-TOOLBAR)$/
+// Ids a library made up (React's useId, Radix, Headless UI, MUI...) differ
+// between renders; they're not anchors.
+const MADE_UP_ID = /[:«»]|^_?r_|^(radix|headlessui|mui|react-aria|rc-|ember|ext-gen)|\d{4,}/i
+const stepsOf = (parent) => Array.prototype.filter.call(parent.children, (c) => !PATH_SKIP.test(c.tagName))
+const pathV2 = () => !!rec && rec.pathV === 2
+
+function anchorId(el) {
+  const id = el.id
+  if (!id || MADE_UP_ID.test(id) || el === document.documentElement) return null
+  return document.getElementById(id) === el ? id : null
+}
+
 function pathOf(node) {
   if (node === W) return "w"
   if (node === document) return "d"
+  if (!pathV2()) return pathV1(node)
+  const path = []
+  if (node && node.nodeType !== 1) {
+    const parent = node.parentNode
+    if (!parent || parent.nodeType !== 1) return null
+    path.unshift(-1 - Array.prototype.indexOf.call(parent.childNodes, node))
+    node = parent
+  }
+  while (node && node !== document.documentElement) {
+    const id = anchorId(node)
+    if (id) {
+      path.unshift("#" + id)
+      return path
+    }
+    const parent = node.parentNode
+    if (!parent || parent.nodeType !== 1) return null
+    const i = stepsOf(parent).indexOf(node)
+    if (i < 0) return pathV1Within(path, node) // a skipped element itself (a <script>)
+    path.unshift(i)
+    node = parent
+  }
+  return node ? path : null
+}
+// A skipped element is targeted by its child-node index (like a text node).
+function pathV1Within(path, node) {
+  const parent = node.parentNode
+  path.unshift(-1 - Array.prototype.indexOf.call(parent.childNodes, node))
+  const up = pathOf(parent)
+  return up && Array.isArray(up) ? [...up, ...path] : null
+}
+
+function pathV1(node) {
   const path = []
   while (node && node !== document.documentElement) {
     const parent = node.parentNode
@@ -65,9 +114,19 @@ function pathOf(node) {
 function resolvePath(path) {
   if (path === "w") return W
   if (path === "d") return document
+  if (!Array.isArray(path)) return null
   let node = document.documentElement
-  for (const i of path || []) {
-    node = node && node.childNodes[i]
+  let i = 0
+  if (typeof path[0] === "string" && path[0][0] === "#") {
+    node = document.getElementById(path[0].slice(1))
+    i = 1
+  } else if (!pathV2()) {
+    for (const k of path) node = node && node.childNodes[k]
+    return node || null
+  }
+  for (; i < path.length && node; i++) {
+    const k = path[i]
+    node = k < 0 ? node.childNodes[-1 - k] : stepsOf(node)[k]
   }
   return node || null
 }
@@ -188,17 +247,101 @@ function serialize(e) {
 // the recorded position when playback resumes or on a seek.
 const scrollRec = new Map() // path key -> { top, left }
 const viewScrolled = new Map() // path key -> path
-const restoredScroll = new Map() // path key -> { top, left } just set by restoreScroll
+const restoredScroll = new Map() // path key -> { top, left } just set by the runtime itself
 const keyOf = (path) => (Array.isArray(path) ? path.join(",") : String(path))
+// Every recorded scroll over time, per scroller (for a preview of an earlier
+// moment): { path, ref (the element), ts, tops, lefts }.
+const scrollLog = new Map()
 
-function noteScroll(ev) {
+function noteScroll(ev, el) {
   scrollRec.set(keyOf(ev.path), { top: ev.top, left: ev.left })
+  logScroll(ev.path, el, ev.top, ev.left)
+}
+
+function logScroll(path, el, top, left) {
+  const key = keyOf(path)
+  let L = scrollLog.get(key)
+  if (!L) scrollLog.set(key, (L = { path, ref: null, ts: [], tops: [], lefts: [] }))
+  if (el) L.ref = typeof WeakRef === "function" ? new WeakRef(el) : { deref: () => el }
+  const n = L.ts.length
+  if (n && L.ts[n - 1] === clock.now) {
+    L.tops[n - 1] = top
+    L.lefts[n - 1] = left
+  } else if (!n || L.tops[n - 1] !== top || L.lefts[n - 1] !== left) {
+    L.ts.push(clock.now)
+    L.tops.push(top)
+    L.lefts.push(left)
+  }
+}
+
+// Where a scroller was at t on the recording (0 before it first scrolled).
+function scrollAt(L, t) {
+  let lo = 0
+  let hi = L.ts.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (L.ts[mid] <= t) lo = mid + 1
+    else hi = mid
+  }
+  return lo ? { top: L.tops[lo - 1], left: L.lefts[lo - 1] } : { top: 0, left: 0 }
+}
+const scrollerOf = (L) => {
+  const el = L.path === "d" ? document.scrollingElement : L.ref && L.ref.deref()
+  return el && el.isConnected ? el : null
 }
 
 function scrollElOf(path) {
   if (path === "d") return document.scrollingElement
   const n = resolvePath(path)
   return n && n.nodeType === 1 ? n : null
+}
+
+// Scroll there at once, whatever the page's `scroll-behavior` (a smooth
+// scroll set while replaying never lands, F32). Returns where it got to (the
+// browser clamps to what's scrollable).
+function setScroll(el, top, left) {
+  try {
+    el.scrollTo({ top, left, behavior: "instant" })
+  } catch {
+    el.scrollTop = top
+    el.scrollLeft = left
+  }
+  return { top: el.scrollTop, left: el.scrollLeft }
+}
+// The runtime moving a scroller itself: the scroll event that follows isn't the user's.
+function setOwnScroll(key, el, top, left) {
+  const t0 = el.scrollTop
+  const l0 = el.scrollLeft
+  const r = setScroll(el, top, left)
+  if (r.top !== t0 || r.left !== l0) restoredScroll.set(key, r)
+  return r
+}
+
+// What the user has scrolled to look while paused, to carry into the frame
+// that replaces this one (the dock copies it across, see swapIn).
+function viewScroll() {
+  const out = []
+  for (const [key, path] of viewScrolled) {
+    const el = scrollElOf(path)
+    if (el) out.push({ key, path, top: el.scrollTop, left: el.scrollLeft })
+  }
+  return out
+}
+// ...and taken here: the view stays where the user had it. Play still puts
+// the recording's scroll back (each one that differs counts as looked-at).
+function applyView(list) {
+  let view = []
+  try {
+    view = JSON.parse(JSON.stringify(list || []))
+  } catch {}
+  for (const v of view) {
+    const el = scrollElOf(v.path)
+    if (!el) continue
+    const key = keyOf(v.path)
+    setOwnScroll(key, el, v.top, v.left)
+    const r = scrollRec.get(key) || { top: 0, left: 0 }
+    if (r.top !== v.top || r.left !== v.left) viewScrolled.set(key, v.path)
+  }
 }
 
 // Pausing hands focus to the dock (the app is view-only); playing gives the
@@ -224,11 +367,7 @@ function restoreScroll() {
     const el = scrollElOf(path)
     if (!el) continue
     const r = scrollRec.get(key) || { top: 0, left: 0 }
-    if (el.scrollTop !== r.top || el.scrollLeft !== r.left) {
-      restoredScroll.set(key, r)
-      el.scrollTop = r.top
-      el.scrollLeft = r.left
-    }
+    if (el.scrollTop !== r.top || el.scrollLeft !== r.left) setOwnScroll(key, el, r.top, r.left)
   }
   viewScrolled.clear()
 }
@@ -248,12 +387,21 @@ function isEditable(el) {
   return !!el && el.nodeType === 1 && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
 }
 
+// The user's last scroll gesture (wheel, touch, a scroll key, a press on a
+// scrollbar): a scroll counts as theirs only shortly after one. A page that
+// moves because a preview changed it underneath isn't the user looking.
+let lastGesture = -1e9
+const GESTURES = new Set(["wheel", "touchstart", "touchmove", "pointerdown", "mousedown"])
+
 function viewOnly(e) {
+  if (GESTURES.has(e.type) || (e.type === "keydown" && SCROLL_KEYS.has(e.key))) lastGesture = real.perfNow()
   if (e.type === "scroll") {
     // Looking around: the browser scrolls, the app doesn't hear of it, and
     // it isn't part of the recording.
-    const path = e.target === document ? "d" : pathOf(e.target)
-    if (path) viewScrolled.set(keyOf(path), path)
+    if (!ignoreRestoredScroll(e) && real.perfNow() - lastGesture < 500) {
+      const path = e.target === document ? "d" : pathOf(e.target)
+      if (path) viewScrolled.set(keyOf(path), path)
+    }
     e.stopImmediatePropagation()
     return
   }
@@ -283,6 +431,29 @@ function block(e) {
   if (e.cancelable && e.type !== "scroll") e.preventDefault()
 }
 
+// A page that has just loaded live (the recording's first page, or one the app
+// reloaded itself into: a Vite full reload, location.reload(), a navigation)
+// and whose clock hasn't run yet: a scroll nobody gestured for is the browser
+// putting the page back where it was (scroll restoration on a reload), or the
+// app's own scroll as it loads. That's how this page starts, so it goes into
+// the recording at the page's first moment, and a rebuild of the page replays
+// it (else every rebuild after a reload would land at the top). Like any
+// replayed scroll, the app doesn't hear it.
+let clockRan = false // this document's clock has run (play())
+function startingScroll(e) {
+  if (e.type !== "scroll" || clockRan || clock.seeking || previewing || !rec || rec.start == null || hasFuture()) return false
+  if (pending && !pending.reloaded && !pending.continue) return false // a rebuild: its scroll is replayed
+  if (real.perfNow() - lastGesture < 500) return false // the user's: view-only (paused)
+  e.stopImmediatePropagation()
+  if (ignoreRestoredScroll(e)) return true
+  const ev = serialize(e)
+  if (ev.path) {
+    noteScroll(ev, e.target === document ? document.scrollingElement : e.target)
+    recordEvent(ev)
+  }
+  return true
+}
+
 function onInput(e) {
   if (!e.isTrusted || dispatching || !rec) return
   // Holding ⌘ is the dock's "pick an element" gesture, never app input.
@@ -301,14 +472,21 @@ function onInput(e) {
   // A dock tool (comment/select) is on: the app sees nothing.
   if (toolActive) return block(e)
   if ((e.type === "keydown" || e.type === "keyup") && PT.shortcut && PT.shortcut(e)) return
-  // Input during a rewind would land at the wrong moment; drop it.
-  if (clock.seeking) return block(e)
-  // While a past moment is on show (or being rebuilt), the page is a picture.
-  if (previewing || (shell && shell.rebuilding)) {
-    block(e)
-    if (previewing && RESUMES.has(e.type) && shell && shell.wake) shell.wake()
-    return
+  if (startingScroll(e)) return
+  // Input during a rewind would land at the wrong moment; drop it. A frame
+  // being built behind can have the window's focus (its replay focused a
+  // field), so its keys still go to the dock (space, arrows, +).
+  if (clock.seeking) {
+    if (e.type === "keydown" && shell && typeof shell.key === "function") {
+      try {
+        shell.key(e)
+      } catch {}
+    }
+    return block(e)
   }
+  // While a past moment is on show (or being rebuilt), the page is a picture
+  // you can still scroll around in.
+  if (previewing || (shell && shell.rebuilding)) return viewOnly(e)
   // Paused, or in the past (rewound, or playing the recorded future back):
   // the app is view-only, like a paused video. Nothing it gets reaches it or
   // moves time, except that you can scroll around to look (CONTRACT.md).
@@ -361,7 +539,7 @@ function onInput(e) {
   if (e.type === "scroll" && ignoreRestoredScroll(e)) return
   appRan = true // the app is handling input: it may start animations
   const ev = serialize(e)
-  if (ev.type === "scroll" && ev.path) noteScroll(ev)
+  if (ev.type === "scroll" && ev.path) noteScroll(ev, e.target === document ? document.scrollingElement : e.target)
   if (ev.path) {
     trace("input", ev.type)
     const before = rec.events.length
@@ -374,6 +552,42 @@ function onInput(e) {
 
 for (const type of [...POINTER, ...MOUSE, ...KEYS, ...TOUCH, ...DRAG, ...CLIP, ...COMPOSE, ...OTHER]) {
   W.addEventListener(type, onInput, { capture: true, passive: false })
+}
+
+// Another frame of this app (one being built behind, a checkpoint) puts the
+// origin's storage back to its own moment: an app that isn't running doesn't
+// hear of it.
+W.addEventListener("storage", (e) => (!clock.playing || clock.seeking) && e.stopImmediatePropagation(), true)
+
+// Paused, the app doesn't hear the window resize either (a frame swapped in
+// leaves the size it was built at, and on some pages a resize resets what's
+// drawn); Play hands it one if the size changed meanwhile.
+let heldResize = false
+let heardSize = { w: W.innerWidth, h: W.innerHeight }
+W.addEventListener(
+  "resize",
+  (e) => {
+    if (!e.isTrusted) return
+    if (clock.playing && !clock.seeking) {
+      heardSize = { w: W.innerWidth, h: W.innerHeight }
+      return
+    }
+    heldResize = true
+    e.stopImmediatePropagation()
+  },
+  true,
+)
+function deliverHeldResize() {
+  if (!heldResize) return
+  heldResize = false
+  if (W.innerWidth === heardSize.w && W.innerHeight === heardSize.h) return
+  heardSize = { w: W.innerWidth, h: W.innerHeight }
+  dispatching++
+  try {
+    W.dispatchEvent(new Event("resize"))
+  } finally {
+    dispatching--
+  }
 }
 
 // Back/forward (and hash changes) are navigation the app reacts to; they're
@@ -443,7 +657,11 @@ function dispatchRecorded(ev) {
   if (ev.type === "obs") return deliverObserved(ev)
   if (ev.type === "worker") return deliverWorker(ev)
   if (ev.type === "ready") return deliverReady(ev)
+  if (ev.type === "script") return deliverScript(ev)
   const target = findTarget(ev)
+  // Focus leaving an element that's gone: the browser fired that itself as it
+  // removed it (a soft navigation replacing the page), nothing to replay.
+  if (!target && ev.type === "focusout") return
   if (!target) {
     // The DOM came out different (code changed?). Say so a few times, not 10,000.
     if (++missingTargets <= 3) console.warn("[retake] replay target missing", ev.type, ev.path, missingTargets === 3 ? "(further ones not shown)" : "")
@@ -503,9 +721,8 @@ function replayOne(ev, target) {
   switch (true) {
     case ev.type === "scroll": {
       const el = target === document ? document.scrollingElement : target
-      el.scrollTop = ev.top
-      el.scrollLeft = ev.left
-      noteScroll(ev)
+      setScroll(el, ev.top, ev.left)
+      noteScroll(ev, el)
       return
     }
     case ev.type === "nav": {

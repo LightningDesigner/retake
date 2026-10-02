@@ -22,7 +22,9 @@ const rateOf = (a) => orig.playbackRate.get.call(a)
 const stateOf = (a) => orig.playState.get.call(a)
 const endOf = (a) => (a.effect ? a.effect.getComputedTiming().endTime : Infinity)
 
-function adopt(a) {
+// created: the app just made it (element.animate()), rather than it being
+// found on a scan (a CSS transition or animation, seen a frame after its cause).
+function adopt(a, created) {
   if (managed.has(a)) return managed.get(a)
   const ps = stateOf(a)
   if (ps === "idle") return null
@@ -47,7 +49,7 @@ function adopt(a) {
   // The browser drops finished animations once a later one covers them; the
   // timeline still needs them to show earlier moments.
   if (a.persist) a.persist()
-  logAnim(a, s)
+  logAnim(a, s, !!created)
   return s
 }
 
@@ -75,6 +77,7 @@ let syncCount = 0
 function syncAnimations(scan = true) {
   // While previewing another moment, the preview owns every animation.
   if (previewing) return
+  syncSmil(clock.now)
   if (scan) for (const a of document.getAnimations()) adopt(a)
   // Finished animations are only checked for removal now and then; a long
   // session collects hundreds of them.
@@ -118,6 +121,61 @@ function syncAnimations(scan = true) {
   }
 }
 
+// ---- SMIL ---------------------------------------------------------------------
+// SVG's own animations (<animate>, <set>, <animateMotion>, <animateTransform>)
+// aren't on the document's animation timeline: they run on their outermost
+// <svg>'s clock, from when it came onto the page. Each of those clocks is held
+// paused and set from the virtual one, so pausing pauses them, a rebuild lands
+// them where they were, and a preview shows them at t (instead of every frame
+// swapped in starting them again from 0).
+const SVG_NS = "http://www.w3.org/2000/svg"
+const SMIL = "animate, set, animateMotion, animateTransform"
+const smilSvgs = new Set() // outermost <svg>s with SMIL animations in them, as found
+const smilBegin = new WeakMap() // outermost <svg> -> the virtual ms its clock started at
+const smilShown = new WeakMap() // outermost <svg> -> the clock time (s) last set
+// Look for SMIL in a subtree: the document at boot, then what the app adds
+// (logMutations), so nothing walks the whole page every frame.
+function findSmil(root) {
+  if (!root || !root.querySelectorAll || (root.nodeType === 1 && root.namespaceURI !== SVG_NS && !root.firstElementChild)) return
+  let els
+  try {
+    els = [...root.querySelectorAll(SMIL)]
+    if (root.nodeType === 1 && root.matches(SMIL)) els.push(root)
+  } catch {
+    return
+  }
+  for (const el of els) {
+    if (el.namespaceURI !== SVG_NS) continue
+    let svg = el.ownerSVGElement
+    while (svg && svg.ownerSVGElement) svg = svg.ownerSVGElement
+    if (svg) smilSvgs.add(svg)
+  }
+}
+// Show every SMIL clock at virtual time `at` (only those inside `scope`).
+// A clock seen for the first time starts at `begin`: the page's start for the
+// page's own svgs (at boot), else now (one the app put in since).
+function syncSmil(at, scope, begin = clock.now) {
+  if (!smilSvgs.size) return
+  for (const svg of smilSvgs) {
+    if (!svg.isConnected || (scope && !scope.contains(svg))) continue
+    let b = smilBegin.get(svg)
+    if (b == null) {
+      if (previewing) continue // never seen live: nothing known to show
+      smilBegin.set(svg, (b = begin))
+      try {
+        svg.pauseAnimations()
+      } catch {}
+    }
+    if (clock.seeking) continue // set where the seek lands
+    const sec = Math.max(0, at - b) / 1000
+    if (smilShown.get(svg) === sec) continue
+    smilShown.set(svg, sec)
+    try {
+      svg.setCurrentTime(sec)
+    } catch {}
+  }
+}
+
 // The clock stopped or jumped: endless loops come back under its control now.
 function reclaimNative() {
   for (const [a, s] of managed) {
@@ -130,7 +188,7 @@ function reclaimNative() {
 
 Element.prototype.animate = function (...args) {
   const a = orig.animate.apply(this, args)
-  adopt(a)
+  adopt(a, true)
   return a
 }
 
@@ -203,7 +261,7 @@ Object.defineProperty(AP, "startTime", {
     return clock.now + PERF_BASE - s.t / (rateOf(this) || 1)
   },
   set(value) {
-    const s = managed.get(this) || adopt(this)
+    const s = managed.get(this) || adopt(this, true)
     if (!s || value == null) return orig.startTime.set.call(this, value)
     s.t = (clock.now + PERF_BASE - Number(value)) * rateOf(this)
     s.v = clock.now

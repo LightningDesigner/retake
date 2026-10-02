@@ -128,3 +128,46 @@ document.getElementById("scroller").addEventListener("scroll", (e) => L("scrolle
 
 // A full navigation to another page of the app (not pushState).
 document.getElementById("nav").addEventListener("click", () => { location.href = "/?p=2" })
+
+// Flags (the page's own URL): ?banner=<run> a third-party script (loaded in
+// real time) adds a banner at the end of <body>, and the app adds a toast
+// after it at 1.5s (F51). ?rmbg the background audio is removed at 2s (F50).
+// ?count=<run> the "Count" button makes a slow request the server counts (F52).
+const flags = new URLSearchParams(location.search)
+if (flags.has("banner")) {
+  const s = document.createElement("script")
+  s.src = "/api/banner.js?run=" + flags.get("banner")
+  document.head.appendChild(s)
+  setTimeout(() => {
+    const t = document.createElement("div")
+    t.id = "toast"
+    t.innerHTML = "<button>ok</button>"
+    t.querySelector("button").addEventListener("click", () => L("toast", "clicked"))
+    document.body.appendChild(t)
+  }, 1500)
+}
+// ?rsc: a "prefetch" and a "navigation" of one URL (Next's router headers),
+// asked in the other order once rebuilt (a frame being built isn't "live"),
+// as real-time prefetching can.
+if (flags.has("rsc")) {
+  const b = document.createElement("button")
+  b.id = "rsc"
+  b.textContent = "RSC"
+  b.addEventListener("click", async () => {
+    const get = (h) => fetch("/api/json?route=a", { headers: { RSC: "1", ...h } }).then((r) => r.json()).then((j) => j.hits)
+    const pf = () => get({ "Next-Router-Prefetch": "1" })
+    const nav = () => get({})
+    const live = window.frameElement && window.frameElement.className === "live"
+    const got = live ? { pf: await pf(), nav: await nav() } : { nav: await nav(), pf: await pf() }
+    L("rsc", [got.pf, got.nav])
+  })
+  document.body.prepend(b)
+}
+if (flags.has("rmbg")) setTimeout(() => document.getElementById("bg").remove(), 2000)
+if (flags.has("count")) {
+  const b = document.createElement("button")
+  b.id = "count"
+  b.textContent = "Count"
+  b.addEventListener("click", () => fetch("/api/count?id=" + flags.get("count")).then((r) => r.text()).then((t) => L("count", t)))
+  document.body.prepend(b)
+}

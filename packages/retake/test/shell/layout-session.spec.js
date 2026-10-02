@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test"
 import { openDock, DOCK_URL, recordSome } from "./helpers.js"
 import { fakeServer } from "./fake-server.js"
 
-const D = (page, fn, arg) => page.evaluate(`(${fn})(window.__waybackDock.state, ${JSON.stringify(arg)})`)
+const D = (page, fn, arg) => page.evaluate(`(${fn})(window.__retakeDock.state, ${JSON.stringify(arg)})`)
 
 async function forkMid(h) {
   await h.pause()
@@ -12,7 +12,7 @@ async function forkMid(h) {
   await h.seek(s.start + (s.end - s.start) / 2)
   await expect
     .poll(async () => {
-      await h.rt(() => __wayback.forkHere()).catch(() => {})
+      await h.rt(() => __retake.forkHere()).catch(() => {})
       return D(h.page, (d) => d.branches.length)
     })
     .toBe(2)
@@ -43,22 +43,15 @@ test("the app fills the window; a glass notch floats over its bottom edge; resiz
   await page.waitForTimeout(100)
   expect((await page.locator("#wb-dock").boundingBox()).height).toBeCloseTo(dock.height + 100, -1)
   expect(await page.locator("#wb-stage iframe.live").boundingBox()).toEqual(frame0)
-  // "Don't cover app": the app ends above the notch.
-  await page.locator('[data-a="more"]').click()
-  await page.locator('[data-a="reserve"]').click()
-  const d2 = await page.locator("#wb-dock").boundingBox()
-  const f2 = await page.locator("#wb-stage iframe.live").boundingBox()
-  expect(f2.y + f2.height).toBeCloseTo(d2.y, 0)
   // Remembered across a reload, like the dock's height.
   await page.reload()
   await h.settle()
   expect((await page.locator("#wb-dock").boundingBox()).height).toBeCloseTo(dock.height + 100, -1)
-  expect(await page.evaluate(() => document.body.classList.contains("reserve"))).toBe(true)
   expect(h.dockErrors).toEqual([])
 })
 
 test("without a session API the dock keeps everything in memory", async ({ page }) => {
-  await page.route("**/__wayback/session", (r) => r.fulfill({ status: 404, body: "" }))
+  await page.route("**/__retake/session", (r) => r.fulfill({ status: 404, body: "" }))
   const h = await openDock(page, DOCK_URL, { fake: false })
   await recordSome(h, ["#toggle"])
   await forkMid(h)
@@ -91,7 +84,7 @@ test("F10: timelines, notes and recordings are saved and come back after a reloa
   expect(await D(page, (d) => d.notes.map((n) => n.text))).toEqual(["hello"])
   expect(await D(page, (d) => d.branches[1].end)).toBeGreaterThanOrEqual(savedEnd - 1)
   // Selecting the saved timeline brings its recording back, at its end.
-  await D(page, () => window.__waybackDock.switchTo(2, 1e9))
+  await D(page, () => window.__retakeDock.switchTo(2, 1e9))
   await expect.poll(async () => (await h.state().catch(() => ({ end: 0 }))).end, { timeout: 15000 }).toBeGreaterThanOrEqual(savedEnd - 1)
   expect(h.dockErrors).toEqual([])
 })
@@ -166,10 +159,10 @@ test("F18: a rebuilding frame is pinned to the recorded viewport", async ({ page
     }).observe(document.querySelector("#wb-stage"), { childList: true })
   })
   await h.rt(() => {
-    __wayback.timeline = () => ({ now: 0, end: 0, viewport: { w: 640, h: 360 }, markers: [], clips: [] })
+    __retake.timeline = () => ({ now: 0, end: 0, viewport: { w: 640, h: 360 }, markers: [], clips: [] })
   })
   // The recording's own viewport wins over timeline()'s.
-  const vp = (await h.rt(() => __wayback.history().viewport)) || { w: 640, h: 360 }
+  const vp = (await h.rt(() => __retake.history().viewport)) || { w: 640, h: 360 }
   const s = await h.state()
   await h.seek(s.start + 50)
   expect(await page.evaluate(() => window.__sizes)).toContainEqual([vp.w + "px", vp.h + "px"])
@@ -211,7 +204,7 @@ test("the dock never takes focus away from a frame being rebuilt (replayed keys 
     }
     watch()
   })
-  await h.rt((t) => __wayback.seek(t), s.end - 50)
+  await h.rt((t) => __retake.seek(t), s.end - 50)
   await expect.poll(() => page.evaluate(() => window.__stole)).not.toBe(null)
   expect(await page.evaluate(() => window.__stole)).toBe(false)
   await h.settle()
@@ -230,7 +223,8 @@ test("a reload keeps the saved timeline whole, and opens the app live", async ({
   await page.reload()
   await expect.poll(() => D(page, (d) => !!d.PT && d.last && d.last.booted).catch(() => false)).toBe(true)
   expect(await D(page, (d) => d.branches[0].end)).toBeGreaterThanOrEqual(savedEnd - 1)
-  expect(await D(page, (d) => d.last.playing)).toBe(true)
+  // It plays a frame after it boots (once its seek to where it carries on has run).
+  await expect.poll(() => D(page, (d) => d.last.playing)).toBe(true)
   // The saved recording on the server is untouched by the new visit.
   await page.waitForTimeout(1000)
   expect(JSON.parse(fake.store.recordings["1"]).end).toBeGreaterThanOrEqual(savedEnd - 1)

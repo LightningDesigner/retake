@@ -8,6 +8,8 @@ let hovered = null
 let lastPointer = null
 let draft = null
 let openNote = null
+// A note is being written (a frame built behind waits to swap in until it's done).
+const composing = () => !!draft
 const hl = $("#wb-hl")
 const scopeBox = $("#wb-scope")
 const card = $("#wb-note")
@@ -15,8 +17,17 @@ const card = $("#wb-note")
 const isStill = () => !!(D.last && D.last.started && !isInteractive())
 const mode = () => (!isStill() ? null : D.metaHeld ? "comment" : D.picking)
 
-const shell = window.__waybackShell
+const shell = window.__retakeShell
 shell.inspecting = false
+// A disabled form control gets no click (pointer events still come): its
+// pointerup picks it instead.
+const noClick = (el) => {
+  try {
+    return !!(el && el.closest && el.closest(":is(button, input, select, textarea, option, optgroup):disabled"))
+  } catch {
+    return false
+  }
+}
 shell.inspect = (e) => {
   const el = e.target.nodeType === 1 ? e.target : e.target.parentElement
   if (e.type === "pointermove" || e.type === "pointerover") {
@@ -25,7 +36,7 @@ shell.inspect = (e) => {
     if (Math.abs(e.deltaY) >= 4) cycleLayer(e.deltaY > 0 ? 1 : -1)
   } else if (e.type === "keydown" && e.key === "Tab") {
     cycleLayer(e.shiftKey ? -1 : 1)
-  } else if (e.type === "click" && usable(el)) {
+  } else if ((e.type === "click" || (e.type === "pointerup" && noClick(el))) && usable(el)) {
     const p = pick()
     if (mode() === "select") setScope(p ? p.el : usable(el))
     else openComposer(p ? p.el : usable(el), { x: e.clientX, y: e.clientY }, p)
@@ -249,6 +260,9 @@ function sourceOf(el) {
         const m = line.match(/(\S+?):(\d+):(\d+)\)?\s*$/)
         if (!m || /node_modules|\/\.vite\/deps\/|react-dom|react\.development|jsx-dev-runtime/.test(m[1])) continue
         const url = m[1].replace(/^.*?\(/, "")
+        // A server component's frame (React 19 dev: about://React/Server/file:///…/.next/…chunk.js)
+        // is a compiled chunk on the server: nothing the dock can fetch or map (F76).
+        if (!/^https?:\/\//.test(url)) continue
         const src = { file: shortPath(url), line: Number(m[2]), col: Number(m[3]), url, mapped: false }
         mapSource(src)
         return src
@@ -306,6 +320,7 @@ function loadMap(url) {
       key,
       (async () => {
         try {
+          if (!/^https?:\/\//.test(url)) return null
           const code = await (await fetch(url)).text()
           const m = code.match(/\/\/[#@] sourceMappingURL=(\S+)\s*$/)
           if (!m) return null
@@ -726,10 +741,7 @@ function goToNoteId(id) {
   const n = D.notes.find((x) => String(x.id) === String(id))
   if (!n) return
   if (n.branchId !== D.activeId) switchTo(n.branchId, n.t)
-  else if (D.PT && D.last && Math.abs(shownTime(D.last) - n.t) > 5) {
-    if (D.last.previewing) D.PT.endPreview()
-    D.PT.seek(n.t)
-  }
+  else if (D.PT && D.last && Math.abs(shownTime(D.last) - n.t) > 5) goTo(n.t)
   showNote(n)
 }
 
@@ -837,8 +849,7 @@ function renderExtras(s) {
     pin.style.top = p.y + "px"
     seen.add(n.id)
   })
-  renderList()
-  $('[data-a="notes"] .n').textContent = String(D.notes.filter((n) => n.branchId === D.activeId).length)
+  paintCount(D.notes.filter((n) => n.branchId === D.activeId).length)
   for (const [id, pin] of pinEls) {
     if (seen.has(id)) continue
     pin.remove()
@@ -846,38 +857,14 @@ function renderExtras(s) {
   }
 }
 
-// ---- the notes list: this timeline's notes, compact ------------------------------------
+// ---- the count: how many notes this timeline has, as a badge on the notes icon ----------
 
-const list = $("#wb-list")
-// With no notes on this timeline, the button just says 0.
-function toggleList() {
-  if (!list.hidden) return closeList()
-  if (!D.notes.some((n) => n.branchId === D.activeId)) return
-  list.hidden = false
-  renderList()
-}
-function closeList() {
-  list.hidden = true
-  $('[data-a="notes"]').classList.remove("on")
-}
-let listKey = ""
-function renderList() {
-  if (list.hidden) return (listKey = "")
-  const key = D.activeId + JSON.stringify(D.notes.map((n) => [n.id, n.status, n.text, n.branchId]))
-  if (key === listKey) return
-  listKey = key
-  $('[data-a="notes"]').classList.add("on")
-  const start = D.last ? D.last.start : 0
-  const mine = D.notes.map((n, i) => ({ n, i })).filter(({ n }) => n.branchId === D.activeId)
-  list.innerHTML = mine.length
-    ? mine
-        .map(
-          ({ n, i }) =>
-            `<button class="list-row" data-note="${n.id}"><span class="num" style="background:${NOTE_FILL[n.status] || NOTE_FILL.pending}">${i + 1}</span><span class="t">${fmt(n.t - start)}</span><span class="txt">${esc(n.text)}</span><span class="st">${esc(n.status || "pending")}</span></button>`,
-        )
-        .join("")
-    : ""
-  const r = $('[data-a="notes"]').getBoundingClientRect()
-  list.style.left = Math.min(r.left, innerWidth - 340) + "px"
-  list.style.top = r.top - list.offsetHeight - 8 + "px"
+const countEl = $(".notes-count")
+let shownCount = -1
+function paintCount(n) {
+  if (n === shownCount) return
+  shownCount = n
+  countEl.querySelector(".n").textContent = n > 99 ? "99+" : String(n)
+  countEl.classList.toggle("has", n > 0)
+  countEl.setAttribute("aria-label", n === 0 ? "No notes on this timeline" : n === 1 ? "1 note on this timeline" : `${n} notes on this timeline`)
 }

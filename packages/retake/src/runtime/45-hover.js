@@ -62,11 +62,15 @@ function replayHover(ev, target) {
   else if ((ev.type === "pointerout" || ev.type === "mouseout") && !ev.related) setHover(null)
 }
 
-// For a preview at t: the element the pointer was over then.
+// For a preview at t: the element the pointer was over then. Input recorded
+// at exactly t comes just after it (as in a rebuild to t). Without t: what the
+// input this frame has replayed so far says.
 function hoverAt(t) {
   let path = null
-  for (const ev of rec.events) {
-    if (ev.t > t) break
+  const n = t == null ? cursor.event : rec.events.length
+  for (let i = 0; i < n; i++) {
+    const ev = rec.events[i]
+    if (t != null && ev.t >= t) break
     if (ev.type === "pointerover" || ev.type === "mouseover") path = ev.path
     else if ((ev.type === "pointerout" || ev.type === "mouseout") && !ev.related) path = null
   }

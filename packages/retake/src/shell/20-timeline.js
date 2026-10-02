@@ -43,6 +43,10 @@ const tip = $("#wb-tip")
 const gutter = $(".gutter")
 const liveBtn = $(".live-btn")
 const readoutT = $(".readout .t")
+// Minutes and seconds, then the hundredths dimmer.
+readoutT.innerHTML = '<span class="ms"></span><span class="cs"></span>'
+const [readoutMs, readoutCs] = readoutT.children
+let readoutText = ""
 const readoutPhase = $(".readout .phase")
 const hintEl = $(".hint")
 const playBtn = $('[data-a="play"]')
@@ -652,21 +656,25 @@ function renderGutter(lanes) {
 
 // ---- the header ---------------------------------------------------------------------
 
+// A moment being built behind only shows here when the user is waiting for
+// it (Play or + before it's in, a moment the preview can't show, a timeline
+// switch, an API seek); otherwise the preview is the moment, and it's Paused.
 function phaseOf(s) {
-  if (D.dragT != null || s.previewing) return "Scrubbing"
-  if (D.building) return `Building${buildProgress()}`
+  if (D.dragT != null || D.keyT != null || (s.previewing && D.scopeEl)) return "Scrubbing"
+  if (waits(D.building)) return `Building${buildProgress()}`
   if (s.seeking) return "Loading"
   if (s.playing) return s.future ? "Playing" : "Live"
   return "Paused"
 }
 
-// How far the frame being built behind the visible one has got: " 43%".
-// The visible frame keeps showing the moment (as a preview) meanwhile.
+// How far the frame being built behind the visible one has got: " 43%",
+// counted from where this build's replay started.
 function buildProgress() {
   try {
     const b = D.building.pt && D.building.pt.state()
-    if (!b || b.target == null) return ""
-    const pct = clamp((b.now - b.start) / Math.max(1, b.target - b.start), 0, 0.99)
+    if (!b || b.target == null || !b.seeking) return ""
+    const from = b.from != null ? b.from : b.start
+    const pct = clamp((b.now - from) / Math.max(1, b.target - from), 0, 0.99)
     return ` ${Math.floor(pct * 100)}%`
   } catch {
     return ""
@@ -674,12 +682,20 @@ function buildProgress() {
 }
 
 function renderHead(s, shownT) {
-  readoutT.textContent = fmt(shownT - s.start)
+  const text = fmt(shownT - s.start)
+  if (text !== readoutText) {
+    readoutText = text
+    const dot = text.lastIndexOf(".")
+    readoutMs.textContent = dot < 0 ? text : text.slice(0, dot)
+    readoutCs.textContent = dot < 0 ? "" : text.slice(dot)
+  }
   const phase = phaseOf(s)
   if (readoutPhase.textContent !== phase) readoutPhase.textContent = phase
   readoutPhase.dataset.phase = phase.split(" ")[0].toLowerCase()
-  playBtn.classList.toggle("playing", !!s.playing && D.dragT == null)
-  playBtn.setAttribute("aria-label", s.playing ? "Pause" : "Play")
+  // Waiting to play a moment being built reads as playing (space again: don't).
+  const playing = (!!s.playing || !!(D.building && D.building.play)) && D.dragT == null
+  playBtn.classList.toggle("playing", playing)
+  playBtn.setAttribute("aria-label", playing ? "Pause" : "Play")
   // The hint area is only for a short warning (see flash()).
   if (performance.now() < flashUntil) return
   if (hintEl.textContent) hintEl.textContent = ""
@@ -695,14 +711,12 @@ function flash(msg) {
 
 // ---- a new timeline from a chosen moment -------------------------------------------
 
+// Right here if the frame on show is at that moment; else it goes there first
+// and the fork happens once the moment is in (goTo).
 function newTimelineAt(t) {
   const s = state()
   if (!D.PT || !s || !s.started) return
-  const here = s.previewing ? s.previewAt : s.now
-  if (!s.previewing && Math.abs(t - here) < 2) return forkNow()
-  // Go to that moment first; the fork happens once it's built.
-  pendingFork = t
-  D.PT.seek(t)
+  goTo(t, { fork: true })
 }
 
 // The new timeline is made and selected, paused at the moment it split off.

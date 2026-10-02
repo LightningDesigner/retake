@@ -2,7 +2,7 @@
 // everything they share that changes over time lives on `D`, so a file never
 // reaches into another file's variables.
 const $ = (s) => document.querySelector(s)
-const KEY = "wayback:"
+const KEY = "retake:"
 const store = {
   get(k, fallback) {
     try {
@@ -22,8 +22,15 @@ const store = {
 const D = {
   // frames
   frame: null, // the visible prototype frame
-  PT: null, // its runtime (window.__wayback inside it)
-  building: null, // { frame, pt, viewport } being built behind it
+  PT: null, // its runtime (window.__retake inside it)
+  // The one frame being built behind it (10-dock.js): { id, frame, pt, stash,
+  // url, viewport, branchId, sig, target, play, fork, visible, startedAt, via,
+  // restarts }. play / fork: do that once it's in. visible: nothing on screen
+  // shows its moment, so the user is waiting for it (waits()).
+  building: null,
+  buildSeq: 0, // numbers builds (and checkpoints), so a frame that reloaded itself is told apart
+  holdSwap: false, // tests: keep a finished build behind (it doesn't swap in)
+  buildWatchdogMs: 10000, // a build whose page loaded without starting it is tried again after this (tests shorten it)
   cp: null, // a hidden paused frame at an earlier moment, to rewind from (12-checkpoint.js)
   last: null, // the last runtime state seen
   // timelines
@@ -38,6 +45,9 @@ const D = {
   markerSeq: 0,
   // pointer and tools
   dragT: null, // the time under the playhead while scrubbing
+  dragX0: 0, // where the press was, and whether the pointer has moved off it (3px)
+  dragMoved: false,
+  frameNo: 0, // dock frames drawn (one direct scrub per frame)
   branchT: null, // where a Control-click on the track would branch
   hot: null, // what the pointer is over: { kind: "clip" | "mark", i }
   keyT: null, // where arrow keys have taken the playhead, until it's built
@@ -61,3 +71,15 @@ const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 
 const activeBranch = () => D.branches.find((b) => b.id === D.activeId)
 const branchById = (id) => D.branches.find((b) => b.id === id)
+
+// Is the user waiting for this build (the readout says Building)?
+const waits = (b) => !!b && !!(b.play || b.fork || b.visible)
+// Do two moments of the active recording look exactly the same (no frame or
+// input between them)? The runtime knows; an older one is asked for 1ms.
+function samePlace(a, b) {
+  if (a == null || b == null) return false
+  try {
+    if (D.PT && typeof D.PT.sameMoment === "function") return D.PT.sameMoment(a, b)
+  } catch {}
+  return Math.abs(a - b) < 1
+}

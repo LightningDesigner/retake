@@ -1,5 +1,5 @@
 // Shell spec helpers. Drives the dock through its markup and reads its state
-// through window.__waybackDock (a test handle, see src/shell/90-handle.js).
+// through window.__retakeDock (a test handle, see src/shell/90-handle.js).
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -49,7 +49,7 @@ export async function shot(page, name) {
 export const MOCK = path.resolve(here, "../../src/shell/mock/timeline-mock.js")
 
 // Dock state, read or changed in the page: dock(page, (D, arg) => ..., arg).
-export const dock = (page, fn, arg) => page.evaluate(`(${fn})(window.__waybackDock.state, ${JSON.stringify(arg ?? null)})`)
+export const dock = (page, fn, arg) => page.evaluate(`(${fn})(window.__retakeDock.state, ${JSON.stringify(arg ?? null)})`)
 
 // Record a few toggles, pause, and go back to the middle.
 export async function recordAndRewind(h, steps = ["#toggle", "#toggle", "#toggle"], frac = 0.5) {
@@ -66,7 +66,7 @@ export async function recordAndRewind(h, steps = ["#toggle", "#toggle", "#toggle
 // Client x of a time on the timeline, from the dock's own view.
 export const xOfTime = (page, t) =>
   page.evaluate((t) => {
-    const D = window.__waybackDock.state
+    const D = window.__retakeDock.state
     const r = document.querySelector(".lines").getBoundingClientRect()
     return r.left + 12 + ((t - D.view.from) / (D.view.to - D.view.from)) * (r.width - 30)
   }, t)

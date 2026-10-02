@@ -28,7 +28,7 @@ test("F9: a render exception doesn't freeze the dock", async ({ page }) => {
   await recordSome(h, ["#toggle"])
   // Point the dock at a timeline that doesn't exist, and make one frame throw.
   await page.evaluate(() => {
-    const D = window.__waybackDock.state
+    const D = window.__retakeDock.state
     D.activeId = 999
     const b = D.branches[0]
     let thrown = false
@@ -46,12 +46,12 @@ test("F9: a render exception doesn't freeze the dock", async ({ page }) => {
       },
     })
   })
-  const read = () => page.evaluate(() => window.__waybackDock.state.last && window.__waybackDock.state.last.now)
+  const read = () => page.evaluate(() => window.__retakeDock.state.last && window.__retakeDock.state.last.now)
   const a = await read()
   await page.waitForTimeout(600)
   const b = await read()
   expect(b).toBeGreaterThan(a)
-  expect(await page.evaluate(() => window.__waybackDock.state.activeId)).toBe(1)
+  expect(await page.evaluate(() => window.__retakeDock.state.activeId)).toBe(1)
 })
 
 test("F9: deleting a timeline mid-switch leaves the branches alone", async ({ page }) => {
@@ -62,19 +62,19 @@ test("F9: deleting a timeline mid-switch leaves the branches alone", async ({ pa
   await h.seek(s.start + (s.end - s.start) / 2)
   await expect
     .poll(async () => {
-      await h.rt(() => __wayback.forkHere()).catch(() => {})
-      return page.evaluate(() => window.__waybackDock.branches().map((b) => b.id))
+      await h.rt(() => __retake.forkHere()).catch(() => {})
+      return page.evaluate(() => window.__retakeDock.branches().map((b) => b.id))
     })
     .toEqual([1, 2])
   await h.settle()
   const res = await page.evaluate(async () => {
-    window.__waybackDock.state.switching = true
-    const r = await window.__waybackDock.deleteTimeline(2)
-    window.__waybackDock.state.switching = false
+    window.__retakeDock.state.switching = true
+    const r = await window.__retakeDock.deleteTimeline(2)
+    window.__retakeDock.state.switching = false
     return r
   })
   expect(res).toBe(false)
-  const after = await page.evaluate(() => ({ ids: window.__waybackDock.branches().map((b) => b.id), active: window.__waybackDock.state.activeId }))
+  const after = await page.evaluate(() => ({ ids: window.__retakeDock.branches().map((b) => b.id), active: window.__retakeDock.state.activeId }))
   expect(after).toEqual({ ids: [1, 2], active: 2 })
   expect(h.errors).toEqual([])
   expect(h.dockErrors).toEqual([])

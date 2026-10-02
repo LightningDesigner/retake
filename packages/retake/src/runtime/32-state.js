@@ -8,9 +8,15 @@
 
 // ---- cookies ---------------------------------------------------------------------
 
+// (Retake's own cookies, `__retake…`, aren't the app's.)
+const ownCookie = (part) => /^\s*__retake/.test(part)
 function snapshotCookies() {
   try {
     return document.cookie
+      .split(";")
+      .filter((p) => p.trim() && !ownCookie(p))
+      .join(";")
+      .trim()
   } catch {
     return ""
   }
@@ -23,7 +29,7 @@ function restoreCookies(snap) {
     const paths = ["/", location.pathname.replace(/[^/]*$/, "") || "/"]
     for (const part of document.cookie.split(";")) {
       const name = part.split("=")[0].trim()
-      if (!name) continue
+      if (!name || ownCookie(part)) continue
       for (const p of paths) document.cookie = `${name}${expire}; path=${p}`
       document.cookie = `${name}${expire}`
     }
@@ -81,6 +87,10 @@ const IDBF = W.IDBFactory && IDBFactory.prototype
 const realOpen = IDBF && IDBF.open
 const realDelete = IDBF && IDBF.deleteDatabase
 let idbBusy = 0 // open requests + live transactions
+// Dev tools' own databases (Next 16 keeps its debug channel in one) aren't the
+// app's state: not snapshotted, restored or waited for.
+const DEV_DB = /^__next/
+const devDb = (name) => DEV_DB.test(String(name || ""))
 let idbGate = null // while snapshotting/restoring, the app's opens wait here
 
 // A request still blocked (another tab holding the database) after 3s gives up.
@@ -105,7 +115,7 @@ async function snapshotIDB() {
   const list = await idbF.databases()
   const out = []
   for (const info of list) {
-    if (!info.name) continue
+    if (!info.name || devDb(info.name)) continue
     const db = await promisify(realOpen.call(idbF, info.name))
     try {
       const names = [...db.objectStoreNames]
@@ -150,7 +160,7 @@ async function restoreIDB(snap) {
   const keep = new Set(snap.map((d) => d.name))
   if (idbF.databases) {
     for (const info of await idbF.databases()) {
-      if (info.name && !keep.has(info.name)) await promisify(realDelete.call(idbF, info.name)).catch(() => {})
+      if (info.name && !keep.has(info.name) && !devDb(info.name)) await promisify(realDelete.call(idbF, info.name)).catch(() => {})
     }
   }
   for (const d of snap) {
@@ -255,7 +265,8 @@ function trackOpen(req) {
 
 if (IDBF) {
   IDBF.open = function (...args) {
-    if (isExempt()) return realOpen.apply(this, args)
+    if (isExempt() || devDb(args[0])) return realOpen.apply(this, args)
+    idbOpened = true // this app keeps state in IndexedDB (see storageOk in 30-recorder)
     if (idbGate) return deferredOpen(() => trackOpen(realOpen.apply(idbF, args)))
     return trackOpen(realOpen.apply(this, args))
   }

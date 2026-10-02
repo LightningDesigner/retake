@@ -1,10 +1,13 @@
 // Moving through time. Press anywhere on the ruler or the active lane and drag:
 // the playhead follows, snapping to clip edges and markers within 8px (hold
-// alt to move freely). Dragging back shows the past live; letting go builds
-// that moment for real. Keys: ← → a frame, shift+← → the previous or next
-// edge, space play/pause, F fit all, + a new timeline from here.
+// alt to move freely). Dragging back shows the past live; letting go keeps it
+// on screen and builds that moment for real behind it (goTo). Keys: ← → a
+// frame, shift+← → the previous or next edge, space play/pause, F fit all,
+// + a new timeline from here.
 
 const SNAP_PX = 8
+const GRAB_PX = 4 // a press this close to the playhead picks it up where it is
+const DEAD_PX = 3 // a press that moves less than this is a click, not a drag
 const FRAME_MS = 1000 / 60
 
 // Moments worth landing on: clip edges, markers, bookmarks, notes, where
@@ -50,7 +53,8 @@ function snapped(t, s, free) {
 // ---- going to a moment -------------------------------------------------------------
 
 // Show `t` straight away: a live preview going back, a quick run going forward
-// through recorded future. commitScrub() then builds a past moment for real.
+// through recorded future (on this page only: past a reload is a rebuild,
+// left to the release). goTo() then makes it the real moment.
 function scrubTo(t) {
   const pt = D.PT
   if (!pt) return
@@ -60,18 +64,119 @@ function scrubTo(t) {
   } catch {
     return
   }
-  if (t < s.now - 1) pt.preview(t, D.scopeEl)
-  else {
-    if (s.previewing) pt.endPreview()
-    if (t > s.now + 1 && s.future) pt.seek(t)
+  if (t < s.now - 1) return pt.preview(t, D.scopeEl)
+  if (s.previewing) pt.endPreview()
+  if (t > s.now + 1 && s.future && s.storageOk !== false) {
+    const to = s.segEnd != null ? Math.min(t, s.segEnd - 1) : t
+    if (to <= s.now + 1) return
+    // The frame on show runs its app: nothing else may (one frame at a time).
+    cancelBuild()
+    quietCheckpoint()
+    pt.seek(to)
   }
 }
-function commitScrub() {
+
+// Going to a moment for real: the one way the dock moves the playhead there
+// (a release, a key step, a note, a bookmark, +, Play from a preview).
+//  - already there (a press on the playhead): nothing to build;
+//  - forward on the same page: the frame on show seeks there in place;
+//  - anywhere else: shown at once as a preview, and built for real in a
+//    hidden frame that swaps in when ready. The user only waits for it if
+//    they ask for the real moment first (play, fork), or if the preview can't
+//    show it (a moment on an earlier page).
+function goTo(t, { play = false, fork = false } = {}) {
   const pt = D.PT
   if (!pt) return
-  const s = pt.state()
-  // A scoped preview stays a picture until you act on it.
-  if (s.previewing && !D.scopeEl) pt.seek(s.previewAt)
+  // A switch to another timeline is still being built: the frame on show is
+  // the timeline being left, so the moment is that build's to go to.
+  const sw = D.building
+  if (sw && sw.target != null && sw.branchId === D.activeId && D.frameBranch !== D.activeId) return goToSwitching(sw, t, play, fork)
+  let s
+  try {
+    s = pt.state()
+  } catch {
+    return
+  }
+  if (D.scopeEl && !play && !fork) return // a scoped preview stays a picture
+  if (s.playing) {
+    pt.pause()
+    s = pt.state()
+  }
+  const docStart = s.docStart != null ? s.docStart : s.start
+  const here = samePlace(s.now, t) // the frame on show stands at that moment
+  const shown = here || (t < s.now && t >= docStart) // it's there, or the preview can show it
+  const showIt = () => {
+    if (here) {
+      if (s.previewing) pt.endPreview()
+      return
+    }
+    if (t >= s.now) return
+    const at = Math.max(t, docStart)
+    if (!(s.previewing && s.previewAt === at)) pt.preview(at, null)
+  }
+  const b = D.building
+  if (b && b.target != null && b.branchId === D.activeId && samePlace(b.target, t)) {
+    // That's the moment being built already: keep it.
+    showIt()
+    b.play = b.play || play
+    b.fork = b.fork || fork
+    b.visible = !shown
+    return
+  }
+  // This frame can run its app as it is. (If not, another frame has changed
+  // its IndexedDB: even the moment it stands at is built again behind it,
+  // and only Play or + wait for that.)
+  const mine = s.storageOk !== false
+  if (mine && here) {
+    cancelBuild()
+    if (s.previewing) pt.endPreview()
+    if (fork) return forkNow()
+    if (play) {
+      quietCheckpoint()
+      pt.play()
+    }
+    return
+  }
+  if (t > s.now && s.future && mine && (s.segEnd == null || t < s.segEnd)) {
+    cancelBuild()
+    if (s.previewing) pt.endPreview()
+    quietCheckpoint()
+    pt.seek(t, play)
+    if (fork) pendingFork = t
+    return
+  }
+  showIt()
+  if (typeof pt.buildAt !== "function") return pt.seek(t, play) // an older runtime: it builds in view
+  pt.buildAt(t) // rebuild() keeps, moves on or replaces the frame being built
+  const nb = D.building
+  if (nb && nb.target != null) {
+    nb.play = play
+    nb.fork = fork
+    nb.visible = !shown
+  }
+}
+
+// Mid-switch: the build moves on to t, or is made again there from the
+// timeline's own recording (never from the frame on show, which is another).
+function goToSwitching(b, t, play, fork) {
+  if (Math.abs(b.target - t) >= 1 && !retargetBuild(b, t)) {
+    const br = activeBranch()
+    if (!br || !br.json) return
+    D.PT.load(br.json, t)
+  }
+  const nb = D.building
+  if (!nb) return
+  nb.play = nb.play || play
+  nb.fork = nb.fork || fork
+}
+
+// While the pointer's down, a frame still building behind works in idle
+// time, so the preview under the pointer stays smooth.
+function setBuildBackground(on) {
+  const b = D.building
+  try {
+    if (b && b.pt && typeof b.pt.setBackground === "function") b.pt.setBackground(on)
+  } catch {}
 }
 
 let pendingT = null
@@ -85,7 +190,10 @@ function scrubSoon(t) {
   pendingT = t
 }
 
-const shownTime = (s) => (D.dragT != null ? D.dragT : D.keyT != null ? D.keyT : s.previewing ? s.previewAt : s.now)
+// The moment the readout and playhead show: under the pointer, where the keys
+// took it, the moment being built, the one previewed, or the frame's own.
+const shownTime = (s) =>
+  D.dragT != null ? D.dragT : D.keyT != null ? D.keyT : D.building && D.building.target != null ? D.building.target : s.previewing ? s.previewAt : s.now
 
 // Arrow keys: a frame at a time (the recorded frame boundaries when there are
 // some), or edge to edge with shift. The moment is built once the keys rest.
@@ -119,7 +227,7 @@ function stepBy(dir, toEdge) {
   clearTimeout(keyTimer)
   keyTimer = setTimeout(() => {
     D.keyT = null
-    commitScrub()
+    goTo(t)
   }, 350)
 }
 function findLast(arr, fn) {
@@ -137,7 +245,17 @@ function startScrub(e, s) {
   document.body.classList.add("scrubbing")
   if (s.playing) D.PT.pause()
   const [lo, hi] = bounds(s)
-  D.dragT = clamp(snapped(timeAt(e.clientX), s, e.altKey), lo, hi)
+  const g = geom()
+  const shown = shownTime(s)
+  // On the playhead (or within 4px of it): pick it up where it is, so a
+  // click there is no move at all.
+  if (Math.abs(e.clientX - (g.left + xOf(shown, g))) <= GRAB_PX) {
+    D.snapT = null
+    D.dragT = shown
+  } else D.dragT = clamp(snapped(timeAt(e.clientX, g), s, e.altKey), lo, hi)
+  D.dragX0 = e.clientX
+  D.dragMoved = false
+  setBuildBackground(true)
   hideTip()
   scrubSoon(D.dragT)
 }
@@ -148,10 +266,11 @@ function endScrub() {
   D.dragT = null
   D.snapT = null
   document.body.classList.remove("scrubbing")
+  setBuildBackground(false)
   if (!D.PT) return
   pendingT = null
   scrubTo(t)
-  commitScrub()
+  goTo(t)
 }
 
 // Pressing on the track: Control-click branches the active timeline at that
@@ -174,16 +293,12 @@ track.addEventListener("pointerdown", (e) => {
     // ⌘ held on one of the element's animations: fit it, go to its start.
     const c = hit.clip
     fitRange(c.start, c.end == null ? s.end : c.end)
-    scrubTo(c.start + 1)
-    commitScrub()
+    goTo(c.start + 1)
     return
   }
   if (hit && hit.kind === "bookmark") {
     const m = D.markers.find((x) => String(x.id) === String(hit.id))
-    if (m) {
-      scrubTo(m.t)
-      commitScrub()
-    }
+    if (m) goTo(m.t)
     return
   }
   if (hit && hit.kind === "lane" && !hit.active) {
@@ -220,9 +335,17 @@ track.addEventListener("pointermove", (e) => {
   const g = geom()
   overTrack = e
   if (D.dragT != null) {
+    if (!D.dragMoved && Math.abs(e.clientX - D.dragX0) < DEAD_PX) return
+    D.dragMoved = true
     const [lo, hi] = bounds(s)
     D.dragT = clamp(snapped(timeAt(e.clientX, g), s, e.altKey), lo, hi)
-    scrubSoon(D.dragT)
+    // The first move of each dock frame previews straight away (it paints in
+    // this frame); any more wait for the next one.
+    if (D.scrubbedAt !== D.frameNo) {
+      D.scrubbedAt = D.frameNo
+      pendingT = null
+      scrubTo(D.dragT)
+    } else scrubSoon(D.dragT)
     return
   }
   setBranchGuide(e.ctrlKey, e)
@@ -383,12 +506,13 @@ async function deleteTimeline(id) {
 
 const typing = (el) => el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
 
-// Returns true if the key was the dock's.
-function dockKey(e) {
-  if (e.metaKey || e.ctrlKey || typing(e.target)) return false
+// Returns true if the key was the dock's. fromApp: handed over by a view-only
+// app (its fields can't be typed in then, so a key in one is still the dock's).
+function dockKey(e, fromApp) {
+  if (e.metaKey || e.ctrlKey || (!fromApp && typing(e.target))) return false
   const s = D.last
   if (!s || !s.started) return false
-  if (e.code === "Space") {
+  if (e.code === "Space" || (e.altKey && e.code === "KeyP")) {
     togglePlay()
     return true
   }

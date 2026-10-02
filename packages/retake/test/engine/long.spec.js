@@ -10,7 +10,7 @@ test("a 10-minute pointer-heavy session is small and rewinds to its end in under
   await page.waitForTimeout(500)
   await h.pause()
   const { json, bytes, end } = await h.rt(() => {
-    const base = __wayback.history()
+    const base = __retake.history()
     const MIN = 10
     const end = MIN * 60000
     const frames = []
@@ -29,7 +29,7 @@ test("a 10-minute pointer-heavy session is small and rewinds to its end in under
   const cdp = process.env.PROFILE ? await page.context().newCDPSession(page) : null
   if (cdp) { await cdp.send("Profiler.enable"); await cdp.send("Profiler.start") }
   const t0 = Date.now()
-  await h.rt(({ json, end }) => __wayback.load(json, end - 1), { json, end })
+  await h.rt(({ json, end }) => __retake.load(json, end - 1), { json, end })
   await page.waitForTimeout(50)
   const s = await h.settle()
   const ms = Date.now() - t0
@@ -41,7 +41,7 @@ test("a 10-minute pointer-heavy session is small and rewinds to its end in under
     for (let i = 0; i < samples.length; i++) { const n = byId.get(samples[i]); const k = `${n.callFrame.functionName || "(anon)"} ${n.callFrame.url.split("/").pop().slice(0, 30)}:${n.callFrame.lineNumber}`; self.set(k, (self.get(k) || 0) + (dt[i] || 0)) }
     console.log([...self].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => `${(v / 1000).toFixed(0).padStart(6)}ms ${k}`).join("\n"))
   }
-  console.log(`rewind to the end of 10 minutes: ${ms} ms`, JSON.stringify(await h.rt(() => { const d = __wayback.debug(); return { seekMs: d.seekMs, settles: d.settles, yields: d.yields, stuck: d.stuck, boot: Math.round(performance.timeOrigin) } })))
+  console.log(`rewind to the end of 10 minutes: ${ms} ms`, JSON.stringify(await h.rt(() => { const d = __retake.debug(); return { seekMs: d.seekMs, settles: d.settles, yields: d.yields, stuck: d.stuck, boot: Math.round(performance.timeOrigin) } })))
   expect(s.now).toBeGreaterThan(end - 100)
   expect(ms).toBeLessThan(1000 + 400) // + the helper's polling and frame swap
 })

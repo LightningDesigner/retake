@@ -32,7 +32,7 @@ test.beforeAll(async ({ browser }) => {
   // Seek to a recorded frame boundary: between frames the replay rests at the
   // earlier frame's state (timers due in between ran live as part of the
   // next frame, though they log their due time).
-  const frames = await h.rt(() => __wayback.history().frames)
+  const frames = await h.rt(() => __retake.history().frames)
   T = frames.filter((f) => f <= st.now - 5).pop()
   const after = await h.seek(T)
   replay = await h.log()
