@@ -3,14 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview --port 3301",
-    "check:build": "vite build && node scripts/check-dist.js",
-    "walkthrough": "node scripts/walkthrough.mjs"
+    "dev": "retake --port 3300 -- next dev",
+    "build": "next build",
+    "start": "next start --port 3301",
+    "check:build": "next build && node scripts/check-build.js"
+  },
+  "dependencies": {
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "retake-dev": "workspace:*",
-    "vite": "^8.3.1"
+    "retake-dev": "workspace:*"
   }
 }
