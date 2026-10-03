@@ -57,4 +57,6 @@ Full docs: [packages/retake/README.md](packages/retake/README.md).
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE). Free to use and change; you can't use it to build a product that competes with Retake.
+© 2026 Rushil
+
+Licensed under [PolyForm Shield 1.0.0](LICENSE)
