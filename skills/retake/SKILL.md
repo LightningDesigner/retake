@@ -23,7 +23,7 @@ Retake is a dev-only timeline for the app's dev server. Nothing ships in the pro
    import { retake } from "retake-dev"
    // in defineConfig: plugins: [retake(), ...the existing plugins]
    ```
-5. Add `.retake/` to `.gitignore` if the project keeps one (Retake also writes its own `.gitignore` inside that folder).
+5. Always add `.retake/` to the project's root `.gitignore` (create the file if there isn't one). It holds local recordings and notes and must never be committed or pushed. Retake also writes a `.gitignore` inside `.retake/` as a second guard.
 6. Optional, so notes reach you: register the MCP server, `npx -y retake-dev mcp` (Claude Code: `claude mcp add retake -- npx -y retake-dev mcp`).
 
 Then tell the user to run `npm run dev:retake` (or their package manager's equivalent) and open the URL it prints, usually http://localhost:3014.

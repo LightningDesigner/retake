@@ -33,7 +33,7 @@ Other frameworks: `npx retake-dev -- next dev`, or put it in front of a dev serv
 Paste this into Claude Code, Cursor or any coding agent:
 
 ```text
-Add Retake to this project: install retake-dev as a dev dependency with the project's package manager, add a "dev:retake": "retake ." script to package.json, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
+Add Retake to this project: install retake-dev as a dev dependency with the project's package manager, add a "dev:retake": "retake ." script to package.json, add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
 ```
 
 Or install the skill and run `/retake`:
