@@ -42,7 +42,7 @@ Other frameworks: `npx retake-dev -- <your dev command>`, or put it in front of 
 Paste this into Claude Code, Cursor or any coding agent:
 
 ```text
-Add Retake to this project so its timeline shows on the normal dev URL: install retake-dev as a dev dependency with the project's package manager. Next.js 16: add proxy.ts with export { default } from "retake-dev/next". Next.js 15: add middleware.ts with import retake from "retake-dev/next", export default retake, export const config = { runtime: "nodejs" }. If a proxy or middleware already exists, wrap its default export in withRetake from "retake-dev/next". Vite: add retake() from "retake-dev" to the Vite plugins. Anything else: add a "dev:retake": "retake ." script to package.json. Add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
+Add Retake to this project so its timeline shows on the normal dev URL: install retake-dev as a dev dependency with the project's package manager. Put the Next file next to the app/ folder (the root, or src/ for src/app). Next.js 16: add proxy.ts with export { default } from "retake-dev/next". Next.js 15: add middleware.ts with import retake from "retake-dev/next", export default retake, export const config = { runtime: "nodejs" }. If a proxy or middleware already exists, wrap its default export in withRetake from "retake-dev/next". Vite: add retake() from "retake-dev" to the Vite plugins. Anything else: add a "dev:retake": "retake ." script to package.json. Add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
 ```
 
 Or install the skill and run `/retake`:

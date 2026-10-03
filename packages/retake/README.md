@@ -52,9 +52,13 @@ export default defineConfig({
 `retake()` only runs in `vite dev`; `vite build` output has no Retake code in it.
 
 ### Next.js: on your usual dev URL
-Install `retake-dev` (above) and add one file in the project root (in `src/` if
-your app lives in `src/app`). Then run `next dev` / `npm run dev` as always: the
-timeline shows on your normal dev URL (http://localhost:3000), no second port.
+Install `retake-dev` (above) and add one small file. Then run `next dev` /
+`npm run dev` as always: the timeline shows on your normal dev URL
+(http://localhost:3000), no second port.
+
+Where the file goes: next to your `app/` folder. That's the project root, or
+`src/` if your app lives in `src/app` (`src/proxy.ts` / `src/middleware.ts`).
+Next 16 and Next 15 need different files: check `next` in your package.json.
 
 ```ts
 // proxy.ts (Next 16)
@@ -72,7 +76,15 @@ Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.1.tgz`): a
 `file:` or linked install is a symlink, which Turbopack doesn't follow out of the
 project, and `retake-dev/next` isn't found.
 
-Next 15 needs the Node.js runtime (Retake keeps `.retake/` on disk). It only runs in
+On Next 15 don't copy the Next 16 line into `middleware.ts`: it needs all three
+lines above, including the Node.js runtime (Retake keeps `.retake/` on disk).
+
+Open the page in a browser to see the timeline. It's added only for real page
+loads, so `curl` shows the plain page, and the first request or two right after
+`next dev` starts may arrive before Retake has loaded ("Retake timeline docked"
+prints when it has).
+
+Next 15 needs the Node.js runtime. It only runs in
 `next dev`: in `next build` / `next start` every request goes straight on, and the
 build has no dock or runtime in it.
 
