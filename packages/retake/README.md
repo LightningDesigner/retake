@@ -68,7 +68,7 @@ export default retake
 export const config = { runtime: "nodejs" }
 ```
 
-Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.0.tgz`): a
+Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.1.tgz`): a
 `file:` or linked install is a symlink, which Turbopack doesn't follow out of the
 project, and `retake-dev/next` isn't found.
 

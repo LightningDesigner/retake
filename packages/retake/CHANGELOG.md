@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0
+## 0.5.1
 
 - Notes on animations work the way web animation does: per element, on the
   animation's own clock. ⌘-click an element and it gets a row on the track with
@@ -102,6 +102,10 @@
 - Recorded animations keep their first and last keyframe values (`from`/`to`),
   delay and per-iteration duration.
 - A second skill, `retake-notes`: how a coding agent works through notes.
+
+## 0.5.0
+
+The dock folds into an icon you can drag anywhere, notes show only when paused, and timelines are named Timeline 1, Timeline 2. Everything above builds on it.
 
 ## 0.4.0
 

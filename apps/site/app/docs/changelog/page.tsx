@@ -6,6 +6,7 @@ import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
 export const metadata: Metadata = docMetadata("changelog")
 
 const toc = [
+  { id: "v0-5-1", label: "0.5.1" },
   { id: "v0-5-0", label: "0.5.0" },
   { id: "v0-4-0", label: "0.4.0" },
 ]
@@ -22,6 +23,15 @@ function Release({ id, version, tag }: { id: string; version: string; tag: strin
 export default function Changelog() {
   return (
     <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-1" version="0.5.1" tag="Animations" />
+      <ul>
+        <li><b>Next.js on its own dev URL.</b> One line in <C>proxy.ts</C> (<C>middleware.ts</C> on Next 15) and the timeline shows on <C>next dev</C>&apos;s own address. <Link href="/docs/install#nextjs">Install</Link></li>
+        <li><b>The right element.</b> ⌘-click picks what&apos;s under the pointer, SVG paths and overlays included, with a selector that matches exactly one element.</li>
+        <li><b>Each element&apos;s animations on their own clock.</b> Open one from the element&apos;s row: its keyframes, what it moves, and x, y and size at the playhead, with its path drawn on the app.</li>
+        <li><b>Notes at a frame or over a range.</b> Click a point on the animation, or drag across it (200–400 ms). Your agent gets the animation, where it&apos;s defined, the local times and values, and an exact edit for that part only.</li>
+        <li><b>Agents can read the recording.</b> MCP <C>get_moment</C>, <C>get_timeline_events</C> and <C>get_animation</C>; sources resolve through source maps to your files.</li>
+      </ul>
+
       <Release id="v0-5-0" version="0.5.0" tag="Dock" />
       <ul>
         <li><b>Collapse to an icon.</b> Drag the divider to the bottom edge, or press <K>⌥T</K>: the dock folds into a round button in the corner, keeps recording, and shows the phase as a dot. Remembered across reloads. <Link href="/docs/features#collapse">More</Link></li>
