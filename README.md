@@ -28,6 +28,20 @@ export default defineConfig({
 
 Other frameworks: `npx retake-dev -- next dev`, or put it in front of a dev server that's already running with `npx retake-dev http://localhost:3000`.
 
+## Install with your agent
+
+Paste this into Claude Code, Cursor or any coding agent:
+
+```text
+Add Retake to this project: install retake-dev as a dev dependency with the project's package manager, add a "dev:retake": "retake ." script to package.json, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
+```
+
+Or install the skill and run `/retake`:
+
+```bash
+npx skills add LightningDesigner/retake
+```
+
 ## Connect to your agent
 
 Leave a note on any element and your coding agent gets the element, its React component, the source file and line, and the moment it was at. Copy it from the dock, or register the MCP server:
