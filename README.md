@@ -1,8 +1,5 @@
 # Retake
 
-[![npm version](https://img.shields.io/npm/v/retake-dev)](https://www.npmjs.com/package/retake-dev)
-[![downloads](https://img.shields.io/npm/dm/retake-dev)](https://www.npmjs.com/package/retake-dev)
-
 **[Retake](https://retake-omega.vercel.app)** is a time machine for your dev server. A timeline docks under your app and records from the moment the page loads. Drag it back and the app is really at that moment: the DOM, the timers, the network, the animations. Try something else from there and the old take stays one click away.
 
 Works with Vite, Next.js, React Router, Remix, Astro, SvelteKit and Nuxt. Dev only: nothing ships in your build.
