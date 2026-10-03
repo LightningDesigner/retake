@@ -15,7 +15,6 @@ Retake is a dev-only timeline for the app's dev server. Nothing ships in the pro
    - bun: `bun add -d retake-dev`
 3. Make the timeline show on the project's normal dev URL. Pick one, by project:
    - **Next.js** (`next` in dependencies): add one file next to the `app/` or `pages/` folder (the project root, or `src/` when the app is in `src/app`). Check the installed Next version (`node_modules/next/package.json`).
-     - Put the file next to the `app/` folder: the project root, or `src/` when the app is in `src/app`. Check the `next` version in package.json to pick the file.
      - Next 16: `proxy.ts`
        ```ts
        export { default } from "retake-dev/next"
