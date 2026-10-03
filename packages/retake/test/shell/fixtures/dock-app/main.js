@@ -106,3 +106,11 @@ if (flags.has("bottom")) {
   bar.querySelector("button").addEventListener("click", () => (bar.dataset.clicked = String(Number(bar.dataset.clicked || 0) + 1)))
   document.body.appendChild(bar)
 }
+// ?ext: a link to another site, and a button that redirects there.
+if (flags.has("ext")) {
+  const a = document.createElement("a")
+  a.id = "ext"
+  a.href = "https://example.com/elsewhere"
+  a.textContent = "elsewhere"
+  document.body.appendChild(a)
+}

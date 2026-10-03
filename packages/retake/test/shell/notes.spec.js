@@ -59,7 +59,7 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   expect(p).toContain("Classes: card primary-card off")
   expect(p).toMatch(/Computed: .*border-radius: 8px/)
   expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, \d+ms into a \d+ms /)
-  expect(p).toContain('Timeline: "Main"')
+  expect(p).toContain('Timeline: "Timeline 1"')
 
   // Open it from the pin: the card shows the note and its clip.
   await page.locator(".canvas-pin").click()
@@ -142,9 +142,11 @@ test("agent replies show inline; the list shows this timeline's notes", async ({
   await fakeServer(page, { store, events: [{ type: "note-updated", data: { id: "n7", status: "acknowledged", replies: [{ from: "agent", text: "Changed radius to 16px in main.css", at: 1 }] } }] })
   const h = await openDock(page, DOCK_URL)
   await expect.poll(() => dock(page, (D) => D.notes[0] && D.notes[0].status)).toBe("acknowledged")
-  // The dock shows only the count; the note opens from its pin.
+  // The dock shows only the count; paused, the note opens from its pin.
   await expect(page.locator(".notes-count .n")).toHaveText("1")
   await expect(page.locator(".notes-count")).toHaveAttribute("aria-label", "1 note on this timeline")
+  await expect(page.locator('#wb-pins [data-note="n7"]')).toHaveCount(0)
+  await h.pause()
   await page.locator('#wb-pins [data-note="n7"]').click()
   await expect(page.locator("#wb-note")).toContainText("Rounder corners")
   await expect(page.locator("#wb-note .reply.agent")).toContainText("Changed radius to 16px")

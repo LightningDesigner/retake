@@ -70,7 +70,7 @@ test("F10: timelines, notes and recordings are saved and come back after a reloa
     d.notes.push({ id: "n1", t: d.branches[1].forkAt, branchId: 2, text: "hello", status: "pending", replies: [],
       el: { label: "<div#card>", text: "", selector: "#card", components: [], rect: { x: 0, y: 0, w: 10, h: 10 }, page: "/" } })
   })
-  await expect.poll(() => fake.store.session && fake.store.session.branches.map((b) => b.name)).toEqual(["Main", "Try B"])
+  await expect.poll(() => fake.store.session && fake.store.session.branches.map((b) => b.name)).toEqual(["Timeline 1", "Try B"])
   expect(fake.store.session.activeId).toBe(2)
   expect(fake.store.session.notes[0]).toMatchObject({ id: "n1", text: "hello", selector: "#card", status: "pending" })
   expect(fake.puts("session").every((p) => p.token !== undefined)).toBe(true)
@@ -80,7 +80,7 @@ test("F10: timelines, notes and recordings are saved and come back after a reloa
   await page.reload()
   // The timelines and notes come back (the reload itself opens live, see
   // reload.spec.js).
-  await expect.poll(() => D(page, (d) => d.branches.slice(0, 2).map((b) => b.name)).catch(() => null)).toEqual(["Main", "Try B"])
+  await expect.poll(() => D(page, (d) => d.branches.slice(0, 2).map((b) => b.name)).catch(() => null)).toEqual(["Timeline 1", "Try B"])
   expect(await D(page, (d) => d.notes.map((n) => n.text))).toEqual(["hello"])
   expect(await D(page, (d) => d.branches[1].end)).toBeGreaterThanOrEqual(savedEnd - 1)
   // Selecting the saved timeline brings its recording back, at its end.

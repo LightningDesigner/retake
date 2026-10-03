@@ -106,6 +106,14 @@ const fmt = (ms) => {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(2).padStart(5, "0")}`
 }
 
+// Older sessions named timelines "Main" and "Take N"; the dock now shows
+// those defaults as "Timeline N" (migratedName in shell/10-dock.js).
+function withNames(session) {
+  if (!session || !Array.isArray(session.branches)) return session
+  const old = (b) => (String(b.id) === "1" ? "Main" : `Take ${b.id}`)
+  return { ...session, branches: session.branches.map((b) => (b.name === old(b) ? { ...b, name: `Timeline ${b.id}` } : b)) }
+}
+
 function summary(n, session) {
   const b = (session.branches || []).find((x) => String(x.id) === String(n.branchId))
   return {
@@ -197,6 +205,7 @@ const TOOLS = [
 const isOpen = (n) => !n.status || n.status === "pending" || n.status === "acknowledged"
 
 export function createTools(client) {
+  const readSession = async () => withNames(await client.session())
   const byId = async (id) => {
     const note = await client.note(id).catch((err) => {
       if (/→ 404/.test(err.message)) throw new Error(`no note with id ${id}; list_notes shows the ids`)
@@ -206,16 +215,16 @@ export function createTools(client) {
   }
   const handlers = {
     async list_notes({ status = "open" } = {}) {
-      const session = await client.session()
+      const session = await readSession()
       const notes = (session.notes || []).filter((n) => (status === "all" ? true : status === "open" ? isOpen(n) : (n.status || "pending") === status))
       return { count: notes.length, notes: notes.map((n) => summary(n, session)) }
     },
     async get_note({ id }) {
-      const [session, note] = await Promise.all([client.session(), byId(id)])
+      const [session, note] = await Promise.all([readSession(), byId(id)])
       return describe(note, session)
     },
     async get_active_timeline() {
-      const session = await client.session()
+      const session = await readSession()
       const branches = session.branches || []
       const active = branches.find((b) => String(b.id) === String(session.activeId)) || null
       const parent = active && branches.find((b) => String(b.id) === String(active.parentId))
@@ -245,12 +254,12 @@ export function createTools(client) {
     async watch_notes({ timeout_seconds = 60 } = {}) {
       const ms = Math.min(Math.max(Number(timeout_seconds) || 60, 1), 600) * 1000
       const key = (n) => `${n.status || "pending"}|${(n.replies || []).filter((r) => r.from === "user").length}|${n.text}`
-      const before = new Map(((await client.session()).notes || []).map((n) => [String(n.id), key(n)]))
+      const before = new Map(((await readSession()).notes || []).map((n) => [String(n.id), key(n)]))
       const deadline = Date.now() + ms
       while (Date.now() < deadline) {
         const got = await client.nextEvent(["session", "note-updated"], deadline - Date.now())
         if (!got) break
-        const session = await client.session()
+        const session = await readSession()
         const changed = (session.notes || []).filter((n) => before.get(String(n.id)) !== key(n))
         // Ignore what agents did (replies from "agent" don't change the key).
         if (changed.length) return { changed: changed.map((n) => ({ ...summary(n, session), new: !before.has(String(n.id)) })) }

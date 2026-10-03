@@ -1,4 +1,4 @@
-// MOCK — not part of the dock. A stand-in for the runtime's timeline API
+// MOCK: not part of the dock. A stand-in for the runtime's timeline API
 // (CONTRACT.md: timeline(), clipAt(), isInteractive(), setToolActive()) for
 // shell specs to run against before or apart from the real one. Specs inject
 // it into every frame with page.addInitScript({ path }). It fills in only what

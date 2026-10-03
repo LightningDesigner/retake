@@ -520,6 +520,10 @@ function dockKey(e, fromApp) {
     stepBy(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)
     return true
   }
+  if (e.altKey && e.code === "KeyT") {
+    setCollapsed(!D.collapsed)
+    return true
+  }
   if (e.altKey) return false
   if (e.code === "KeyF") {
     fitAll()

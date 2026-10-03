@@ -12,6 +12,8 @@ interface Window {
 interface Window {
   /** A handle for tests and debugging (90-handle.js). */
   __retakeDock: any
+  /** In the frame on show: the px the dock covers at the bottom (10-dock.js tellDock). */
+  __retakeDockHeight?: number
 }
 interface HTMLIFrameElement {
   /** What a frame being built takes over (10-dock.js makeFrame). */

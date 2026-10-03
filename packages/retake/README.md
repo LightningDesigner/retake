@@ -1,7 +1,7 @@
 # Retake
 
 A time machine for your dev server: Vite apps, Next.js, React Router and other
-frameworks. A timeline docks over the bottom of your app and records everything from page load. Drag it back and the app is at that
+frameworks. A timeline docks over the bottom of your app and records from page load. Drag it back and the app is at that
 moment. Ctrl-click the timeline to start a new take from there; the old one
 stays as a lane you can click back into. Dev only: nothing ships in builds.
 
@@ -81,6 +81,17 @@ Acknowledging and resolving show up on the note in the dock right away.
    the element, its React component, source file:line and CSS; or let your
    agent pick it up over MCP.
 
+### The dock
+- **Keys**: space or ⌥P plays and pauses, ←/→ step, F fits everything, + starts
+  a new timeline at the playhead, M drops a bookmark, ⌥T folds the dock away.
+- **Resize** by dragging the divider at its top. Drag it all the way down and
+  the timeline folds into a round button (bottom-right at first): the whole
+  window is the app's, and recording carries on. Drag the button anywhere; it
+  keeps to the nearer side edge. Click it (or ⌥T) to bring the dock back.
+  Folded or not, and where the button sits, are remembered across reloads.
+- **Notes show when paused.** While the app is live or playing, note pins stay
+  off it (the count on the notes icon stays). Pause and the notes come back.
+
 ### Uninstall
 ```sh
 npm uninstall retake-dev          # or pnpm remove / yarn remove / bun remove
@@ -136,9 +147,9 @@ the package manager its lockfile names):
 
 Tested means: the app hydrates in the dock with no warning, and recording, scrubbing back, the rebuilt moment, Play, hot
 updates and reloads all work, started either way (`retake .` or `retake http://localhost:…`). The untested ones go
-through the same front server and should work; say so if one doesn't.
+through the same front server and should work; open an issue if one doesn't.
 
-- **Which port?** Retake sets `PORT` to a free port for the dev command (or keeps
+- **Ports.** Retake sets `PORT` to a free port for the dev command (or keeps
   yours), and otherwise uses the first `http://localhost:…` the command prints, so
   tools that ignore `PORT` work too. Ctrl-C stops the dev server with it.
 - **The plugin in a Vite-based framework.** With `retake()` in `vite.config` and
@@ -160,9 +171,10 @@ through the same front server and should work; say so if one doesn't.
   is left out of the recording, and a rebuilt moment gets the page's HTML as it
   was recorded (kept in `.retake/docs/`), not rendered again. Native `import()`
   (Vite's lazy routes, Astro islands) can't be held to its moment.
-- **Bottom of the app hidden by the dock?** The dock floats over the bottom of
+- **The dock covers the bottom of the app.** It floats over the bottom of
   the app (a cookie banner's buttons, Next's dev badge). Drag the dock's divider
-  down, or open the app with `?retake=0`.
+  down (all the way down folds it into a button in the corner, as does ⌥T), or
+  open the app with `?retake=0`.
 - **Not rewound.** Retake rewinds the browser, not your server: database writes,
   server sessions and server-action side effects stay as they are (replays answer
   from the recording). Service workers are off while Retake is in front, and
@@ -172,6 +184,23 @@ through the same front server and should work; say so if one doesn't.
 you're on takes the new code; the others keep theirs. Stepping into a timeline
 checks its code out on disk (snapshots are kept in `.retake/`, and the newest
 code is put back when the server stops), but use it on prototypes, not shared repos.
+
+## The dock without a Retake server
+
+`shellHtml(options)` (exported from `retake-dev`) returns the dock page, for a
+host that serves it itself, such as a deployed demo. With no Retake server
+behind it, pass `server: false`: the dock then never requests `/__retake/` (no
+session fetch, so no 404 in the console) and keeps timelines and notes in memory
+for the page.
+
+```js
+import { shellHtml } from "retake-dev"
+const html = shellHtml({ marker: "header", server: false })
+```
+
+`markSvg()` returns Retake's mark (the folded button's icon) as an SVG string:
+a 24×24 viewBox, the arc and the played part in `currentColor`, the rest white,
+for a dark background.
 
 ## How going back works
 

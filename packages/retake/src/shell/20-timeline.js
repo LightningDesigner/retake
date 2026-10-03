@@ -41,7 +41,6 @@ const MONO = '10px "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace'
 
 const tip = $("#wb-tip")
 const gutter = $(".gutter")
-const liveBtn = $(".live-btn")
 const readoutT = $(".readout .t")
 // Minutes and seconds, then the hundredths dimmer.
 readoutT.innerHTML = '<span class="ms"></span><span class="cs"></span>'
@@ -100,7 +99,7 @@ function setView(from, to, { animate = true } = {}) {
   const r = pinStart({ from: mid - span / 2, to: mid + span / 2 }, D.last)
   D.view.fit = false
   D.view.followSpan = r.to - r.from
-  if (D.last && D.last.playing) D.view.detached = true
+  if (D.last && D.last.playing) (D.view.detached = true), (D.view.detachedAt = performance.now())
   if (animate) D.view.target = r
   else {
     D.view.from = r.from
@@ -117,6 +116,8 @@ function fitRange(a, b) {
   const pad = Math.max((b - a) * 0.15, 10)
   setView(a - pad, b + pad)
 }
+// How long a manual scroll of a live timeline holds the view before it follows again.
+const FOLLOW_AGAIN_MS = 3000
 function followLive() {
   D.view.detached = false
   D.view.fit = false
@@ -131,6 +132,8 @@ function stepView(s) {
   const v = D.view
   // Started playing: follow again. Paused: stay exactly where it is.
   if (s.playing && !v.wasPlaying) v.detached = false
+  // Scrolled away while it records: it follows again once you leave it alone.
+  if (s.playing && !s.future && v.detached && now - (v.detachedAt || 0) > FOLLOW_AGAIN_MS) v.detached = false
   if (!s.playing && v.wasPlaying) {
     v.fit = false
     v.target = null
@@ -310,11 +313,13 @@ function drawRuler(g, s, xNow) {
     const isMajor = rel % major === 0
     ctx.fillStyle = isMajor ? INK.dim : INK.faint
     ctx.fillRect(x - 0.5, RULER - (isMajor ? 6 : 3), 1, isMajor ? 5 : 2)
-    // A label the playhead's cap would sit on is left out.
-    if (isMajor && !(x + 3 < xNow + 8 && x + 36 > xNow - 8)) {
+    // A label that would run past the right edge is left out.
+    if (isMajor) {
+      const text = label(t)
+      if (x + 3 + ctx.measureText(text).width > g.w) continue
       ctx.fillStyle = INK.dim
-      ctx.fillText(label(t), x + 3, RULER - 8)
-      labels.push(label(t))
+      ctx.fillText(text, x + 3, RULER - 8)
+      labels.push(text)
     }
   }
   return labels
@@ -457,7 +462,6 @@ function renderTimeline(s, shownT) {
   D.lanes = lanes
   renderGutter(lanes)
   const following = s.playing && !D.view.detached
-  liveBtn.hidden = !(s.playing && !s.future && D.view.detached)
   checkPendingFork(s)
 
   if (band.id !== D.activeId) {
@@ -702,11 +706,13 @@ function renderHead(s, shownT) {
   hintEl.classList.remove("show", "warn")
 }
 
-// A short message in the hint's place (a refused checkout, say).
-function flash(msg) {
-  flashUntil = performance.now() + 3500
+// A short message in the hint's place: a warning (a refused checkout, say),
+// or with `warn: false` news ("Timeline 2 started").
+function flash(msg, { warn = true } = {}) {
+  flashUntil = performance.now() + (warn ? 3500 : 2500)
   hintEl.textContent = msg
-  hintEl.classList.add("show", "warn")
+  hintEl.classList.add("show")
+  hintEl.classList.toggle("warn", warn)
 }
 
 // ---- a new timeline from a chosen moment -------------------------------------------

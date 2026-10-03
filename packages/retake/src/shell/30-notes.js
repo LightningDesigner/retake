@@ -821,15 +821,17 @@ function renderExtras(s) {
   if (D.scopeEl && D.scopeEl.isConnected) boxAt(D.scopeEl, scopeBox)
   else scopeBox.style.display = "none"
 
-  // Numbered pins on the notes of the branch in view.
+  // Numbered pins on the notes of the branch in view, only while it's paused:
+  // live or playing, the app is left alone (the count still says how many).
+  const paused = !s.playing && !(D.building && D.building.play)
+  if (!paused && openNote) closeCard()
   let doc = null
   try {
     doc = D.frame.contentDocument
   } catch {}
-  const f = D.frame.getBoundingClientRect()
   const seen = new Set()
   D.notes.forEach((n, i) => {
-    if (n.branchId !== D.activeId || !doc || s.seeking) return
+    if (n.branchId !== D.activeId || !doc || s.seeking || !paused) return
     const p = anchorOf(n.el)
     let pin = pinEls.get(n.id)
     if (!pin) {

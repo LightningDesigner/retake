@@ -27,7 +27,7 @@ test("tree: one lane", async ({ page }) => {
   await recordSome(h, ["#toggle", "#spinner"])
   await h.pause()
   await page.waitForTimeout(300)
-  expect(await dock(page, (D) => D.branches[0].name)).toBe("Main")
+  expect(await dock(page, (D) => D.branches[0].name)).toBe("Timeline 1")
   await shot(page, "dock-tree-1-lane.png")
 })
 
@@ -49,7 +49,7 @@ test("tree: 5 lanes with three siblings from one fork and a grandchild; nothing 
   await h.settle()
   await page.waitForTimeout(400)
   const names = await dock(page, (D) => D.branches.map((b) => b.name))
-  expect(names).toEqual(["Main", "Take 2", "Take 3", "Take 4", "Take 5"])
+  expect(names).toEqual(["Timeline 1", "Timeline 2", "Timeline 3", "Timeline 4", "Timeline 5"])
   // Geometry: every child sits below its parent; the rows between them are
   // empty at the fork moment (they start at or after it).
   const geo = await dock(page, (D) => ({

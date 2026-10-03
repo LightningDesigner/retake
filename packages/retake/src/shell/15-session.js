@@ -2,11 +2,13 @@
 // (/__retake/session, kept on disk under <project>/.retake/) so a reload or a
 // restart doesn't lose them; each timeline's recording goes to
 // /__retake/recording/:id. Agents reply to notes over /__retake/events.
-// When the server has no session API (it answers 404), everything stays in
-// memory for this page.
+// When the server has no session API (it answers 404), or the page says
+// there's no server at all (`__retakeConfig.server === false`, a static
+// deploy), everything stays in memory for this page.
 const TOKEN = window.__RETAKE_TOKEN || ""
+const SERVER = !(window.__retakeConfig && window.__retakeConfig.server === false)
 const net = {
-  on: true, // false: in-memory only
+  on: SERVER, // false: in-memory only
   restoring: true, // nothing is saved until what's on disk has been read
   savedSession: null, // the last session body the server has
   savedRec: new Map(), // branch id → the recording string the server has
@@ -40,7 +42,7 @@ function sessionBody() {
 }
 
 function applySession(s) {
-  D.branches = s.branches.map((b) => ({ ...b, version: b.codeVersion || undefined, json: null, end: b.end ?? b.forkAt, born: -1e9 }))
+  D.branches = s.branches.map((b) => ({ ...b, name: migratedName(b), version: b.codeVersion || undefined, json: null, end: b.end ?? b.forkAt, born: -1e9 }))
   D.branchSeq = Math.max(0, ...D.branches.map((b) => b.id))
   D.activeId = D.branches.some((b) => b.id === s.activeId) ? s.activeId : D.branches[0].id
   D.markers = Array.isArray(s.markers) ? s.markers : []
@@ -83,6 +85,7 @@ async function restore() {
     return b.id
   }
   try {
+    if (!SERVER) return
     const r = await api("GET", "session")
     if (r.missing) {
       net.on = false
@@ -93,7 +96,7 @@ async function restore() {
     applySession(s)
     net.savedSession = JSON.stringify(sessionBody())
     known = true
-    const json = await recordingOf(activeBranch())
+    const json = newerThanSaved(await recordingOf(activeBranch()))
     if (D.frame) {
       // Opened fresh already (the session was slow): that visit is its own.
       D.frameBranch = ownTimeline()
@@ -118,6 +121,53 @@ async function restore() {
     net.restoring = false
   }
 }
+
+// Leaving the page (a new address typed in, a reload of the dock) while
+// recording: the server has the recording as it was at the last save, up to
+// five seconds ago. What came after is kept in this tab's sessionStorage on
+// the way out, and restore() carries on from it (F78).
+const LIVE_KEY = KEY + "live"
+function takeLiveStash() {
+  try {
+    const v = sessionStorage.getItem(LIVE_KEY)
+    sessionStorage.removeItem(LIVE_KEY) // the app's frame shares this storage
+    return v ? JSON.parse(v) : null
+  } catch {
+    return null
+  }
+}
+const liveStash = SERVER ? takeLiveStash() : null
+// The saved recording, or what this tab kept of the same recording (same
+// timeline, same epoch) when it's further along.
+function newerThanSaved(json) {
+  const kept = liveStash
+  if (!json || !kept || kept.branchId !== D.activeId || typeof kept.rec !== "string") return json
+  try {
+    const saved = JSON.parse(json)
+    const rec = JSON.parse(kept.rec)
+    if (rec.epoch !== saved.epoch || !(rec.end > saved.end)) return json
+  } catch {
+    return json
+  }
+  activeBranch().json = kept.rec
+  return kept.rec
+}
+window.addEventListener("pagehide", () => {
+  if (!net.on || net.restoring || net.hold || !D.PT || D.building || D.frameBranch !== D.activeId) return
+  try {
+    const s = D.PT.state()
+    if (!s.started || s.seeking) return
+    const rec = JSON.stringify(D.PT.history())
+    if (rec === net.savedRec.get(D.activeId)) return
+    sessionStorage.setItem(LIVE_KEY, JSON.stringify({ branchId: D.activeId, rec }))
+  } catch {}
+})
+// Back from the back/forward cache: this page carries on, nothing to keep.
+window.addEventListener("pageshow", (e) => {
+  try {
+    if (e.persisted) sessionStorage.removeItem(LIVE_KEY)
+  } catch {}
+})
 
 // The active timeline's recording is saved when it's still (paused), and every
 // few seconds while it's live.

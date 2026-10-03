@@ -12,7 +12,7 @@ import { createBus, sessionApi } from "./server/api.js"
 import { frontRuntime } from "./server/detect.js"
 
 // The site's deployed build (apps/site/app/retake-dock, retake-runtime) and the tests import these from here.
-export { runtimeSource, shellHtml, runtimeTag, injectHtml } from "./core.js"
+export { runtimeSource, shellHtml, runtimeTag, injectHtml, markSvg } from "./core.js"
 
 const NESTED_DEST = new Set(["iframe", "frame", "embed", "object"])
 const pageKind = new AsyncLocalStorage()

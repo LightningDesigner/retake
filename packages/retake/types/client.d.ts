@@ -69,5 +69,14 @@ export interface RetakeRuntime {
 declare global {
   interface Window {
     __retake?: RetakeRuntime | { readonly inert: true }
+    /**
+     * In the dock's frame: how many px the dock covers at the bottom of the
+     * page (0 when it's folded away). A `retake:dock` event on `window`
+     * (`detail: { height }`) says when it changes.
+     */
+    __retakeDockHeight?: number
+  }
+  interface WindowEventMap {
+    "retake:dock": CustomEvent<{ height: number }>
   }
 }

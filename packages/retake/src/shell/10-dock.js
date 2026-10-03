@@ -8,9 +8,14 @@ const dock = $("#wb-dock")
 const track = $(".track")
 const cv = $(".lines") // the timeline canvas
 
+// Timelines are "Timeline 1", "Timeline 2"... until the user renames one.
+const defaultName = (id) => `Timeline ${id}`
+// Older sessions named them "Main" and "Take N": those defaults
+// (and only those) read as the new ones.
+const migratedName = (b) => (b.name === (b.id === 1 ? "Main" : `Take ${b.id}`) ? defaultName(b.id) : b.name)
 const newBranch = (forkAt, parentId = null) => {
   const id = ++D.branchSeq
-  const b = { id, name: id === 1 ? "Main" : `Take ${id}`, forkAt, parentId, json: null, end: forkAt, born: performance.now() }
+  const b = { id, name: defaultName(id), forkAt, parentId, json: null, end: forkAt, born: performance.now() }
   D.branches.push(b)
   return b
 }
@@ -257,6 +262,7 @@ window.__retakeShell = {
     b.version = old.version // a new timeline starts on its parent's code
     D.activeId = b.id
     D.frameBranch = b.id // the visible frame carries on as the new timeline
+    flash(`${b.name} started`, { warn: false })
   },
 }
 
@@ -548,6 +554,7 @@ function render() {
   const dh = dockHeight()
   dock.style.height = dh + "px"
   document.body.style.setProperty("--dock-h", dh + "px")
+  tellDock(D.collapsed ? 0 : dh)
   if (!s || !D.frame) return
   autoStart(s)
   if (D.perfNoDraw) return // (perf measurements: the runtime alone)
@@ -561,6 +568,20 @@ function render() {
   renderShield(s)
   if (s.started) renderTimeline(s, shownT)
   renderExtras(s)
+  if (D.collapsed && fab.dataset.phase !== readoutPhase.dataset.phase) fab.dataset.phase = readoutPhase.dataset.phase
+}
+
+// The app is full-window under the dock. So that it can leave room, the frame
+// on show gets `window.__retakeDockHeight` (the px the dock covers at the
+// bottom, 0 when folded) and a `retake:dock` event ({ detail: { height } })
+// whenever that changes.
+function tellDock(height) {
+  try {
+    const win = /** @type {any} */ (D.frame && D.frame.contentWindow)
+    if (!win || win.__retakeDockHeight === height) return
+    win.__retakeDockHeight = height
+    win.dispatchEvent(new win.CustomEvent("retake:dock", { detail: { height } }))
+  } catch {}
 }
 
 // A frame built behind can take the window's focus (its replay focused a
@@ -672,6 +693,7 @@ document.addEventListener("click", (e) => {
     return
   }
   const a = b.dataset.a
+  if (a === "expand") return setCollapsed(false)
   if (a === "play") togglePlay()
   if (a === "fresh") return startFresh()
   if (a === "undo") return undoFresh()
@@ -695,34 +717,185 @@ document.addEventListener("click", (e) => {
 // The dock never grows by itself (that would resize the app mid-recording);
 // only the divider changes it.
 const MIN_H = 96
+const DEFAULT_H = 200
 // Never so short that the lanes (at their closest) don't fit under the ruler.
+const minDockHeight = () => Math.max(MIN_H, 56 + 24 + D.branches.length * 10 + 16)
 const dockHeight = () => {
-  const min = Math.max(MIN_H, 56 + 24 + D.branches.length * 10 + 16)
+  const min = minDockHeight()
   return Math.round(clamp(D.height, min, Math.max(min, innerHeight * 0.7)))
 }
 
-// Resize by dragging the top edge, like docked DevTools.
+// Resize by dragging the top edge, like docked DevTools. Below the minimum
+// height the dock keeps following the pointer: it slides down (a transform, so
+// neither its layout nor the app's changes mid-drag) all the way off the edge.
+// Let go far enough down and it settles into the corner icon; anywhere higher
+// it springs back up to the minimum.
 const divider = $(".divider")
 divider.addEventListener("pointerdown", (e) => {
   divider.setPointerCapture(e.pointerId)
   document.body.classList.add("dragging")
   const startY = e.clientY
   const startH = dock.offsetHeight
-  const move = (ev) => {
-    D.height = Math.round(clamp(startH + startY - ev.clientY, MIN_H, innerHeight * 0.7))
+  const min = minDockHeight()
+  let fold = false
+  let lastY = startY
+  let raf = 0
+  // One write per frame, whatever the pointer's rate.
+  const paint = () => {
+    raf = 0
+    const want = startH + startY - lastY
+    D.height = Math.round(clamp(want, min, innerHeight * 0.7))
+    const drop = clamp(min - want, 0, min + 24)
+    fold = drop > min / 2 || lastY >= innerHeight - FOLD_EDGE
+    dock.style.transform = drop ? `translateY(${drop}px)` : ""
+    dock.classList.toggle("will-collapse", fold)
   }
-  const up = () => {
+  const move = (ev) => {
+    lastY = ev.clientY
+    if (!raf) raf = requestAnimationFrame(paint)
+  }
+  // A touch the browser takes back (pointercancel) ends the drag too, or the
+  // app would stay unclickable under body.dragging.
+  const up = (ev) => {
+    for (const type of ["pointermove", "pointerup", "pointercancel", "lostpointercapture"]) divider.removeEventListener(type, type === "pointermove" ? move : up)
+    if (raf) cancelAnimationFrame(raf)
+    if (ev.type !== "pointercancel" && ev.type !== "lostpointercapture") {
+      lastY = ev.clientY
+      paint()
+    }
+    // From where the finger left it: on into the icon, or back up.
     document.body.classList.remove("dragging")
-    divider.removeEventListener("pointermove", move)
-    divider.removeEventListener("pointerup", up)
+    dock.classList.remove("will-collapse")
+    dock.style.transform = ""
     store.set("height", D.height)
+    if (fold && ev.type !== "pointercancel") setCollapsed(true)
   }
   divider.addEventListener("pointermove", move)
-  divider.addEventListener("pointerup", up)
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) divider.addEventListener(type, up)
 })
+
+// Folded: the timeline is a round button (bottom-right at first) and the app
+// has the whole window. It keeps recording; the button (or ⌥T) brings the dock
+// back at its default height. Remembered across reloads.
+const FOLD_EDGE = 48 // px from the bottom edge: let go there and it folds
+const fab = $("#wb-fab")
+function applyCollapsed() {
+  document.body.classList.toggle("collapsed", D.collapsed)
+  fab.hidden = !D.collapsed
+  dock.inert = D.collapsed
+  if (D.collapsed) placeFab()
+}
+
+// The button can be dragged anywhere (mouse or finger). Past a few px it's a
+// drag, not a click; let go and it eases to the nearer side edge. Where it is
+// (`D.fab`: that side, and how far down) is stored, so a reload or a resized
+// window puts it back in the same place, always fully on screen.
+const FAB_SIZE = 44
+const FAB_MARGIN = 16
+const FAB_SLOP = 5 // px a press may move and still be a click
+let fabDragged = false // the press that just ended was a drag: not a click
+// The notch and the home bar (viewport-fit=cover), measured once per layout.
+const safeProbe = document.createElement("div")
+safeProbe.style.cssText =
+  "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)"
+document.body.appendChild(safeProbe)
+function fabBounds() {
+  const cs = getComputedStyle(safeProbe)
+  const left = FAB_MARGIN + (parseFloat(cs.paddingLeft) || 0)
+  const top = FAB_MARGIN + (parseFloat(cs.paddingTop) || 0)
+  const right = Math.max(left, innerWidth - FAB_SIZE - FAB_MARGIN - (parseFloat(cs.paddingRight) || 0))
+  const bottom = Math.max(top, innerHeight - FAB_SIZE - FAB_MARGIN - (parseFloat(cs.paddingBottom) || 0))
+  return { left, top, right, bottom }
+}
+function moveFab(x, y) {
+  fab.style.left = Math.round(x) + "px"
+  fab.style.top = Math.round(y) + "px"
+}
+function placeFab() {
+  const b = fabBounds()
+  moveFab(D.fab.side === "left" ? b.left : b.right, b.top + D.fab.y * (b.bottom - b.top))
+}
+applyCollapsed()
+addEventListener("resize", () => D.collapsed && !fab.classList.contains("moving") && placeFab())
+
+fab.addEventListener("pointerdown", (e) => {
+  fabDragged = false
+  if (e.button !== 0) return
+  const r = fab.getBoundingClientRect()
+  const grabX = e.clientX - r.left
+  const grabY = e.clientY - r.top
+  const x0 = e.clientX
+  const y0 = e.clientY
+  let moving = false
+  fab.setPointerCapture(e.pointerId)
+  const move = (ev) => {
+    if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < FAB_SLOP) return
+    if (!moving) {
+      moving = true
+      fab.classList.remove("snapping")
+      fab.classList.add("moving")
+    }
+    const b = fabBounds()
+    moveFab(clamp(ev.clientX - grabX, b.left, b.right), clamp(ev.clientY - grabY, b.top, b.bottom))
+  }
+  const up = () => {
+    for (const type of ["pointermove", "pointerup", "pointercancel"]) fab.removeEventListener(type, type === "pointermove" ? move : up)
+    if (!moving) return
+    fabDragged = true
+    fab.classList.remove("moving")
+    // Where it was let go (its left/top: the rect would include the lift's scale).
+    const b = fabBounds()
+    const x = parseFloat(fab.style.left) || 0
+    const y = parseFloat(fab.style.top) || 0
+    D.fab = {
+      side: x + FAB_SIZE / 2 < innerWidth / 2 ? "left" : "right",
+      y: b.bottom > b.top ? clamp((y - b.top) / (b.bottom - b.top), 0, 1) : 1,
+    }
+    store.set("fab", D.fab)
+    fab.classList.add("snapping")
+    placeFab()
+    setTimeout(() => fab.classList.remove("snapping"), 400)
+  }
+  fab.addEventListener("pointermove", move)
+  fab.addEventListener("pointerup", up)
+  fab.addEventListener("pointercancel", up)
+})
+// The click that ends a drag doesn't open the dock.
+fab.addEventListener(
+  "click",
+  (e) => {
+    if (!fabDragged) return
+    fabDragged = false
+    e.stopPropagation()
+    e.preventDefault()
+  },
+  true,
+)
+function setCollapsed(on) {
+  if (on === D.collapsed) return
+  const hadFocus = on ? dock.contains(document.activeElement) : document.activeElement === fab
+  if (on) {
+    setPicking(null)
+    closeCard()
+  } else {
+    D.height = DEFAULT_H
+    store.set("height", D.height)
+  }
+  D.collapsed = on
+  store.set("collapsed", on)
+  applyCollapsed()
+  if (hadFocus) (on ? fab : playBtn).focus({ preventScroll: true })
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Meta") return window.__retakeShell.meta(true)
+  // The corner button is a real button: Enter and Space press it.
+  if (e.target === fab && (e.key === "Enter" || e.code === "Space")) return
+  // Not while typing in the dock (a note, a timeline's name): ⌥T types there († on a Mac).
+  if (e.altKey && e.code === "KeyT" && !typing(e.target)) {
+    e.preventDefault()
+    return setCollapsed(!D.collapsed)
+  }
   if (e.key === "Escape") {
     setPicking(null)
     closeCard()

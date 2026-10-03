@@ -14,6 +14,10 @@ Owners: S1 = src/runtime, src/core.js, src/plugin.js, src/code-versions.js, src/
 - Selecting (switching to) a timeline loads it at the current moment, PAUSED. Never auto-play.
 - Play from the past replays the recording; at its end it carries on live, recording.
 - Recording is on from page load. The dock has "Start fresh", which clears the session.
+- Note pins (and an open note) show on the app only while paused; live or playing, only the count on the notes icon shows.
+- The dock is expanded on a first visit (nothing stored). It folds into a round "Show timeline" button (divider dragged down past half its minimum height or to the bottom edge, or ⌥T); recording carries on, and the button (click, Enter, Space) brings the dock back at its default height. Stored as `retake:collapsed` in localStorage. The button starts bottom-right and can be dragged anywhere (past 5px a press is a drag, not a click); on release it snaps to the nearer side edge, and `retake:fab` stores `{ side: "left"|"right", y: 0…1 }` (how far down the free height), so it stays on screen through resizes and reloads.
+- Default timeline names are "Timeline N" (N = the branch id); a stored "Main" (id 1) or "Take N" (id N) reads, and is saved back, as "Timeline N". The MCP tools report the same names. A new timeline shows "Timeline N started" in the hint.
+- The app's frame fills the window under the dock. The frame on show has `window.__retakeDockHeight` (px the dock covers at the bottom, 0 when folded) and gets a `retake:dock` event (`detail: { height }`) when it changes, so a page can leave room. ⌥T is not the dock's while typing in a dock field.
 
 ## Runtime API (window.__retake in the app frame)
 timeline() → { now, end, viewport: {w,h},
@@ -83,7 +87,8 @@ anywhere else `window.__retake = { inert: true }` and the runtime returns at onc
 `RT` (the runtime's config, `runtimeSource(rt)`): { marker: "url"|"header", bootAt: "dcl"|"load", exemptUrls: [regexp sources],
 holdScripts, next: Next major|null, docId, docStored }. The Vite plugin passes nothing (marker "url", clock at
 DOMContentLoaded, nothing held or exempted by URL). The site's deployed Next build (apps/site/proxy.js, no Retake server behind it)
-passes { marker: "header", bootAt: "load", holdScripts: true } and its docks are `shellHtml({ marker: "header" })` (no token, no docs). The front server (and the plugin's no-index.html path) uses `frontRuntime(framework)`
+passes { marker: "header", bootAt: "load", holdScripts: true } and its docks are `shellHtml({ marker: "header", server: false })` (no token, no docs).
+`shellHtml({ server: false })` sets `__retakeConfig.server = false`: the dock never requests `/__retake/` (no session, recordings, notes or events) and keeps everything in memory. `markSvg()` (core.js, exported by the package) is `src/mark.svg`, the folded button's icon (`<!--MARK-->` in shell.html), for the site's favicon too. The front server (and the plugin's no-index.html path) uses `frontRuntime(framework)`
 (server/detect.js): clock at `load`, then once nothing has loaded for 150 ms (F47, F61), scripts added later held to their recorded moment (F48), the framework's dev URLs exempt (F54) (and, by header, Next's HMR refetch `next-hmr-refresh: 1`, F77),
 `next` for Next 16's debug channel (F49). Fronting a bare URL or `-- <cmd>`, Next is recognised by its first page's X-Powered-By;
 with no project to read its version from, `next: "auto"` and the runtime reads `window.next.version` (F59).
@@ -105,3 +110,5 @@ socket gets an `id` of its own (`<__next_r>-retake-…`): Next keeps one socket 
 
 ## Fallback
 S2 must work if endpoints 404 or timeline() is missing: in-memory state + a labelled mock in src/shell/mock/.
+With `__retakeConfig.server === false` it doesn't ask at all.
+Leaving the page while recording (pagehide), the dock keeps the active recording in sessionStorage (`retake:live`: { branchId, rec }) when the server's copy is behind; the next load of the dock in that tab takes it (and removes it) and carries on from it if it's the same recording (same `epoch`) and further along (F78).

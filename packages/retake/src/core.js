@@ -39,6 +39,11 @@ export function runtimeSource(rt = {}) {
   return `;(function () {\n"use strict";\nif (window.__retake) return;\nconst RT = Object.freeze(${config});\n${body}\n})();`
 }
 
+// Retake's mark (src/mark.svg): a playhead on a track with an arc back to it.
+// 24×24, the arc and the played part in `currentColor`, the rest white. The
+// dock's folded button uses it; so can a favicon (on a dark tile).
+export const markSvg = () => read("mark.svg").trim()
+
 /** @param {import("../types/index.js").ShellOptions} [options] */
 export function shellHtml(options = {}) {
   const config = {
@@ -48,12 +53,16 @@ export function shellHtml(options = {}) {
     ...(options.marker && options.marker !== "url" ? { marker: options.marker } : {}),
     // Behind the front server: rebuilds ask for the page as it was recorded (F56).
     ...(options.docs ? { docs: true } : {}),
+    // No Retake server behind it (a static or serverless deploy): the dock
+    // never asks /__retake/ for anything and keeps the session in memory.
+    ...(options.server === false ? { server: false } : {}),
   }
   return read("shell", "shell.html")
     .replace(
       "/*CONFIG*/",
       () => `window.__retakeConfig = ${JSON.stringify(config)};` + (options.token ? `window.__RETAKE_TOKEN = ${JSON.stringify(options.token)};` : ""),
     )
+    .replace("<!--MARK-->", () => markSvg().replace("<svg ", '<svg width="22" height="22" aria-hidden="true" '))
     .replace("/*CSS*/", () => read("shell", "shell.css"))
     .replace("/*JS*/", () => {
       const files = setFiles("shell")

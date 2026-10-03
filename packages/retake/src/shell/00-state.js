@@ -19,6 +19,9 @@ const store = {
   },
 }
 
+const fabPos = (v) =>
+  v && (v.side === "left" || v.side === "right") && Number.isFinite(v.y) ? { side: v.side, y: Math.min(1, Math.max(0, v.y)) } : { side: "right", y: 1 }
+
 const D = {
   // frames
   frame: null, // the visible prototype frame
@@ -59,6 +62,10 @@ const D = {
   scopeEl: null, // the element the Select tool scoped scrubbing to
   // dock size
   height: store.get("height", 200),
+  collapsed: store.get("collapsed", false) === true, // folded into the corner button (10-dock.js)
+  // Where that button sits: the side it's snapped to and how far down the
+  // window (0 top … 1 bottom), so it stays put through a resize (10-dock.js).
+  fab: fabPos(store.get("fab", null)),
   view: null, // the window of time on the timeline (20-timeline.js)
 }
 

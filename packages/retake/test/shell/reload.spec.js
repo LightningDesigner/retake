@@ -55,8 +55,8 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
   expect(h.dockErrors).toEqual([])
 })
 
-// F78: the last few seconds before a typed-in URL are lost, so going back to them shows the new page.
-test.fail("F78 a new URL typed while recording keeps the last seconds: going back to them brings the old page back", async ({ page }) => {
+// F78: the last few seconds before a typed-in URL were lost (saved every 5s while live); they are kept in sessionStorage on pagehide.
+test("F78 a new URL typed while recording keeps the last seconds: going back to them brings the old page back", async ({ page }) => {
   const fake = await fakeServer(page)
   const h = await openDock(page, DOCK_URL)
   await recordSome(h, ["#toggle", "#toggle"])

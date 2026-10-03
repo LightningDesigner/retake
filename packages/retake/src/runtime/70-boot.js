@@ -112,7 +112,7 @@ function record() {
 }
 
 Object.assign(PT, {
-  version: "0.4.0",
+  version: "0.5.0",
   now: () => clock.now,
   record,
   // Play from here: replays the recorded future, then carries on live.
@@ -359,6 +359,25 @@ try {
       url.searchParams.set("__wb", "app")
       e.preventDefault()
       location.assign(url.href)
+    })
+  }
+} catch {}
+
+// A link or redirect to another site (GitHub, npm, a sign-in page) can't load
+// inside the dock's frame: most sites refuse to be framed. A click the user
+// makes opens it in a new tab, so the timeline stays; anything else (a
+// redirect) goes to the top window, as it would without Retake. Frames being
+// built or replayed never leave.
+try {
+  if (W.navigation && shell) {
+    W.navigation.addEventListener("navigate", (e) => {
+      if (!e.cancelable || e.downloadRequest || !e.destination) return
+      const url = new URL(e.destination.url)
+      if (url.origin === location.origin || !/^https?:$/.test(url.protocol)) return
+      e.preventDefault()
+      if (clock.seeking || !onShow()) return
+      if (e.userInitiated) W.open(url.href, "_blank", "noopener")
+      else W.top.location.assign(url.href)
     })
   }
 } catch {}

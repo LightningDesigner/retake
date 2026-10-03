@@ -78,12 +78,26 @@ export interface ShellOptions {
   marker?: "url" | "header"
   /** Rebuilds ask the server for the page as it was recorded (front server only). */
   docs?: boolean
+  /**
+   * `false`: there's no Retake server behind the dock (a static or serverless
+   * deploy). It never requests `/__retake/` (no session, no events) and keeps
+   * the session in memory for the page. Default: a server is assumed, and a 404
+   * from it falls back to memory.
+   */
+  server?: boolean
   /** The token mutating `/__retake/` requests carry. */
   token?: string
 }
 
 /** The dock page: a complete HTML document with the app in a frame. */
 export function shellHtml(options?: ShellOptions): string
+
+/**
+ * Retake's mark as an SVG string (24×24 viewBox, no width or height): a
+ * playhead on a track with an arc back to it. The arc and the played part are
+ * `currentColor`, the rest white, so it reads on a dark background.
+ */
+export function markSvg(): string
 
 export interface RuntimeTagOptions {
   /** The runtime's setup. */
