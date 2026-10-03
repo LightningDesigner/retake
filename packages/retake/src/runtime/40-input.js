@@ -115,6 +115,7 @@ function resolvePath(path) {
   if (path === "w") return W
   if (path === "d") return document
   if (!Array.isArray(path)) return null
+  /** @type {any} */
   let node = document.documentElement
   let i = 0
   if (typeof path[0] === "string" && path[0][0] === "#") {

@@ -606,7 +606,8 @@ if (RealES) {
           this._deferred = defer(() => this._live(url, opts, key, !hasFuture()))
           return
         }
-        return this._live(url, opts, key, false)
+        this._live(url, opts, key, false)
+        return
       }
       this._live(url, opts, key, true)
     }
@@ -712,7 +713,8 @@ if (RealWS) {
           this._deferred = defer(() => this._live(url, protocols, key, !hasFuture()))
           return
         }
-        return this._live(url, protocols, key, false)
+        this._live(url, protocols, key, false)
+        return
       }
       this._live(url, protocols, key, true)
     }

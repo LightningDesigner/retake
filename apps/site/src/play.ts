@@ -2,32 +2,34 @@
 // leans on a different kind of motion: CSS transitions on size and shape (the
 // island), a gesture with velocity (toasts), a timed press (hold to confirm),
 // and a layout that re-flows as you type (command menu).
-import { island } from "./island.js"
+import { island } from "./island.ts"
 
 export function play() {
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches
 
-  // ---- The island: click to morph through four states (see island.js) ----------
+  // ---- The island: click to morph through four states (see island.ts) ----------
   island()
 
   // ---- Toast stack: add, hover to fan out, swipe to dismiss ----------------------
   {
-    const list = document.getElementById("toasts")
-    const add = document.getElementById("toast-add")
+    const list = document.getElementById("toasts")!
+    const add = document.getElementById("toast-add")!
     const KINDS = [
       { title: "Take 2 started", text: "From 00:04.20 on Main", color: "#ffb224", icon: '<path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>' },
       { title: "Note added", text: "“Ease the card out a little slower”", color: "#c9a6ff", icon: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>' },
-      { title: "Copied for Claude", text: "The note, the element and the moment", color: "#7ee7b8", icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>' },
+      { title: "Copied for your agent", text: "The note, the element and the moment", color: "#7ee7b8", icon: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>' },
       { title: "Rewound", text: "Back to 00:01.80, view-only", color: "#52a8ff", icon: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>' },
     ]
     const GAP = 10
     const MAX = 3
     let n = 0
     let open = false
+    // The list holds only the toasts (<li>s this makes).
+    const toasts = () => [...list.children] as HTMLElement[]
 
     // Where each toast sits: stacked (peeking out above the front one) or fanned out.
     function layout() {
-      const items = [...list.children].filter((t) => !t.dataset.gone)
+      const items = toasts().filter((t) => !t.dataset.gone)
       let y = 0
       items.reverse().forEach((t, i) => {
         t.style.zIndex = String(100 - i)
@@ -59,12 +61,12 @@ export function play() {
       list.append(t)
       swipeable(t)
       t.offsetHeight
-      const live = [...list.children].filter((x) => !x.dataset.gone)
+      const live = toasts().filter((x) => !x.dataset.gone)
       if (live.length > MAX) dismiss(live[0], 0)
       layout()
     }
 
-    function dismiss(t, dir) {
+    function dismiss(t: HTMLElement, dir: number) {
       t.dataset.gone = "1"
       t.classList.remove("dragging")
       if (dir) t.style.setProperty("--dx", `${dir * 360}px`)
@@ -74,8 +76,8 @@ export function play() {
       layout()
     }
 
-    function swipeable(t) {
-      let start = null
+    function swipeable(t: HTMLElement) {
+      let start: { x: number; t: number; dx: number } | null = null
       t.addEventListener("pointerdown", (e) => {
         if (t.dataset.gone) return
         t.setPointerCapture(e.pointerId)
@@ -112,11 +114,11 @@ export function play() {
 
   // ---- Hold to confirm ---------------------------------------------------------
   {
-    const btn = document.getElementById("hold")
-    const hint = document.getElementById("hold-hint")
-    const fill = btn.querySelector(".fill")
+    const btn = document.getElementById("hold")!
+    const hint = document.getElementById("hold-hint")!
+    const fill = btn.querySelector<HTMLElement>(".fill")!
     let holding = false
-    let resetTimer = 0
+    let resetTimer: ReturnType<typeof setTimeout> | undefined
     const start = () => {
       if (btn.classList.contains("done")) return
       holding = true
@@ -162,11 +164,11 @@ export function play() {
 
   // ---- Command menu: filter as you type; rows slide to their new places ------------
   {
-    const input = document.getElementById("cmdk")
-    const box = document.getElementById("cmdk-list")
-    const hl = box.querySelector(".hl")
-    const empty = document.querySelector("#palette .empty")
-    const ran = document.getElementById("ran")
+    const input = document.getElementById("cmdk") as HTMLInputElement
+    const box = document.getElementById("cmdk-list")!
+    const hl = box.querySelector<HTMLElement>(".hl")!
+    const empty = document.querySelector<HTMLElement>("#palette .empty")!
+    const ran = document.getElementById("ran")!
     const ROW = 34
     const COMMANDS = [
       { label: "New timeline from here", key: "+", color: "#ffb224" },
@@ -187,7 +189,7 @@ export function play() {
     })
     let shown = items
     let active = 0
-    let ranTimer = 0
+    let ranTimer: ReturnType<typeof setTimeout> | undefined
 
     function paint() {
       items.forEach((it) => {
@@ -203,7 +205,7 @@ export function play() {
       box.style.height = `${Math.max(1, shown.length) * ROW + 12}px`
       if (shown[active]) input.setAttribute("aria-activedescendant", shown[active].el.id)
     }
-    function run(it) {
+    function run(it: (typeof items)[number] | undefined) {
       if (!it) return
       ran.textContent = `Ran “${it.label}”`
       ran.classList.add("show")

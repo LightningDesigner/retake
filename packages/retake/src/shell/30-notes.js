@@ -695,7 +695,7 @@ function showNote(n) {
     <div class="note-actions"><span class="status s-${esc(status)}">${esc(status[0].toUpperCase() + status.slice(1))}</span>
       <button data-note-a="delete" class="quiet">Delete</button>
       <button data-note-a="resolve">${status === "resolved" ? "Reopen" : "Resolve"}</button>
-      <button data-note-a="copy" class="primary">Copy for Claude</button></div>`
+      <button data-note-a="copy" class="primary">Copy for agent</button></div>`
   if (keepOpen) card.querySelector(".details").open = true
   card.hidden = false
   placeCard(anchorOf(n.el))
@@ -796,12 +796,12 @@ const boxAt = (el, box) => {
 function renderExtras(s) {
   // Leaving a still moment (recording) drops back to the Hand.
   if (D.picking && !isStill()) setPicking(null)
-  for (const t of document.querySelectorAll('[data-tool="select"], [data-tool="comment"]')) {
+  for (const t of /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll('[data-tool="select"], [data-tool="comment"]'))) {
     t.disabled = !isStill()
     t.classList.toggle("disabled", !isStill())
   }
   const tool = mode() || "hand"
-  for (const t of document.querySelectorAll("[data-tool]")) {
+  for (const t of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-tool]"))) {
     t.classList.toggle("on", t.dataset.tool === tool)
     t.setAttribute("aria-selected", String(t.dataset.tool === tool))
   }

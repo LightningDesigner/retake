@@ -1,4 +1,4 @@
-// Performance budgets (the user's list; results also go to .coord/PERF.md).
+// Performance budgets.
 // Measured on the probe fixture; Sherpa numbers are taken by hand.
 import { test, expect } from "@playwright/test"
 import { openDock } from "./helpers.js"

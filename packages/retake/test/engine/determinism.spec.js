@@ -1,6 +1,6 @@
 // Records one session on the probe fixture, rewinds to (almost) its end, and
 // compares what the app observed live against what it observed on replay.
-// Known gaps are test.fail with their AUDIT.md finding ID; flip them when fixed.
+// Known gaps are test.fail with their finding ID; flip them when fixed.
 import { test, expect } from "@playwright/test"
 import { openDock, pick } from "./helpers.js"
 import { PORTS } from "./servers.js"

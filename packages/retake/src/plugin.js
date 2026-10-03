@@ -18,10 +18,11 @@ const NESTED_DEST = new Set(["iframe", "frame", "embed", "object"])
 const pageKind = new AsyncLocalStorage()
 
 /**
- * @param {{ enabled?: boolean, codeBranches?: boolean, token?: string, root?: string }} [options]
+ * @param {import("../types/index.js").RetakeOptions} [options]
  *   `codeBranches`: each timeline keeps its own version of the code; stepping
  *   into a timeline checks its code out on disk (see code-versions.js).
  *   `root`: where .retake/ goes (default: Vite's root).
+ *   Public types: types/index.d.ts (keep them in step).
  * @returns {import("vite").Plugin[]}
  */
 export function retake(options = {}) {
@@ -50,6 +51,7 @@ export function retake(options = {}) {
     injectResponse(res, runtimeTag({ rt: { ...frontRuntime("vite"), marker: "header" } }))
     pageKind.run("frame", next)
   }
+  /** @type {import("vite").Plugin} */
   const main = {
     name: "retake",
     apply: "serve",
@@ -81,9 +83,10 @@ export function retake(options = {}) {
       })
       sessionApi(server, { token: options.token, bus, root: options.root })
       if (options.codeBranches) codeVersions(server, { token: options.token, bus })
-      if (server.httpServer) {
-        server.httpServer.once("listening", () => {
-          const a = server.httpServer.address()
+      const httpServer = server.httpServer
+      if (httpServer) {
+        httpServer.once("listening", () => {
+          const a = httpServer.address()
           const port = a && typeof a === "object" ? a.port : server.config.server.port
           const proto = server.config.server.https ? "https" : "http"
           const base = server.config.base || "/"
@@ -116,6 +119,7 @@ export function retake(options = {}) {
   // app frame keeps the client, so only the app reloads. Other plugins' module
   // scripts go too (plugin-react's refresh preamble imports the client); the
   // dock's own scripts are classic ones.
+  /** @type {import("vite").Plugin} */
   const stripClient = {
     name: "retake:shell-without-vite-client",
     apply: "serve",

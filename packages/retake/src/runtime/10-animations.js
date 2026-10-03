@@ -56,7 +56,7 @@ function adopt(a, created) {
 // A CSS animation paused via `animation-play-state` stays frozen.
 function cssPaused(a) {
   if (typeof CSSAnimation === "undefined" || !(a instanceof CSSAnimation)) return false
-  const el = a.effect && a.effect.target
+  const el = a.effect && /** @type {KeyframeEffect} */ (a.effect).target
   if (!el) return false
   const cs = getComputedStyle(el)
   const names = cs.animationName.split(", ")

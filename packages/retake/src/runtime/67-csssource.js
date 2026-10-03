@@ -188,7 +188,9 @@ function resolveAnimationTarget(x) {
   if (typeof x === "string") x = (rec.clips || []).find((c) => c.id === x) || x
   if (x && typeof Animation !== "undefined" && x instanceof Animation) {
     const kind = clipKind(x)
-    return { el: x.effect && x.effect.target, pseudo: (x.effect && x.effect.pseudoElement) || null, kind, name: kind === "css-animation" ? x.animationName : null, prop: kind === "transition" ? x.transitionProperty : null }
+    const fx = /** @type {KeyframeEffect | null} */ (x.effect)
+    const css = /** @type {any} */ (x) // a CSSAnimation or a CSSTransition
+    return { el: fx && fx.target, pseudo: (fx && fx.pseudoElement) || null, kind, name: kind === "css-animation" ? css.animationName : null, prop: kind === "transition" ? css.transitionProperty : null }
   }
   if (x && x.path) {
     const el = resolvePath(x.path)

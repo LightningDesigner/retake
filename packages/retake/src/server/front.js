@@ -50,6 +50,7 @@ const DOCS_KEPT = 200 // stored frame documents (oldest go first)
 // The `__retake_doc` cookie out of a Cookie header: [id, the header without it].
 function docCookie(header) {
   if (!header) return [null, header]
+  /** @type {string | null} */
   let id = null
   const rest = String(header)
     .split(";")
@@ -94,6 +95,7 @@ export function adaptCsp(csp, script) {
   if (/,/.test(csp.replace(/'[^']*'/g, ""))) return { csp: null, nonce: null }
   const dirs = csp.split(";").map((d) => d.trim()).filter(Boolean)
   const find = (name) => dirs.findIndex((d) => d.toLowerCase().split(/\s+/)[0] === name)
+  /** @type {string | null} */
   let nonce = null
   // The directive that rules an inline <script>: script-src-elem, script-src, then default-src.
   const at = [find("script-src-elem"), find("script-src"), find("default-src")].find((i) => i >= 0)
@@ -127,7 +129,7 @@ export function adaptCsp(csp, script) {
  *   server is recognised by its first page. `rt` overrides any of it.
  *   `watch`: the project folder whose source changes retire kept pages (default
  *   `dir`). `allowedHosts`: more Host names to answer to (true: any).
- * @returns {Promise<{ url: string, port: number, token: string, close(): Promise<void> }>}
+ * @returns {Promise<{ url: string, port: number, token: string, readonly upstream: string | null, readonly healthy: boolean, close(): Promise<void> }>}
  */
 export async function startFront(options) {
   const { root, verbose = false, quiet = false } = options
@@ -144,6 +146,7 @@ export async function startFront(options) {
   const bus = createBus()
   const api = createSessionHandler({ root, token, bus })
   const hosts = options.allowedHosts === true ? true : new Set([options.host, ...(options.allowedHosts || [])].filter(Boolean).map((h) => String(h).toLowerCase()))
+  /** @type {URL | null} */
   let UP = null // URL of the upstream, once known
   const upstreamKnown = Promise.resolve(options.upstream).then((u) => (UP = new URL(u)))
   upstreamKnown.catch(() => {})
@@ -154,6 +157,7 @@ export async function startFront(options) {
 
   // --verbose: JSON lines in <root>/.retake/front.log.
   const T0 = Date.now()
+  /** @type {import("node:fs").WriteStream | null} */
   let logStream = null
   if (verbose) {
     fs.mkdirSync(path.join(root, ".retake"), { recursive: true })
@@ -169,6 +173,7 @@ export async function startFront(options) {
 
   // ---- health: has the upstream answered anything yet? ---------------------
   let healthy = false
+  /** @type {Promise<unknown> | null} */
   let probing = null
   const probe = () => {
     if (healthy || probing || !UP) return
@@ -176,16 +181,18 @@ export async function startFront(options) {
       const r = request({ method: "GET", path: "/", headers: { accept: "text/html", "user-agent": "retake-health" } }, (res) => {
         healthy = true
         res.resume()
-        resolve()
+        resolve(undefined)
       })
       r.setTimeout(WAIT_MS, () => r.destroy())
       r.on("error", resolve)
       r.end()
     }).then(() => (probing = null))
   }
+  // Only once the upstream is known (UP).
   const request = (opts, cb) => {
-    const lib = UP.protocol === "https:" ? https : http
-    return lib.request({ host: UP.hostname, port: UP.port || (UP.protocol === "https:" ? 443 : 80), agent: agents[UP.protocol], autoSelectFamily: true, ...opts }, cb)
+    const up = /** @type {URL} */ (UP)
+    const lib = up.protocol === "https:" ? https : http
+    return lib.request({ host: up.hostname, port: up.port || (up.protocol === "https:" ? 443 : 80), agent: agents[up.protocol], autoSelectFamily: true, ...opts }, cb)
   }
 
   // ---- proxying ------------------------------------------------------------
@@ -195,8 +202,9 @@ export async function startFront(options) {
   const rewriteLocation = (loc, req, wb) => {
     try {
       const absolute = /^[a-z][a-z0-9+.-]*:/i.test(loc) || loc.startsWith("//")
-      const u = new URL(loc, absolute ? UP : ourOrigin(req) + req.url)
-      const ours = u.host === UP.host || u.host === req.headers.host
+      const up = /** @type {URL} */ (UP)
+      const u = new URL(loc, absolute ? up : ourOrigin(req) + req.url)
+      const ours = u.host === up.host || u.host === req.headers.host
       if (!ours || !/^https?:/.test(u.protocol)) return loc
       if (wb) u.searchParams.set("__wb", "app")
       if (absolute) return ourOrigin(req) + u.pathname + u.search + u.hash
@@ -211,6 +219,11 @@ export async function startFront(options) {
   }
 
   let seq = 0
+  /**
+   * @param {any} req
+   * @param {any} res
+   * @param {{ frame: boolean, marker?: "url" | "header", why?: string }} how
+   */
   async function forward(req, res, { frame, marker, why }) {
     const id = ++seq
     const t0 = performance.now()
@@ -248,13 +261,14 @@ export async function startFront(options) {
       await Promise.race([upstreamKnown, sleep(WAIT_MS)]).catch(() => {})
       if (!UP) return waiting(res)
     }
+    /** @type {import("node:http").ClientRequest | null} */
     let current = null
     res.on("close", () => {
       if (!res.writableFinished && current) current.destroy()
     })
     const attempt = () => {
       const up = (current = request({ method: req.method, path: pathq, headers }, (r) => onResponse(r)))
-      up.on("error", async (e) => {
+      up.on("error", async (/** @type {NodeJS.ErrnoException} */ e) => {
         if (replayable && !res.headersSent && (e.code === "ECONNREFUSED" || e.code === "ECONNRESET") && Date.now() < deadline && !req.destroyed) {
           await sleep(250)
           return attempt()
@@ -263,7 +277,7 @@ export async function startFront(options) {
         if (replayable && !res.headersSent && e.code === "ECONNREFUSED") return waiting(res)
         if (!res.headersSent) {
           res.writeHead(502, { "content-type": "text/plain; charset=utf-8" })
-          res.end(`retake: the dev server at ${UP.href} didn't answer (${e.code || e.message})`)
+          res.end(`retake: the dev server at ${UP?.href} didn't answer (${e.code || e.message})`)
         } else res.destroy()
       })
       if (replayable) up.end()
@@ -297,6 +311,7 @@ export async function startFront(options) {
       const stored = keepDoc(r, pathq)
       const rt = { ...rtBase, marker, ...(stored ? { docId: stored } : {}) }
       const script = runtimeScript(rt)
+      /** @type {string | null} */
       let nonce = null
       if (h["content-security-policy"]) {
         const a = adaptCsp(h["content-security-policy"], script)
@@ -409,6 +424,7 @@ export async function startFront(options) {
     }
     const h = { ...meta.headers }
     const script = runtimeScript({ ...rtBase, marker, docId, docStored: true })
+    /** @type {string | null} */
     let nonce = null
     if (h["content-security-policy"]) {
       const a = adaptCsp(h["content-security-policy"], script)
@@ -593,7 +609,7 @@ export async function startFront(options) {
   const url = `http://localhost:${port}`
   writeServerInfo({ root, url, token })
   upstreamKnown.then(() => {
-    log({ kind: "start", upstream: UP.href, port })
+    log({ kind: "start", upstream: UP?.href, port })
     probe()
   }, () => {})
 
@@ -616,7 +632,7 @@ export async function startFront(options) {
         servers.map(
           (s) =>
             new Promise((r) => {
-              s.close(() => r())
+              s.close(() => r(undefined))
               s.closeAllConnections && s.closeAllConnections()
             }),
         ),

@@ -1,4 +1,4 @@
-// Screenshots of the dock for review (.coord/screens/dock-v2-*.png), with the
+// Screenshots of the dock for review (test-results/screens/dock-v2-*.png), with the
 // assertions that make them worth looking at. Zoomed-out-with-0-pinned is
 // taken by timeline.spec.js, branching mid-growth by branching.spec.js.
 import { test, expect } from "@playwright/test"

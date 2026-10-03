@@ -157,6 +157,7 @@ function recordedStart(a) {
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
   const clips = rec.clips || (rec.clips = [])
+  /** @type {Record<string, any>} */
   const c = { id: `c${clips.length + 1}`, start: e.vStart, end: clipEnd(e), ...describeClip(e), path: pathOf(e.target) }
   const iters = e.timing && e.timing.iterations
   if (iters === Infinity) c.iterations = "infinite"

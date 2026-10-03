@@ -385,7 +385,7 @@ function endPreview() {
     const lost =
       typeof CSSAnimation !== "undefined" &&
       a instanceof CSSAnimation &&
-      animLog.find((e) => e.vEnd == null && e.target === a.effect.target && stateOf(e.anim) === "idle" && e.anim.animationName === a.animationName)
+      animLog.find((e) => e.vEnd == null && e.target === /** @type {KeyframeEffect} */ (a.effect).target && stateOf(e.anim) === "idle" && e.anim.animationName === a.animationName)
     if (!lost) {
       orig.cancel.call(a)
       continue

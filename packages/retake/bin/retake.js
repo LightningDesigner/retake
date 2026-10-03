@@ -54,6 +54,7 @@ Options:
   -v, --version       print the version
   -h, --help          show this help`
 
+/** @returns {never} */
 function fail(msg, hint) {
   console.error(`retake: ${msg}`)
   if (hint) console.error(`        ${hint}`)
@@ -66,6 +67,8 @@ export function parseArgs(argv) {
   const dash = argv.indexOf("--")
   const own = dash < 0 ? argv : argv.slice(0, dash)
   let passthrough = dash < 0 ? [] : argv.slice(dash + 1)
+  /** @type {{ cmd: string | null, project: string | null, upstream: string | null, command: string[] | null, root: string | null, verbose: boolean,
+   *   port: number, portSet?: boolean, codeBranches: boolean, url: string | null, passthrough: string[], help: boolean, version: boolean }} */
   const out = { cmd: null, project: null, upstream: null, command: null, root: null, verbose: false, port: 3014, codeBranches: false, url: null, passthrough, help: false, version: false }
   const positional = []
   const value = (a, i, what) => {
@@ -204,7 +207,7 @@ export default async (env) => {
     env: { ...process.env, VITE_CONFIG_NATIVE_IGNORE_WARNING: "true", RETAKE_PROJECT: project },
   })
   child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)))
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => child.kill(sig))
+  for (const sig of /** @type {NodeJS.Signals[]} */ (["SIGINT", "SIGTERM", "SIGHUP"])) process.on(sig, () => child.kill(sig))
 }
 
 // Front-server mode: Retake on --port, in front of a dev server that's
@@ -212,9 +215,8 @@ export default async (env) => {
 async function front(opts) {
   const { startFront } = await import(pathToFileURL(path.join(HOME, "src", "server", "front.js")).href)
   // Where the dev command listens isn't known until it says (or answers).
-  let found = null
+  let found = /** @type {{ resolve: (url: string) => void, reject: (err: any) => void } | null} */ (null)
   const upstream = opts.upstream || new Promise((resolve, reject) => (found = { resolve, reject }))
-  let dev = null
   let label = opts.upstream ? new URL(opts.upstream).host : opts.command
   let server
   try {
@@ -251,10 +253,10 @@ async function front(opts) {
   // PORT is the dev server's, unless it's the one Retake took.
   const env = { ...process.env }
   if (Number(env.PORT) === server.port) delete env.PORT
-  dev = await runDevCommand(opts.command, { cwd: opts.cwd, env })
+  const dev = await runDevCommand(opts.command, { cwd: opts.cwd, env })
   if (dev.portTaken) console.warn(`retake: PORT ${dev.portTaken} is already in use; the dev command gets PORT=${dev.port}`)
   label = `${opts.command} on :${dev.port}`
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  for (const sig of /** @type {NodeJS.Signals[]} */ (["SIGINT", "SIGTERM", "SIGHUP"])) {
     process.on(sig, () => {
       dev.stop(sig)
       // A dev server that ignores the signal gets SIGKILL after 5 s.
@@ -270,11 +272,11 @@ async function front(opts) {
   })
   try {
     const url = await dev.url
-    found.resolve(url)
+    found?.resolve(url)
     label = `${opts.command} on :${new URL(url).port}`
     banner(url, label)
   } catch (err) {
-    found.reject(err)
+    found?.reject(err)
   }
 }
 function init() {

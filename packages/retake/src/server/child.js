@@ -27,7 +27,7 @@ export function freePort() {
     s.unref()
     s.once("error", reject)
     s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address()
+      const { port } = /** @type {import("node:net").AddressInfo} */ (s.address())
       s.close(() => resolve(port))
     })
   })
@@ -39,7 +39,7 @@ function portFree(port) {
     new Promise((resolve) => {
       const s = net.createServer()
       s.unref()
-      s.once("error", (e) => resolve(e.code === "EADDRNOTAVAIL" || e.code === "EAFNOSUPPORT"))
+      s.once("error", (/** @type {NodeJS.ErrnoException} */ e) => resolve(e.code === "EADDRNOTAVAIL" || e.code === "EAFNOSUPPORT"))
       s.listen(port, host, () => s.close(() => resolve(true)))
     })
   return Promise.all([on("127.0.0.1"), on("::1")]).then((r) => r.every(Boolean))
@@ -50,7 +50,7 @@ export function answers(url, timeout = 2000) {
   return new Promise((resolve) => {
     const u = new URL(url)
     const lib = u.protocol === "https:" ? https : http
-    const r = lib.request(u, { method: "HEAD", autoSelectFamily: true, rejectUnauthorized: false, timeout }, (res) => {
+    const r = lib.request(u, /** @type {import("node:https").RequestOptions} */ ({ method: "HEAD", autoSelectFamily: true, rejectUnauthorized: false, timeout }), (res) => {
       res.resume()
       resolve(true)
     })
@@ -74,9 +74,9 @@ function binPath(cwd) {
 
 /**
  * @param {string} command a shell command line
- * @param {{ cwd?: string, env?: object, onOutput?: (chunk: Buffer, stream: "stdout" | "stderr") => void }} [options]
+ * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, onOutput?: (chunk: Buffer, stream: "stdout" | "stderr") => void }} [options]
  * @returns {Promise<{ child: import("node:child_process").ChildProcess, port: number, portTaken: number | null,
- *   url: Promise<string>, exited: Promise<number>, stop(signal?: string): void, reap(ms?: number): Promise<void> }>}
+ *   url: Promise<string>, exited: Promise<number>, stop(signal?: NodeJS.Signals): void, reap(ms?: number): Promise<void> }>}
  *   `url` resolves once the server answers (it rejects if the command exits first).
  *   `portTaken`: the PORT given, if something else was already on it. `reap`:
  *   once the command has exited, what it started that's still running gets
@@ -87,9 +87,10 @@ export async function runDevCommand(command, { cwd = process.cwd(), env = proces
   const portTaken = asked && !(await portFree(asked)) ? asked : null
   const port = asked && !portTaken ? asked : await freePort()
   const sep = process.platform === "win32" ? ";" : ":"
+  /** @type {NodeJS.ProcessEnv} */
   const childEnv = { ...env, PORT: String(port), PATH: [...binPath(cwd), env.PATH || env.Path || ""].join(sep) }
   // Astro (7.x) moves `astro dev` into a detached background process when it
-  // thinks an AI agent ran it (Claude Code, Cursor...): out of this process
+  // thinks a coding agent ran it: out of this process
   // group, so stopping Retake left it running, and the next run found "already
   // running" and exited. Retake is the foreground owner; this is how Astro's own
   // background child tells it not to background again.
@@ -98,6 +99,7 @@ export async function runDevCommand(command, { cwd = process.cwd(), env = proces
   const win = process.platform === "win32"
   const child = spawn(command, { cwd, env: childEnv, shell: true, detached: !win, stdio: ["inherit", "pipe", "pipe"], windowsHide: true })
 
+  /** @type {string | null} */
   let printed = null
   let pending = ""
   const scan = (chunk) => {
@@ -114,6 +116,7 @@ export async function runDevCommand(command, { cwd = process.cwd(), env = proces
   child.stdout.on("data", pass("stdout"))
   child.stderr.on("data", pass("stderr"))
 
+  /** @type {number | null} */
   let exitCode = null
   const exited = new Promise((resolve) => {
     child.on("exit", (code, signal) => resolve((exitCode = code ?? (signal ? 1 : 0))))
@@ -147,7 +150,7 @@ export async function runDevCommand(command, { cwd = process.cwd(), env = proces
       return e.code === "EPERM"
     }
   }
-  const stop = (signal = "SIGTERM") => {
+  const stop = (/** @type {NodeJS.Signals} */ signal = "SIGTERM") => {
     if (child.pid == null || (exitCode != null && !groupAlive())) return
     signalled = true
     try {

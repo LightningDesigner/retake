@@ -1,5 +1,5 @@
 // The island's markup, shared by the landing page's "Try it" grid and the
-// playground (src/island.js makes it click through its states).
+// playground (src/island.ts makes it click through its states).
 export function Island() {
   return (
     <>

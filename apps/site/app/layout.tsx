@@ -1,6 +1,12 @@
+import type { Metadata } from "next"
+import type { ReactNode } from "react"
+import { SITE_URL } from "../src/site.ts"
 import "../src/style.css"
 
-export default function RootLayout({ children }) {
+// The base for the link-preview image's URL. The icon is app/icon.svg.
+export const metadata: Metadata = { metadataBase: new URL(SITE_URL) }
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>

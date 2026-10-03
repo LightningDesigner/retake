@@ -1,9 +1,9 @@
 // Copy buttons.
 export function copyButtons() {
-  document.querySelectorAll("[data-copy]").forEach((b) =>
+  document.querySelectorAll<HTMLElement>("[data-copy]").forEach((b) =>
     b.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(b.dataset.copy)
+        await navigator.clipboard.writeText(b.dataset.copy!)
         b.classList.add("done"); b.setAttribute("aria-label", "Copied")
         setTimeout(() => { b.classList.remove("done"); b.setAttribute("aria-label", "Copy the command") }, 1400)
       } catch {}
@@ -11,18 +11,30 @@ export function copyButtons() {
   )
 }
 
+// A faint background thread, drifting on its own wave.
+interface Ghost { ghost: true; y0: number; y1: null; from: number; amp: number; f: number; ph: number }
+// A timeline: the main one (its own wave) or a branch that follows its parent
+// up to the fork, then eases `off` away from it. It stops at `end`, once set.
+type Thread = { ghost?: undefined; from: number; end?: number; color: string; main?: boolean } & (
+  | { y0: number; amp: number; f: number; ph: number; parent?: undefined; off?: undefined; fork?: undefined }
+  | { parent: Thread; off: number; fork: number }
+)
+type Branch = Ghost | Thread
+interface Spark { x: number; y: number; vx: number; vy: number; life: number; s: number; c: string }
+type Phase = "play" | "pause" | "rewind" | "branch"
+
 // Hero: timelines streaming left to right. A playhead runs, rewinds (the
 // threads retract behind it), then a new branch splits off from where it
 // stopped. On repeat.
 export function hero() {
-  const c = document.getElementById("threads")
-  const ctx = c.getContext("2d")
-  const tEl = document.getElementById("t")
-  const dirEl = document.getElementById("dir")
-  const clockEl = document.querySelector(".run")
-  let W, H, dpr
+  const c = document.getElementById("threads") as HTMLCanvasElement
+  const ctx = c.getContext("2d")!
+  const tEl = document.getElementById("t")!
+  const dirEl = document.getElementById("dir")!
+  const clockEl = document.querySelector(".run")!
+  let W: number, H: number, dpr: number
   const COLORS = ["#52a8ff", "#ffb224", "#ff4d8d", "#7ee7b8", "#c9a6ff"]
-  let branches, head, phase, phaseT, rewindTo, clockMs, rewinds
+  let branches: Branch[], head: number, phase: Phase, phaseT: number, rewindTo: number, clockMs: number, rewinds: number
 
   function resize() {
     dpr = Math.min(devicePixelRatio || 1, 2)
@@ -36,7 +48,7 @@ export function hero() {
     for (let i = 0; i < 22; i++) {
       branches.push({ y0: (i + 0.5) * (H / 22), y1: null, from: -50, ghost: true, amp: 6 + Math.random() * 18, f: 0.002 + Math.random() * 0.004, ph: Math.random() * 6 })
     }
-    const main = { y0: H * 0.5, from: -50, color: COLORS[0], amp: 14, f: 0.004, ph: 0, main: true }
+    const main: Thread = { y0: H * 0.5, from: -50, color: COLORS[0], amp: 14, f: 0.004, ph: 0, main: true }
     branches.push(main)
     // A couple of timelines that already split off earlier, dotted past their ends.
     branches.push({ parent: main, off: -H * 0.2, fork: W * 0.03, from: W * 0.03, end: W * 0.46, color: COLORS[2] })
@@ -44,7 +56,7 @@ export function hero() {
     head = W * 0.08; phase = "play"; phaseT = 0; clockMs = 0; rewinds = 0
   }
   // A branch follows its parent exactly up to the fork, then eases away.
-  function yAt(b, x) {
+  function yAt(b: Thread, x: number): number {
     let y = b.parent ? yAt(b.parent, x) : b.y0 + Math.sin(x * b.f + b.ph + performance.now() * 0.0004) * b.amp
     if (b.fork != null && x > b.fork) {
       const k = Math.min(1, (x - b.fork) / 180)
@@ -102,7 +114,7 @@ export function hero() {
       ctx.beginPath(); ctx.arc(head, yAt(b, head), 3.5, 0, 7); ctx.fillStyle = "#fff"; ctx.shadowColor = hc; ctx.shadowBlur = 12; ctx.fill(); ctx.shadowBlur = 0
     }
   }
-  const sparks = []
+  const sparks: Spark[] = []
   function emit() {
     for (const b of branches) if (!b.ghost && head >= b.from && head <= (b.end ?? Infinity) && Math.random() < 0.45) {
       const back = phase === "rewind"
@@ -111,7 +123,7 @@ export function hero() {
     }
   }
   let prev = performance.now()
-  function tick(now) {
+  function tick(now: number) {
     const dt = Math.min(now - prev, 50); prev = now
     if (phase !== "pause") emit()
     for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt / 900 }
@@ -127,7 +139,7 @@ export function hero() {
       if (head <= rewindTo) { head = rewindTo; phase = "branch"; phaseT = 0 }
     } else if (phase === "branch") {
       if (phaseT > 350) {
-        const live = branches.filter((b) => !b.ghost)
+        const live = branches.filter((b): b is Thread => !b.ghost)
         const parent = live[live.length - 1]
         const dir = Math.random() < 0.5 ? -1 : 1
         const here = yAt(parent, head)

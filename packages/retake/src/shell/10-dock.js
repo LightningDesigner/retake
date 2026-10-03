@@ -568,7 +568,7 @@ function render() {
 // they get it back.
 let dockField = null
 document.addEventListener("focusin", (e) => {
-  const el = e.target
+  const el = /** @type {HTMLElement | null} */ (e.target)
   if (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.isContentEditable)) dockField = el
 })
 function guardFocus() {
@@ -665,9 +665,10 @@ requestAnimationFrame(function loop() {
 const refocus = () => D.frame && D.frame.contentWindow && D.frame.contentWindow.focus()
 
 document.addEventListener("click", (e) => {
-  const b = e.target.closest("button, [data-branch], [data-note]")
+  const target = /** @type {Element} */ (e.target)
+  const b = /** @type {HTMLButtonElement | null} */ (target.closest("button, [data-branch], [data-note]"))
   if (!b) {
-    if (!e.target.closest(".card")) closeCard()
+    if (!target.closest(".card")) closeCard()
     return
   }
   const a = b.dataset.a

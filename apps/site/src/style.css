@@ -51,7 +51,8 @@ kbd { font: 500 12px "Geist Mono", ui-monospace, monospace; color: var(--fg); pa
 .hero { position: relative; min-height: 100svh; display: grid; place-items: center; overflow: hidden; }
 #threads { position: absolute; inset: 0; width: 100%; height: 100%;
   -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-.hero-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 96px 16px 0; max-width: 760px; }
+/* min-width 0: a grid item would otherwise grow to the nowrap command and run off a phone. */
+.hero-inner { position: relative; z-index: 1; min-width: 0; width: 100%; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 96px 16px 0; max-width: 760px; }
 .hero-inner::before { content: ""; position: absolute; z-index: -1; left: 50%; top: 55%; width: min(900px, 140vw); aspect-ratio: 1.6;
   transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; background: radial-gradient(closest-side, rgba(0,0,0,.92), rgba(0,0,0,.6) 55%, transparent); }
 h1 { font-size: clamp(56px, 11vw, 128px); line-height: .92; letter-spacing: -.06em; font-weight: 700; margin: 0 0 24px;
@@ -236,6 +237,9 @@ html.docked .pg-stage { height: calc(100svh - 216px); min-height: 240px; }
   section { padding-top: 96px; }
   .links { display: none; }
   .nav-cta { margin-left: auto; }
+}
+@media (max-width: 480px) {
+  .run-clock { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   #threads { display: none; }

@@ -63,6 +63,7 @@ export function detectProject(dir) {
   if (dep) {
     const fw = FRAMEWORKS[dep]
     const scripts = pkg.scripts || {}
+    /** @type {string | null} */
     let command = null
     if (scripts.dev) command = `${pm} run dev`
     // A start script that runs a dev server (never a production `next start`).
@@ -119,8 +120,12 @@ export function nextMajor(dir) {
  * held to their recorded moments (F48). `next`: the Next major version the
  * debug-channel adapter is for (F49; only 16 is known), "auto" when the
  * runtime has to ask Next's client (no project folder to look in).
+ * @param {string | null} framework
+ * @param {string | null} [dir]
+ * @returns {import("../../types/index.js").RuntimeConfig}
  */
 export function frontRuntime(framework, dir) {
+  /** @type {import("../../types/index.js").RuntimeConfig} */
   const rt = { bootAt: "load", holdScripts: true, exemptUrls: devTraffic(framework) }
   // (No project folder, or Next not found from it: the runtime reads Next's own version, "auto".)
   if (framework === "next") rt.next = (dir && nextMajor(dir)) || "auto"
@@ -142,6 +147,7 @@ export const shellQuote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : process.platf
 // never gets it, so replayed navigations and server actions never show. Read
 // as text, never evaluated. Returns the warning, or null.
 export function nextDebugChannelWarning(dir) {
+  /** @type {string | null} */
   let version = null
   try {
     version = nextVersion(dir)

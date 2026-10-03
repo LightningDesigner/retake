@@ -38,8 +38,9 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
   if (features.includes("continue")) {
     // Continued on the same timeline, with a marker where the page changed.
     expect(branches.length).toBe(1)
-    const tl = await dock(page, (D) => D.PT.timeline().markers.filter((m) => m.kind === "reload"))
-    expect(tl.map((m) => m.label)).toContain("→ /other.html")
+    // A route marker where the timeline carried on, at the page that was opened.
+    const tl = await dock(page, (D) => D.PT.timeline().markers.filter((m) => m.kind === "route"))
+    expect(tl.map((m) => m.label)).toContain("/other.html")
     await dock(page, (D, t) => D.PT.seek(t), savedEnd - 100)
   } else {
     // This visit is a timeline of its own; the old one is one click away.
@@ -50,6 +51,28 @@ test("a new URL in the address bar opens that page live, no rebuild; the old tim
   }
   await expect.poll(() => framePath(page), { timeout: 15000 }).toBe("/")
   // And the address bar follows the app.
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/")
+  expect(h.dockErrors).toEqual([])
+})
+
+// F78: the last few seconds before a typed-in URL are lost, so going back to them shows the new page.
+test.fail("F78 a new URL typed while recording keeps the last seconds: going back to them brings the old page back", async ({ page }) => {
+  const fake = await fakeServer(page)
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle", "#toggle"])
+  // Still live: the server only has the recording as it was a few seconds ago.
+  await expect.poll(() => fake.store.recordings["1"] && JSON.parse(fake.store.recordings["1"]).end, { timeout: 8000 }).toBeGreaterThan(0)
+  const left = await dock(page, (D) => D.PT.state().now)
+  const savedEnd = JSON.parse(fake.store.recordings["1"]).end
+  expect(savedEnd).toBeLessThan(left - 300)
+  await page.goto(DOCK_URL + "other.html")
+  await expect.poll(() => framePath(page)).toBe("/other.html")
+  await expect.poll(() => dock(page, (D) => !!D.PT && D.last && D.last.booted)).toBe(true)
+  await dock(page, (D) => D.PT.pause())
+  // The timeline carried on from where the old page was left, not from the last save.
+  expect(await dock(page, (D) => D.PT.state().docStart)).toBeGreaterThanOrEqual(left - 50)
+  await dock(page, (D, t) => window.__retakeDock.goTo(t), left - 200)
+  await expect.poll(() => framePath(page), { timeout: 15000 }).toBe("/")
   await expect.poll(() => new URL(page.url()).pathname).toBe("/")
   expect(h.dockErrors).toEqual([])
 })

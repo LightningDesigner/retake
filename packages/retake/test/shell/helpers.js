@@ -21,7 +21,7 @@ export async function openDock(page, url, { fake = true } = {}) {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const DOCK_URL = `http://localhost:${SHELL_PORTS.dock}/`
-export const SCREENS = path.resolve(here, "../../../../.coord/screens")
+export const SCREENS = path.resolve(here, "../../../../test-results/screens")
 
 // The shell's concatenated script, for static checks.
 export const shellScript = () => shellHtml().split("<script>").pop().split("</script>")[0]

@@ -42,7 +42,7 @@ export function createStore(root) {
     fs.renameSync(tmp, file)
   }
 
-  const readJson = (file, fallback = null) => {
+  const readJson = (file, /** @type {any} */ fallback = null) => {
     try {
       return JSON.parse(fs.readFileSync(file, "utf8"))
     } catch {
@@ -198,6 +198,10 @@ export function createStore(root) {
   return { dir, snapshot, load, checkout, recover, state, saveState, plan }
 }
 
+/**
+ * @param {import("vite").ViteDevServer} server
+ * @param {{ token?: string, bus?: ReturnType<typeof import("./server/api.js").createBus> }} [options]
+ */
 export function codeVersions(server, { token, bus } = {}) {
   const announce = () => bus && bus.emit("code-version", { version: current, newest })
   const root = server.config.root
@@ -209,6 +213,7 @@ export function codeVersions(server, { token, bus } = {}) {
   // tell our own writes from the user's edits.
   const selfWrites = new Map() // full path -> hash (null for a delete)
   function invalidate(full) {
+    /** @type {any[]} Vite's module graph and each environment's (Vite 6+) */
     const graphs = [server.moduleGraph, ...Object.values(server.environments || {}).map((e) => e.moduleGraph)]
     for (const graph of graphs) {
       for (const mod of (graph && graph.getModulesByFile && graph.getModulesByFile(full)) || []) graph.invalidateModule(mod)
@@ -254,12 +259,14 @@ export function codeVersions(server, { token, bus } = {}) {
   const persist = () => store.saveState({ current, newest })
   persist()
 
-  let pending = null
+  /** @type {NodeJS.Timeout | undefined} */
+  let pending
   server.watcher.on("all", (event, file) => {
     const rel = path.relative(root, file)
     if (rel.startsWith("..") || rel.split(path.sep).some((p) => SKIP.has(p))) return
     if (selfWrites.has(file)) {
       const expected = selfWrites.get(file)
+      /** @type {string | null} */
       let actual = null
       try {
         actual = sha1(fs.readFileSync(file))
@@ -313,7 +320,7 @@ export function codeVersions(server, { token, bus } = {}) {
   process.once("exit", restoreNewest)
   // A plain SIGINT/SIGHUP kills the process without an "exit" event, so catch
   // them, restore, then leave the way the signal would have.
-  for (const [sig, code] of [["SIGINT", 130], ["SIGHUP", 129], ["SIGTERM", 143]]) {
+  for (const [sig, code] of /** @type {[NodeJS.Signals, number][]} */ ([["SIGINT", 130], ["SIGHUP", 129], ["SIGTERM", 143]])) {
     process.once(sig, () => {
       restoreNewest()
       process.exit(code)
@@ -328,7 +335,7 @@ export function codeVersions(server, { token, bus } = {}) {
   }
 
   server.middlewares.use((req, res, next) => {
-    const url = new URL(req.url, "http://x")
+    const url = new URL(req.url || "/", "http://x")
     if (url.pathname === "/__retake/version") return json(res, 200, { version: current, newest, restored: restoredAtStart })
     if (url.pathname === "/__retake/checkout") {
       // POST + token. A GET is accepted only from the dock's own origin

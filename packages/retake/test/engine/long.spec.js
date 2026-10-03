@@ -25,7 +25,7 @@ test("a 10-minute pointer-heavy session is small and rewinds to its end in under
     return { json, bytes: json.length, end }
   })
   console.log(`10 min: ${(bytes / 1e6).toFixed(2)} MB`)
-  expect(bytes).toBeLessThan(5e6) // was 12.5 MB before compact events (AUDIT F19)
+  expect(bytes).toBeLessThan(5e6) // was 12.5 MB before compact events (F19)
   const cdp = process.env.PROFILE ? await page.context().newCDPSession(page) : null
   if (cdp) { await cdp.send("Profiler.enable"); await cdp.send("Profiler.start") }
   const t0 = Date.now()

@@ -1,10 +1,11 @@
-// The landing page. Its markup is static; src/mount.js starts the canvas hero,
+// The landing page. Its markup is static; src/mount.tsx starts the canvas hero,
 // the package-manager switch, the copy button and the four demos on it.
-import { Island } from "./island.js"
-import { Mount } from "../src/mount.js"
-import { PAGES } from "../src/site.js"
+import type { Metadata } from "next"
+import { Island } from "./island.tsx"
+import { Mount } from "../src/mount.tsx"
+import { PAGES, pageMetadata } from "../src/site.ts"
 
-export const metadata = { title: PAGES.index.title, description: PAGES.index.description }
+export const metadata: Metadata = pageMetadata(PAGES.index)
 
 const Arrow = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -18,6 +19,8 @@ export default function Landing() {
         <a className="brand" href="#top" aria-label="Retake, back to top"><span className="mark" aria-hidden="true"><i></i></span>Retake</a>
         <div className="links">
           <a href="#how">How it works</a>
+          <a href="https://github.com/LightningDesigner/retake">GitHub</a>
+          <a href="https://www.npmjs.com/package/retake-dev">npm</a>
         </div>
         <a className="nav-cta" href="#install">Install</a>
       </nav>
@@ -49,7 +52,7 @@ export default function Landing() {
               </div>
               <div className="n mono">01</div>
               <h3>Run it</h3>
-              <p>Point it at a Vite app with an index.html. Your files stay untouched. Nothing ships to production.</p>
+              <p>In your project: Vite, Next.js, React Router, Remix, Astro, SvelteKit or Nuxt. Your files stay untouched. Nothing ships to production.</p>
             </div>
             <div className="step surface">
               <div className="screen">
@@ -134,10 +137,10 @@ export default function Landing() {
           </div>
           <div className="cli surface">
             <div className="row"><code className="mono"><span data-install>npm i -D retake-dev</span></code><span>Add it to the project. Or skip this and use <code className="inline mono">npx retake-dev .</code></span></div>
-            <div className="row"><code className="mono"><span data-run>npx retake</span> <span className="dim">&lt;project&gt;</span></code><span>Run the project&apos;s own dev server with the timeline docked at the bottom.</span></div>
-            <div className="row"><code className="mono"><span data-run>npx retake</span> . <span className="dim">--port 4000</span></code><span>Pick the port.</span></div>
-            <div className="row"><code className="mono"><span data-run>npx retake</span> . <span className="dim">--code-branches</span></code><span>Each timeline keeps its own version of the code. Rewrites files on disk, so use it on prototypes.</span></div>
-            <div className="row"><code className="mono"><span data-run>npx retake</span> init</code><span>Prefer it in the repo? Prints the two lines for vite.config.</span></div>
+            <div className="row"><code className="mono"><span data-run>npx retake-dev</span> <span className="dim">&lt;project&gt;</span></code><span>Run the project&apos;s own dev server with the timeline docked at the bottom.</span></div>
+            <div className="row"><code className="mono"><span data-run>npx retake-dev</span> . <span className="dim">--port 4000</span></code><span>Pick the port.</span></div>
+            <div className="row"><code className="mono"><span data-run>npx retake-dev</span> . <span className="dim">--code-branches</span></code><span>Each timeline keeps its own version of the code. Rewrites files on disk, so use it on prototypes.</span></div>
+            <div className="row"><code className="mono"><span data-run>npx retake-dev</span> init</code><span>Prefer it in the repo? Prints the two lines for vite.config.</span></div>
             <div className="row"><code className="mono">claude mcp add retake <span className="dim">-- npx -y retake-dev mcp</span></code><span>Your notes reach a coding agent over MCP. It can reply, acknowledge and resolve.</span></div>
           </div>
           <div className="keys"><span><kbd>⌥P</kbd>Play / pause</span><span><kbd>+</kbd>New timeline from here</span><span><kbd>⌘</kbd>Hold and click to leave a note while looking back</span><span><kbd>?retake=0</kbd>Skip for one load</span></div>

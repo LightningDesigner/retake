@@ -3,7 +3,7 @@
 // talks to the running dev server over HTTP (CONTRACT.md "Server HTTP"), so
 // changes show up in the dock live.
 //
-//   claude mcp add retake -- npx -y retake-dev mcp
+//   npx -y retake-dev mcp   (registered as an MCP server in the coding agent)
 //
 // Finds the dev server from --url / RETAKE_URL, else <cwd or a parent>/.retake/server.json.
 import fs from "node:fs"
@@ -24,7 +24,9 @@ function findServerInfo(from = process.cwd()) {
   }
 }
 
+/** @param {{ url?: string | null, token?: string }} [options] */
 export function createClient({ url, token } = {}) {
+  /** @type {{ url: string, token?: string } | null} */
   let info = null
   const base = () => {
     if (url) return url.replace(/\/$/, "")
@@ -68,6 +70,7 @@ export function createClient({ url, token } = {}) {
       const timer = setTimeout(() => ac.abort(), ms)
       try {
         const res = await fetch(base() + "/__retake/events", { signal: ac.signal })
+        if (!res.body) return null
         const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
         let buf = ""
         for (;;) {
@@ -258,6 +261,7 @@ export function createTools(client) {
   return { list: TOOLS, handlers }
 }
 
+/** @param {{ url?: string }} [options] */
 export async function runMcp({ url } = {}) {
   const client = createClient({ url: url || null })
   const tools = createTools(client)

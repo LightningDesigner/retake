@@ -1,9 +1,10 @@
 // The playground: just the island, full screen, for the dock to rewind.
-import { Island } from "../island.js"
-import { Mount } from "../../src/mount.js"
-import { PAGES } from "../../src/site.js"
+import type { Metadata } from "next"
+import { Island } from "../island.tsx"
+import { Mount } from "../../src/mount.tsx"
+import { PAGES, pageMetadata } from "../../src/site.ts"
 
-export const metadata = { title: PAGES.try.title, description: PAGES.try.description }
+export const metadata: Metadata = pageMetadata(PAGES.try)
 
 export default function Playground() {
   return (

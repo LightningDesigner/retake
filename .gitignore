@@ -2,8 +2,6 @@ node_modules
 .cache
 *.timestamp-*.mjs
 test/out
-.coord/
-.audit-fixtures/
 .retake/
 test-results/
 playwright-report/

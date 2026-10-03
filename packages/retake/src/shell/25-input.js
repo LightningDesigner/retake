@@ -451,7 +451,7 @@ gutter.addEventListener("dblclick", (e) => {
   if (el) renameLane(Number(el.dataset.lane))
 })
 document.addEventListener("pointerdown", (e) => {
-  if (!menuEl.hidden && !e.target.closest("#wb-menu")) menuEl.hidden = true
+  if (!menuEl.hidden && !/** @type {Element} */ (e.target).closest("#wb-menu")) menuEl.hidden = true
 })
 
 function renameLane(id) {

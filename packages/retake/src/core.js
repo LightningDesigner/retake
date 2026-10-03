@@ -25,15 +25,21 @@ const read = (...p) => fs.readFileSync(path.join(SRC, ...p), "utf8")
 // The front server's setup is frontRuntime() in server/detect.js.
 export const RT_DEFAULTS = Object.freeze({ marker: "url", bootAt: "dcl", exemptUrls: [], holdScripts: false, next: null, docId: null, docStored: false })
 
+// The files of a concatenated set ("runtime" or "shell"), in the order they
+// run: later files may use earlier files' top-level bindings. (The type check,
+// scripts/typecheck.mjs, concatenates them the same way.)
+export const setFiles = (set) => fs.readdirSync(path.join(SRC, set)).filter((f) => f.endsWith(".js")).sort()
+
 // Read on every page load, so edits to the tool apply on refresh.
+/** @param {import("../types/index.js").RuntimeConfig} [rt] */
 export function runtimeSource(rt = {}) {
-  const dir = path.join(SRC, "runtime")
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).sort()
+  const files = setFiles("runtime")
   const body = files.map((f) => `// ---- ${f}\n${read("runtime", f)}`).join("\n")
   const config = JSON.stringify({ ...RT_DEFAULTS, ...rt })
   return `;(function () {\n"use strict";\nif (window.__retake) return;\nconst RT = Object.freeze(${config});\n${body}\n})();`
 }
 
+/** @param {import("../types/index.js").ShellOptions} [options] */
 export function shellHtml(options = {}) {
   const config = {
     codeBranches: !!options.codeBranches,
@@ -50,7 +56,7 @@ export function shellHtml(options = {}) {
     )
     .replace("/*CSS*/", () => read("shell", "shell.css"))
     .replace("/*JS*/", () => {
-      const files = fs.readdirSync(path.join(SRC, "shell")).filter((f) => f.endsWith(".js")).sort()
+      const files = setFiles("shell")
       return `;(function () {\n"use strict";\n${files.map((f) => read("shell", f)).join("\n")}\n})();`
     })
 }
@@ -61,6 +67,7 @@ export function shellHtml(options = {}) {
 // in a frame the dock made (`isAppFrame`, or, with the URL marker, a URL with
 // `__wb=app`). Anywhere else `__retake` is `{ inert: true }` and the runtime
 // returns at its first line.
+/** @param {import("../types/index.js").RuntimeConfig} [rt] */
 export function runtimeScript(rt = {}) {
   const marker = rt.marker || RT_DEFAULTS.marker
   const guard =
@@ -72,6 +79,7 @@ export function runtimeScript(rt = {}) {
   return `${guard}\n${runtimeSource(rt)}`
 }
 
+/** @param {import("../types/index.js").RuntimeTagOptions} [options] */
 export function runtimeTag({ rt = {}, nonce = null, script = runtimeScript(rt) } = {}) {
   return `<script data-retake${nonce ? ` nonce="${String(nonce).replace(/"/g, "&quot;")}"` : ""}>${script}</script>`
 }
@@ -160,6 +168,7 @@ export function injectHtml(tag, { encoding } = {}) {
       },
     })
   }
+  /** @type {import("node:stream").TransformCallback | null} */
   let flushed = null
   const t = new Transform({
     transform(chunk, _, cb) {
@@ -195,30 +204,32 @@ export function injectResponse(res, tag) {
   const write = res.write.bind(res)
   const end = res.end.bind(res)
   const writeHead = res.writeHead.bind(res)
+  /** @type {Transform | null} */
   let t = null
   let decided = false
   const decide = () => {
     if (decided) return
     decided = true
     if (!/^\s*text\/html\b/i.test(String(res.getHeader("content-type") || "")) || res.statusCode === 204 || res.statusCode === 304 || res.req?.method === "HEAD") return
-    const encoding = res.getHeader("content-encoding")
+    const encoding = String(res.getHeader("content-encoding") || "")
     for (const h of ["content-length", "content-encoding", "etag"]) res.removeHeader(h)
     res.setHeader("cache-control", "no-store")
+    let out
     try {
-      t = injectHtml(tag, { encoding })
+      out = t = injectHtml(tag, { encoding })
     } catch {
       return
     }
-    t.on("data", (c) => {
+    out.on("data", (c) => {
       if (!write(c)) {
-        t.pause()
-        res.once("drain", () => t.resume())
+        out.pause()
+        res.once("drain", () => out.resume())
       }
     })
-    t.on("end", () => end())
-    t.on("error", () => res.destroy())
+    out.on("end", () => end())
+    out.on("error", () => res.destroy())
   }
-  res.writeHead = function (status, message, headers) {
+  res.writeHead = /** @type {any} */ (function (status, message, headers) {
     if (typeof message !== "string") {
       headers = message
       message = undefined
@@ -230,19 +241,19 @@ export function injectResponse(res, tag) {
     if (message) res.statusMessage = message
     decide()
     return writeHead(res.statusCode)
-  }
+  })
   const args = (chunk, encoding, cb) => {
     if (typeof chunk === "function") return [null, null, chunk]
     if (typeof encoding === "function") return [chunk, null, encoding]
     return [chunk, encoding, cb]
   }
-  res.write = function (chunk, encoding, cb) {
+  res.write = /** @type {any} */ (function (chunk, encoding, cb) {
     decide()
     if (!t) return write(chunk, encoding, cb)
     ;[chunk, encoding, cb] = args(chunk, encoding, cb)
     return t.write(typeof chunk === "string" ? Buffer.from(chunk, encoding || "utf8") : chunk, cb)
-  }
-  res.end = function (chunk, encoding, cb) {
+  })
+  res.end = /** @type {any} */ (function (chunk, encoding, cb) {
     decide()
     if (!t) return end(chunk, encoding, cb)
     ;[chunk, encoding, cb] = args(chunk, encoding, cb)
@@ -250,5 +261,5 @@ export function injectResponse(res, tag) {
     if (cb) res.once("finish", cb)
     t.end()
     return res
-  }
+  })
 }

@@ -9,7 +9,7 @@ test("v3 + glass screenshots", async ({ page }) => {
   await h.pause()
   await page.waitForTimeout(300)
   await shot(page, "dock-v3-notch.png")
-  await page.screenshot({ path: "../../.coord/screens/dock-v3-buttons.png", clip: { x: 16, y: 600, width: 1248, height: 64 } })
+  await page.screenshot({ path: "../../test-results/screens/dock-v3-buttons.png", clip: { x: 16, y: 600, width: 1248, height: 64 } })
   // Control held over the track: the guide.
   const s = await h.state()
   const g = await page.locator(".lines").boundingBox()

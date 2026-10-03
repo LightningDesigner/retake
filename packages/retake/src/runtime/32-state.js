@@ -138,7 +138,7 @@ async function snapshotIDB() {
             const cur = st.openCursor()
             cur.onsuccess = () => {
               const c = cur.result
-              if (!c) return resolve()
+              if (!c) return resolve(undefined)
               meta.records.push([encodeValue(c.primaryKey), encodeValue(c.value)])
               c.continue()
             }

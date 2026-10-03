@@ -1,11 +1,26 @@
 {
   "name": "retake-dev",
   "version": "0.4.0",
-  "description": "Retake: a time machine for your dev server (Vite apps, Next.js, React Router). Drag back on a timeline and your app is at that moment; branch a new take from there.",
+  "description": "Retake: a time machine for your dev server (Vite, Next.js, React Router, Remix, Astro, SvelteKit, Nuxt). Drag back on a timeline and your app is at that moment; branch a new take from there.",
+  "homepage": "https://retake-omega.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LightningDesigner/retake.git",
+    "directory": "packages/retake"
+  },
+  "bugs": "https://github.com/LightningDesigner/retake/issues",
+  "author": "Rushil",
   "type": "module",
   "main": "./src/plugin.js",
+  "types": "./types/index.d.ts",
   "exports": {
-    ".": "./src/plugin.js",
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/plugin.js"
+    },
+    "./client": {
+      "types": "./types/client.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -16,6 +31,7 @@
     "bin",
     "src",
     "!src/shell/mock",
+    "types",
     "README.md",
     "LICENSE"
   ],
@@ -33,6 +49,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@react-spring/web": "^10.1.2",
+    "@types/node": "^26.6.4",
     "@vitejs/plugin-react": "^5.2.0",
     "framer-motion": "^12.43.0",
     "gsap": "^3.15.0",
@@ -40,11 +57,13 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",
+    "typescript": "^7.0.2",
     "vite": "^8.3.1"
   },
   "scripts": {
     "check": "node test/check-syntax.js",
-    "test": "node test/check-syntax.js && playwright test",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node test/check-syntax.js && node scripts/typecheck.mjs && playwright test",
     "test:engine": "playwright test --project=engine",
     "test:shell": "playwright test --project=shell"
   },
@@ -56,7 +75,13 @@
     "time-travel",
     "prototype",
     "devtools",
-    "replay"
+    "replay",
+    "remix",
+    "astro",
+    "sveltekit",
+    "nuxt",
+    "time-machine",
+    "mcp"
   ],
-  "license": "MIT"
+  "license": "PolyForm-Shield-1.0.0"
 }

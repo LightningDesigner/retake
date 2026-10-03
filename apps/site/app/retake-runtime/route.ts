@@ -2,7 +2,7 @@
 // set up as the front server sets it up for Next (bootAt "load", holdScripts)
 // with the frame known by Sec-Fetch-Dest (marker "header"). Built once, at
 // build time.
-import { retakeDev } from "../../src/retake.js"
+import { retakeDev } from "../../src/retake.ts"
 
 export const dynamic = "force-static"
 

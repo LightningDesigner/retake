@@ -2,7 +2,10 @@
 // Date) reads from `clock.now`, which only the engine advances. All runtime
 // files are concatenated into one IIFE by the Vite plugin, in filename order.
 
-const W = window
+// W is the window the runtime patches (its timers, Date, network...), so its
+// globals take shapes lib.dom doesn't describe: untyped for the type check.
+const W = /** @type {any} */ (window)
+/** @type {any} the runtime API (70-boot.js fills it in) */
 const PT = (W.__retake = { emit() {} })
 const real = {
   setTimeout: W.setTimeout.bind(W),
@@ -208,12 +211,12 @@ if (W.crypto && crypto.getRandomValues) {
   }
 }
 if (W.crypto && crypto.randomUUID) {
-  crypto.randomUUID = function () {
+  crypto.randomUUID = /** @type {Crypto["randomUUID"]} */ (function () {
     const h = () => Math.floor(Math.random() * 16).toString(16)
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) =>
       c === "x" ? h() : ((Math.random() * 4) | 8).toString(16),
     )
-  }
+  })
 }
 
 // ---- event-loop yield (no 4ms clamp, unlike setTimeout) -------------------

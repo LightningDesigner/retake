@@ -10,20 +10,20 @@
 //                                   gets the plain page
 // In dev (`pnpm dev`) the front server in front of `next dev` does all this,
 // so the proxy stands aside.
-import { NextResponse } from "next/server"
-import { PAGES } from "./src/site.js"
+import { NextResponse, type NextRequest } from "next/server"
+import { PAGES } from "./src/site.ts"
 
 const INTERNAL = "x-retake-internal"
-const PAGE_BY_PATH = Object.fromEntries(Object.entries(PAGES).map(([name, p]) => [p.path, name]))
+const PAGE_BY_PATH: Record<string, string | undefined> = Object.fromEntries(Object.entries(PAGES).map(([name, p]) => [p.path, name]))
 // Both answers at a page's URL depend on who asked for it.
 const VARY = "Sec-Fetch-Dest, Sec-Fetch-Mode"
 
 // The runtime and each page's HTML, fetched from this deployment once per
 // instance (they're static: they only change with a new build).
-const fetched = new Map()
-function fetchText(req, path) {
+const fetched = new Map<string, Promise<string>>()
+function fetchText(req: NextRequest, path: string): Promise<string> {
   if (!fetched.has(path)) {
-    const headers = { [INTERNAL]: "1" }
+    const headers: Record<string, string> = { [INTERNAL]: "1" }
     // Preview deployments behind Vercel's protection: the visitor's own pass.
     const cookie = req.headers.get("cookie")
     if (cookie) headers.cookie = cookie
@@ -35,12 +35,12 @@ function fetchText(req, path) {
     fetched.set(path, p)
     p.catch(() => fetched.delete(path))
   }
-  return fetched.get(path)
+  return fetched.get(path)!
 }
 
 // After <head> (and the <meta charset> right after it), as the front server
 // puts it: before any of Next's own scripts.
-function inject(html, tag) {
+function inject(html: string, tag: string) {
   const head = /<head(?=[\s>])[^>]*>/i.exec(html)
   if (!head) return tag + html
   let at = head.index + head[0].length
@@ -49,7 +49,7 @@ function inject(html, tag) {
   return html.slice(0, at) + tag + html.slice(at)
 }
 
-export async function proxy(req) {
+export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname
   const internal = req.headers.get(INTERNAL) === "1"
   // The dock and runtime routes are only for the rewrites and fetches below.
@@ -73,12 +73,12 @@ export async function proxy(req) {
     })
   } catch (err) {
     // Without the runtime the frame still shows the page; the dock says it can't record.
-    console.error("[retake] the frame's page:", err.message)
+    console.error("[retake] the frame's page:", err instanceof Error ? err.message : err)
     return NextResponse.next()
   }
 }
 
-function withInternal(headers) {
+function withInternal(headers: Headers) {
   const h = new Headers(headers)
   h.set(INTERNAL, "1")
   return h

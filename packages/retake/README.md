@@ -51,14 +51,18 @@ export default defineConfig({
 
 `retake()` only runs in `vite dev`; `vite build` output has no Retake code in it.
 
-### Connect Claude Code (MCP)
-Notes you leave in the dock can go straight to Claude Code. Once, from the app folder:
+### Connect your coding agent (MCP)
+Notes you leave in the dock can go straight to your coding agent. Register the
+MCP server once, from the app folder. With Claude Code:
 
 ```sh
 claude mcp add retake -- npx -y retake-dev mcp
 ```
 
-With the dev server running, Claude can `list_notes`, `get_note`,
+Any other MCP client (Cursor, Codex, Windsurf...) takes the same command,
+`npx -y retake-dev mcp`, in its MCP settings.
+
+With the dev server running, the agent can `list_notes`, `get_note`,
 `get_active_timeline`, `acknowledge`, `resolve`, `reply` and `watch_notes`.
 It finds the server through `.retake/server.json` (or pass `--url http://localhost:3014`).
 Acknowledging and resolving show up on the note in the dock right away.
@@ -73,15 +77,15 @@ Acknowledging and resolving show up on the note in the dock right away.
    It starts paused: press play and do something different. Click the other
    lane to go back to the first take.
 5. **Note**: hold ⌘ and click an element (or one of its animation layers),
-   write what should change, press Enter. "Copy for Claude" copies a prompt with
-   the element, its React component, source file:line and CSS; or let Claude
-   pick it up over MCP.
+   write what should change, press Enter. "Copy for agent" copies a prompt with
+   the element, its React component, source file:line and CSS; or let your
+   agent pick it up over MCP.
 
 ### Uninstall
 ```sh
 npm uninstall retake-dev          # or pnpm remove / yarn remove / bun remove
 rm -rf .retake                    # Retake's session and recordings
-claude mcp remove retake          # if you added the MCP server
+claude mcp remove retake          # if you added the MCP server (or remove it in your client's MCP settings)
 ```
 Remove `retake()` from `vite.config` if you added it.
 
@@ -94,10 +98,14 @@ retake <project> -- --host           # anything after -- goes to the dev server
 retake -- <dev command>              # run that command with the timeline in front (retake -- next dev)
 retake http://localhost:3000         # put the timeline in front of a dev server that's already running
 retake init                          # print the vite.config lines
-retake mcp                           # the MCP server (what `claude mcp add` runs)
+retake mcp                           # the MCP server your coding agent runs
 ```
 `--root <dir>` puts `.retake/` somewhere else; `--verbose` logs every request the
 front server handles to `.retake/front.log`. Opt out for one page load with `?retake=0`.
+
+Recordings hold what you typed and what your API answered. Retake's front server
+only answers on localhost; with the plugin and `vite --host`, anyone on your
+network can read the session.
 
 ## Frameworks
 
@@ -183,3 +191,8 @@ don't remember state. Not covered: the Cache API / service workers, and
 cross-origin iframes.
 
 Requires Node 18+, and Vite 5 or newer for Vite apps and the plugin.
+
+## License
+
+[PolyForm Shield 1.0.0](LICENSE). Use it, change it and share it for anything,
+except building a product that competes with Retake.

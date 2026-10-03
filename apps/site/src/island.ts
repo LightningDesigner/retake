@@ -1,14 +1,14 @@
 // The island: click to morph through four states (Ready, Recording, Going
 // back, Take 2 started). Size and shape change on CSS transitions, so dragging
 // the timeline back shows the frames in between. Used by the landing page's
-// "Try it" grid and by the playground (/try); both use the same markup (app/island.js).
-const two = (n) => String(n).padStart(2, "0")
+// "Try it" grid and by the playground (/try); both use the same markup (app/island.tsx).
+const two = (n: number) => String(n).padStart(2, "0")
 
-export function island(root = document) {
-  const el = root.querySelector("#island")
+export function island(root: ParentNode = document) {
+  const el = root.querySelector<HTMLElement>("#island")
   if (!el) return
   const dots = [...root.querySelectorAll("#island-stage .steps-dots i")]
-  const clock = root.querySelector("#island-clock")
+  const clock = root.querySelector("#island-clock")!
   let state = 0
   let since = 0
   setInterval(() => {

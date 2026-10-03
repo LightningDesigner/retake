@@ -1,5 +1,5 @@
 // Fails unless the Next build ships the dock on every page (run after
-// `next build`; `pnpm check:build` does both). For each page in src/site.js:
+// `next build`; `pnpm check:build` does both). For each page in src/site.ts:
 //   - the page itself is prerendered, plain (no runtime in it)
 //   - its dock (app/retake-dock) is prerendered with the page's title, and
 //     loads its frame by Sec-Fetch-Dest (marker "header"), no module scripts
@@ -7,35 +7,40 @@
 //   - the proxy's matcher covers the page
 // Then it starts `next start` on a free port and asks for each page as a
 // top-level load (the dock), as the dock's frame (the page with the runtime
-// as its first script), and with ?retake=0 (the plain page). See proxy.js.
+// as its first script), and with ?retake=0 (the plain page). See proxy.ts.
 import fs from "node:fs"
 import http from "node:http"
-import net from "node:net"
+import net, { type AddressInfo } from "node:net"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { createRequire } from "node:module"
-import { PAGES } from "../src/site.js"
+import { PAGES, type Page } from "../src/site.ts"
 
 const site = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 const out = path.join(site, ".next", "server")
-const read = (...p) => (fs.existsSync(path.join(out, ...p)) ? fs.readFileSync(path.join(out, ...p), "utf8") : "")
-const problems = []
-const say = (m) => problems.push(m)
+const read = (...p: string[]) => (fs.existsSync(path.join(out, ...p)) ? fs.readFileSync(path.join(out, ...p), "utf8") : "")
+const problems: string[] = []
+const say = (m: string) => problems.push(m)
 // A page's prerendered file: / -> index.html, /try -> try.html.
-const file = (name) => (name === "index" ? "index" : PAGES[name].path.slice(1))
+const file = (name: string, p: Page) => (name === "index" ? "index" : p.path.slice(1))
 
 if (!fs.existsSync(out)) say(".next/server is missing (run next build first)")
 const runtime = read("app", "retake-runtime.body")
 if (!runtime.startsWith("<script data-retake>")) say("retake-runtime isn't a script tag")
 if (!runtime.includes("window.__retake") || !runtime.includes('"marker":"header"')) say("retake-runtime isn't the runtime with the header marker")
-let matchers = []
+// The parts of .next/server/functions-config-manifest.json this reads.
+interface FunctionsConfig {
+  functions: Record<string, { matchers: Array<{ originalSource: string }> } | undefined>
+}
+let matchers: string[] = []
 try {
-  matchers = JSON.parse(read("functions-config-manifest.json")).functions["/_middleware"].matchers.map((m) => m.originalSource)
+  const manifest: FunctionsConfig = JSON.parse(read("functions-config-manifest.json"))
+  matchers = manifest.functions["/_middleware"]!.matchers.map((m) => m.originalSource)
 } catch {
-  say("the build has no proxy (proxy.js)")
+  say("the build has no proxy (proxy.ts)")
 }
 for (const [name, p] of Object.entries(PAGES)) {
-  const page = read("app", `${file(name)}.html`)
+  const page = read("app", `${file(name, p)}.html`)
   const dock = read("app", "retake-dock", `${name}.body`)
   if (!page) say(`${p.path} wasn't prerendered`)
   else if (page.includes("data-retake")) say(`${p.path}: the page itself has the runtime (the proxy adds it for the dock's frame only)`)
@@ -49,9 +54,9 @@ for (const [name, p] of Object.entries(PAGES)) {
 // The same, served: next start on a free port.
 if (!problems.length) {
   // CHECK_BUILD_PORT: a port of your own (agents share this machine); else a free one.
-  const port = Number(process.env.CHECK_BUILD_PORT) || await new Promise((resolve) => {
+  const port = Number(process.env.CHECK_BUILD_PORT) || await new Promise<number>((resolve) => {
     const s = net.createServer().listen(0, "127.0.0.1", () => {
-      const { port } = s.address()
+      const { port } = s.address() as AddressInfo
       s.close(() => resolve(port))
     })
   })
@@ -59,8 +64,8 @@ if (!problems.length) {
   const child = spawn(process.execPath, [next, "start", "--port", String(port), "--hostname", "127.0.0.1"], { cwd: site, stdio: "ignore", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } })
   const base = `http://127.0.0.1:${port}`
   // (node:http: fetch() leaves out Sec-Fetch-* headers, as a browser's fetch would.)
-  const get = (p, dest) =>
-    new Promise((resolve, reject) => {
+  const get = (p: string, dest?: "document" | "iframe") =>
+    new Promise<{ status: number | undefined; text: string }>((resolve, reject) => {
       const headers = dest ? { "sec-fetch-mode": "navigate", "sec-fetch-dest": dest } : {}
       http.get(base + p, { headers }, (res) => {
         let text = ""
@@ -92,7 +97,7 @@ if (!problems.length) {
     if ((await get("/__retake/session")).status !== 404) say("/__retake/session isn't a 404 (the dock would look for a server)")
     if ((await get("/retake-dock/index", "document")).status !== 404) say("/retake-dock/index is reachable directly")
   } catch (e) {
-    say(e.message)
+    say(e instanceof Error ? e.message : String(e))
   } finally {
     child.kill()
   }

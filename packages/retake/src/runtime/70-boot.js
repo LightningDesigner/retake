@@ -35,6 +35,7 @@ if (pending && (pending.reloaded || pending.continue)) {
   // as it is now. Nothing is replayed; later rebuilds to a moment in this
   // segment start from here too.
   rec = readRec(pending.rec)
+  /** @type {Record<string, any>} */
   const seg = {
     t: pending.target,
     ev: rec.events.length,
