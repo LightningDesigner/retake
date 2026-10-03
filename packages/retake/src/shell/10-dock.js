@@ -90,6 +90,10 @@ function swapIn(b) {
   } catch {}
   f.className = "live"
   f.removeAttribute("aria-hidden")
+  // The new frame is the one on show before the old one goes: the old one
+  // blurs as it's removed, which must not read as ⌘ let go (F99).
+  D.frame = f
+  D.PT = pt
   if (old) {
     let canvas = false
     try {
@@ -102,14 +106,14 @@ function swapIn(b) {
       setTimeout(() => delete f.dataset.enter, 200)
     } else old.remove()
   }
-  D.frame = f
-  D.PT = pt
   D.frameBranch = b.branchId != null ? b.branchId : D.activeId
   D.building = null
   window.__retakeShell.rebuilding = false
   D.scopeEl = null // an element of the old frame
   noteBuilt(b)
   hookFrameKeys(f.contentWindow)
+  // A tool that's on stays on, in the new frame, over what's under the pointer.
+  syncPicking()
   if (b.fork) forkNow()
   else if (b.play) pt.play()
 }
@@ -568,6 +572,7 @@ function render() {
   renderShield(s)
   if (s.started) renderTimeline(s, shownT)
   renderExtras(s)
+  renderFocusOverlay(s)
   if (D.collapsed && fab.dataset.phase !== readoutPhase.dataset.phase) fab.dataset.phase = readoutPhase.dataset.phase
 }
 
@@ -688,8 +693,12 @@ const refocus = () => D.frame && D.frame.contentWindow && D.frame.contentWindow.
 document.addEventListener("click", (e) => {
   const target = /** @type {Element} */ (e.target)
   const b = /** @type {HTMLButtonElement | null} */ (target.closest("button, [data-branch], [data-note]"))
+  // A press on the track while writing a note (the element row, a range, the
+  // playhead) keeps the note open.
+  const held = D.focusHold
+  D.focusHold = false
   if (!b) {
-    if (!target.closest(".card")) closeCard()
+    if (!target.closest(".card") && !(held && target.closest(".track"))) closeCard()
     return
   }
   const a = b.dataset.a
@@ -896,7 +905,14 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault()
     return setCollapsed(!D.collapsed)
   }
+  // Tab with the dock's window focused cycles what's under the pointer, as in the app.
+  if (e.key === "Tab" && !e.metaKey && mode() && !typing(e.target) && layers.length > 1) {
+    e.preventDefault()
+    return cycleLayer(e.shiftKey ? -1 : 1)
+  }
   if (e.key === "Escape") {
+    // An open clip closes first, then a selected range, then the note.
+    if (closeFocusClip() || clearRange()) return
     setPicking(null)
     closeCard()
     return
@@ -923,5 +939,11 @@ function hookFrameKeys(win) {
     )
   } catch {}
 }
-window.addEventListener("keyup", (e) => e.key === "Meta" && window.__retakeShell.meta(false))
-window.addEventListener("blur", () => window.__retakeShell.meta(false))
+window.addEventListener("keyup", (e) => e.key === "Meta" && setMeta(false))
+// The dock's window losing focus lets go of ⌘, unless the focus only went
+// into the app's frame (whose own blur, if it goes, says so).
+window.addEventListener("blur", () => {
+  const a = document.activeElement
+  if (a && a.tagName === "IFRAME") return
+  window.__retakeShell.meta(false)
+})

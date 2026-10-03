@@ -85,6 +85,8 @@ export interface ShellOptions {
    * from it falls back to memory.
    */
   server?: boolean
+  /** The project folder: source paths in notes are written relative to it. */
+  root?: string
   /** The token mutating `/__retake/` requests carry. */
   token?: string
 }

@@ -25,6 +25,13 @@ export interface RetakeClip {
   property?: string
   path: Array<string | number>
   iterations?: "infinite" | number
+  /** One iteration's duration (ms), for clips that repeat. */
+  dur?: number
+  /** Start delay (ms), included in `start`..`end`. */
+  delay?: number
+  /** First and last keyframe's values (up to 4 properties), e.g. `{ opacity: "0" }` → `{ opacity: "1" }`. */
+  from?: Record<string, string>
+  to?: Record<string, string>
   pseudoElement?: string
 }
 

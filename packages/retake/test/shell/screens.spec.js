@@ -53,7 +53,9 @@ test("dock v2: a note popover near the right edge stays on screen, arrow on the 
   // Details fold away; the selector isn't dumped in the card.
   await expect(page.locator("#wb-note .details dl")).toBeHidden()
   await page.locator("#wb-note .details summary").click()
-  await expect(page.locator("#wb-note .details dd").first()).toContainText("#\\:r1\\:")
+  // The selector (no generated id like ":r1:" since F96) finds the box.
+  const sel = await page.locator("#wb-note .details dd").first().textContent()
+  expect(await h.rt((s) => [...document.querySelectorAll(s)].map((e) => e.id), sel)).toEqual([":r1:"])
   await shot(page, "dock-v2-note.png")
   expect(h.dockErrors).toEqual([])
 })

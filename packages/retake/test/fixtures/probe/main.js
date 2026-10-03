@@ -171,3 +171,7 @@ if (flags.has("count")) {
   b.addEventListener("click", () => fetch("/api/count?id=" + flags.get("count")).then((r) => r.text()).then((t) => L("count", t)))
   document.body.prepend(b)
 }
+
+// touched by session.spec
+
+// touched by session.spec (recording)

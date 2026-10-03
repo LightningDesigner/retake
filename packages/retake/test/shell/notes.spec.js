@@ -58,13 +58,15 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   expect(p).toContain("Selector: #card")
   expect(p).toContain("Classes: card primary-card off")
   expect(p).toMatch(/Computed: .*border-radius: 8px/)
-  expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, \d+ms into a \d+ms /)
+  expect(p).toMatch(/Animation: .* on this element \(clip c\d+\)/)
+  expect(p).toMatch(/At: local \d+ms of \d+ms = progress /)
+  expect(p).toMatch(/Moment: 00:00\.\d\d into the recording · Timeline: "Timeline 1"/)
   expect(p).toContain('Timeline: "Timeline 1"')
 
   // Open it from the pin: the card shows the note and its clip.
   await page.locator(".canvas-pin").click()
   await expect(page.locator("#wb-note")).toContainText("Make this slide slower")
-  await expect(page.locator("#wb-note .note-clip")).toContainText(/\d+(ms|\.\ds) into /)
+  await expect(page.locator("#wb-note .note-clip")).toContainText(/^at \d+ms \(\d+%\) of .+ on <div#card>/)
   await expect(page.locator("#wb-note")).toBeVisible()
   await page.waitForTimeout(250)
   const cb = await page.locator("#wb-note").boundingBox()
@@ -73,13 +75,16 @@ test("⌘-click in the past: the note keeps its moment, clip + offset, element, 
   expect(h.dockErrors).toEqual([])
 })
 
+// (A generated id like React's useId ":r1:" isn't used at all since F96: it
+// changes between loads. The selector still finds the element.)
 test("F23: selectors are escaped for ids like :r1: and 1st", async ({ page }) => {
   const h = await openDock(page, DOCK_URL)
   await recordSome(h, ["#toggle"])
   await h.pause()
   await intoFirstClick(h, 50)
   const a = await noteOn(h, "[id=':r1:']", "useId box", "tool")
-  expect(a.el.selector).toBe("#\\:r1\\:")
+  expect(a.el.selector).not.toContain("r1")
+  expect(await h.rt((s) => [...document.querySelectorAll(s)].map((e) => e.id), a.el.selector)).toEqual([":r1:"])
   const b = await noteOn(h, "[id='1st']", "digit id", "tool")
   expect(b.el.selector).toBe("#\\31 st")
   // Both resolve in the app.
@@ -115,12 +120,12 @@ test("F23: React components through memo/forwardRef, with source file:line", asy
   expect(n.el.components[0]).toBe("FancyButton")
   expect(n.el.components).toContain("App")
   expect(n.el.source).toBeTruthy()
-  expect(n.el.source.file).toMatch(/\/src\/main\.jsx$/)
+  expect(n.el.source.file).toMatch(/^src\/main\.jsx$/)
   expect(n.el.source.line).toBeGreaterThan(3)
   expect(n.el.source.line).toBeLessThan(12)
   const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
   expect(p).toContain("Component: FancyButton")
-  expect(p).toMatch(/Source: \/src\/main\.jsx:\d+/)
+  expect(p).toMatch(/Source: src\/main\.jsx:\d+/)
   expect(p).toContain("Classes: btn primary")
   // The useId label gets a valid selector too.
   const f = await noteOn(h, "label.field", "Field")
@@ -176,7 +181,7 @@ test("source lines are the original lines (source-mapped), components skip libra
   await noteOn(h, "#shifted", "Rounder")
   await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.source && D.notes[D.notes.length - 1].el.source.mapped)).toBe(true)
   const n = await dock(page, (D) => D.notes[D.notes.length - 1])
-  expect(n.el.source.file).toMatch(/\/src\/Shifted\.tsx$/)
+  expect(n.el.source.file).toMatch(/^src\/Shifted\.tsx$/)
   expect([buttonLine, buttonLine + 1]).toContain(n.el.source.line)
   // ...which the served file has somewhere else, so the mapping mattered.
   const served = (await (await page.request.get(REACT_URL + "src/Shifted.tsx")).text()).split("\n")
@@ -189,7 +194,7 @@ test("source lines are the original lines (source-mapped), components skip libra
   expect(n.el.styles.transition).toContain("10 properties")
   expect(n.el.styles.transition).toContain("0.15s")
   const p = await page.evaluate(() => { const d = window.__retakeDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
-  expect(p).toContain(`Source: /src/Shifted.tsx:${n.el.source.line}`)
+  expect(p).toContain(`Source: src/Shifted.tsx:${n.el.source.line}`)
   expect(h.dockErrors).toEqual([])
 })
 
@@ -221,8 +226,57 @@ test("a note on a still element has no clip, even while something else animates"
   expect(n.el.selector).toBe("#count")
   expect(n.clip).toBeNull()
   const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
-  expect(p).toMatch(/Moment: 00:00\.\d\d into the recording, nothing animating/)
+  expect(p).toContain("Nothing animates on this element at this moment.")
+  expect(p).toMatch(/Moment: 00:00\.\d\d into the recording/)
   // The animating element itself still gets its clip.
   const m = await noteOn(h, "#card", "Slower")
   expect(m.clip && m.clip.selector).toBe("#card")
+})
+
+// A bundled app (Next's Turbopack/webpack chunks): React's stack points into a
+// chunk, so the source comes from the chunk's source map (an index map with
+// sections, frames that land in the JSX runtime skipped). With no map, the
+// note says it doesn't know rather than naming the chunk.
+test("a note's source maps through a bundle's index source map; with no map it says so", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL + "?fiber")
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await noteOn(h, "#hero", "Make it appear here, then disappear")
+  await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.source && D.notes[D.notes.length - 1].el.source.mapped)).toBe(true)
+  const hero = await dock(page, (D) => D.notes[D.notes.length - 1])
+  expect(hero.el.source).toMatchObject({ file: "src/Hero.tsx", line: 7, mapped: true })
+  expect(hero.el.components[0]).toBe("Hero")
+  let p = await page.evaluate(() => { const d = window.__retakeDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
+  expect(p).toContain("Source: src/Hero.tsx:7")
+
+  await noteOn(h, "#blob", "Bolder", "tool")
+  await expect.poll(() => dock(page, (D) => !!(D.notes[D.notes.length - 1].el.source || {}).compiled)).toBe(true)
+  const blob = await dock(page, (D) => D.notes[D.notes.length - 1])
+  expect(blob.el.source).toMatchObject({ file: "chunks/blob-9f8e7d6c.js", line: 14, mapped: false, compiled: true })
+  p = await page.evaluate(() => { const d = window.__retakeDock; return d.prompt(d.state.notes[d.state.notes.length - 1]) })
+  expect(p).toContain("Source: not mapped (only a compiled bundle, no source map)")
+  expect(p).not.toContain("blob-9f8e7d6c")
+  expect(h.dockErrors).toEqual([])
+})
+
+// "Copy for agent": a header says what a Retake note is, for an agent that has
+// never seen one, and the moment carries the clip's start and end.
+test("the copied prompt says it's a note pinned to a moment of a recording, with the MCP tools to look around it", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await intoFirstClick(h, 140)
+  const n = await noteOn(h, "#card", "Make it appear here, then disappear")
+  expect(n.clip.start).toBeLessThan(n.t)
+  expect(n.clip.end).toBeGreaterThan(n.t)
+  const p = await page.evaluate(() => window.__retakeDock.prompt(window.__retakeDock.state.notes[0]))
+  const lines = p.split("\n")
+  expect(lines[0]).toMatch(new RegExp(`^> Retake note ${n.id}: pinned to a moment in a Retake recording of the running app\\. "Moment" is the time into that recording`))
+  expect(lines[1]).toContain("get_moment")
+  expect(lines[1]).toContain("get_timeline_events")
+  expect(lines[1]).toContain("replay that moment in the Retake dock")
+  expect(lines[3]).toBe("## Make it appear here, then disappear")
+  expect(p).toMatch(/runs recording 00:0\d\.\d\d → 00:0\d\.\d\d; local 0 = recording 00:0\d\.\d\d/)
+  expect(p).toMatch(/Moment: 00:0\d\.\d\d into the recording/)
+  expect(lines.length).toBeLessThan(45)
 })

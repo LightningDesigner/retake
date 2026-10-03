@@ -8,6 +8,9 @@
 // Finds the dev server from --url / RETAKE_URL, else <cwd or a parent>/.retake/server.json.
 import fs from "node:fs"
 import path from "node:path"
+import { fmt, parseTime, readRecording, report } from "./moments.js"
+import { cleanSource, isCompiled, resolveSource } from "./sourcemap.js"
+import { animFromClip, animationReport, animationSummary, elementBlock, animationBlock, noteText, primaryOf } from "../note-text.js"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 const PKG = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"))
@@ -17,7 +20,7 @@ function findServerInfo(from = process.cwd()) {
     const f = path.join(dir, ".retake", "server.json")
     if (fs.existsSync(f)) {
       try {
-        return JSON.parse(fs.readFileSync(f, "utf8"))
+        return { ...JSON.parse(fs.readFileSync(f, "utf8")), root: dir }
       } catch {}
     }
     if (path.dirname(dir) === dir) return null
@@ -26,7 +29,7 @@ function findServerInfo(from = process.cwd()) {
 
 /** @param {{ url?: string | null, token?: string }} [options] */
 export function createClient({ url, token } = {}) {
-  /** @type {{ url: string, token?: string } | null} */
+  /** @type {{ url: string, token?: string, root?: string } | null} */
   let info = null
   const base = () => {
     if (url) return url.replace(/\/$/, "")
@@ -60,7 +63,13 @@ export function createClient({ url, token } = {}) {
   }
   return {
     base,
+    // The project folder (where .retake/ is), to make source paths relative.
+    root: () => {
+      info = info || findServerInfo()
+      return (info && info.root) || process.cwd()
+    },
     session: () => call("GET", "/__retake/session"),
+    recording: (branchId) => call("GET", `/__retake/recording/${encodeURIComponent(branchId)}`),
     notes: () => call("GET", "/__retake/notes"),
     note: (id) => call("GET", `/__retake/notes/${encodeURIComponent(id)}`),
     patch: (id, body) => call("PATCH", `/__retake/notes/${encodeURIComponent(id)}`, body),
@@ -101,11 +110,6 @@ export function createClient({ url, token } = {}) {
 
 // ---- presenting notes -----------------------------------------------------------
 
-const fmt = (ms) => {
-  const s = Math.max(0, Number(ms) || 0) / 1000
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(2).padStart(5, "0")}`
-}
-
 // Older sessions named timelines "Main" and "Take N"; the dock now shows
 // those defaults as "Timeline N" (migratedName in shell/10-dock.js).
 function withNames(session) {
@@ -124,21 +128,49 @@ function summary(n, session) {
     at: fmt(n.t),
     selector: n.selector || (n.el && n.el.selector) || null,
     component: n.component || (n.el && n.el.components && n.el.components[0]) || null,
-    source: n.source ? `${n.source.file}${n.source.line ? ":" + n.source.line : ""}` : null,
+    source: n.source ? (unmapped(n.source) ? "unknown (compiled bundle; get_note tries its source map)" : `${n.source.file}${n.source.line ? ":" + n.source.line : ""}`) : null,
+    ...(n.range ? { range: `${fmt(n.range.from)} → ${fmt(n.range.to)}` } : {}),
+    ...(animationSummary(n) ? { animation: animationSummary(n) } : {}),
     replies: (n.replies || []).length,
   }
 }
 
-function clipText(c) {
+// A source that is only a compiled bundle's line (no source map read yet).
+const unmapped = (src) => !!src && !!(src.compiled || isCompiled(src.file))
+
+function clipText(c, t) {
   const name = c.label ? `${c.label} ` : ""
   const at = `${Math.round(Number(c.offset) || 0)}ms into`
-  return Number(c.duration) > 0 ? `${at} a ${Math.round(c.duration)}ms ${name}animation (clip ${c.id})` : `${at} a running ${name}animation (clip ${c.id})`
+  const start = c.start != null ? c.start : t - (Number(c.offset) || 0)
+  const end = c.end !== undefined ? c.end : Number(c.duration) > 0 ? start + Number(c.duration) : null
+  const span = `; it runs ${fmt(start)} → ${end != null ? fmt(end) : "still running"}`
+  return Number(c.duration) > 0 ? `${at} a ${Math.round(c.duration)}ms ${name}animation (clip ${c.id}${span})` : `${at} a running ${name}animation (clip ${c.id}${span})`
 }
 
-// Everything an agent needs to act on one note, as readable text.
-function describe(n, session) {
+// Where the element was written, as one line: the note's own source, the
+// original file:line behind a compiled bundle's (see resolveSourceOf), or why
+// it isn't known.
+function sourceLine(n, resolved) {
+  const src = n.source
+  if (!src) return null
+  if (resolved && resolved.file) return `Source: ${resolved.file}${resolved.line ? ":" + resolved.line : ""} (through the source map of the bundle it was served in)`
+  if (unmapped(src)) {
+    const by = [n.component || (n.el && n.el.components && n.el.components[0]), n.selector || (n.el && n.el.selector)].filter(Boolean)
+    return `Source: not known. The note only has a line of a compiled bundle${resolved && resolved.library ? ", which maps into library code" : ", with no source map to read it by"}; find the element by ${by.length > 1 ? `its component (${by[0]}) and selector` : by.length ? by[0] : "its selector"} instead.`
+  }
+  return `Source: ${src.file}${src.line ? ":" + src.line : ""}`
+}
+
+// Everything an agent needs to act on one note, as readable text. A note
+// that says which animations it is about (anims, from the dock) is written by
+// the same formatter as the dock's Copy for agent (src/note-text.js).
+function describe(n, session, resolved = null) {
   const b = (session.branches || []).find((x) => String(x.id) === String(n.branchId))
   const parent = b && (session.branches || []).find((x) => String(x.id) === String(b.parentId))
+  if (Array.isArray(n.anims)) {
+    const text = noteText(n, { start: 0, timeline: b ? b.name : String(n.branchId), parent: parent ? parent.name : null, forkAt: parent ? b.forkAt : null, sourceLine: sourceLine(n, resolved) || undefined, status: true })
+    return `${text}\n\nThe note is pinned to ${fmt(n.range ? n.range.from : n.t)} in the recording of that timeline. get_moment with id "${n.id}" shows what happened around it; get_animation with id "${n.id}" maps any recording time onto the animation's own clock.`
+  }
   const el = n.el || {}
   const lines = [
     `Note ${n.id} (${n.status || "pending"}) on timeline "${b ? b.name : n.branchId}" at ${fmt(n.t)}`,
@@ -149,11 +181,13 @@ function describe(n, session) {
     `Element: ${el.label || ""}${el.text ? ` "${el.text}"` : ""}`.trim(),
     `Selector: ${n.selector || el.selector || "?"}`,
     n.component || (el.components && el.components.length) ? `Component: ${n.component || el.components.join(" < ")}` : null,
-    n.source ? `Source: ${n.source.file}${n.source.line ? ":" + n.source.line : ""}` : null,
+    sourceLine(n, resolved),
     n.classes && n.classes.length ? `Classes: ${[].concat(n.classes).join(" ")}` : null,
     n.rect ? `Box: ${Math.round(n.rect.w)}×${Math.round(n.rect.h)} at (${Math.round(n.rect.x)}, ${Math.round(n.rect.y)})` : null,
-    n.clip ? `During an animation: ${clipText(n.clip)}` : null,
+    n.clip ? `During an animation: ${clipText(n.clip, n.t)}` : null,
     el.page ? `Page: ${el.page}` : null,
+    "",
+    `The note is pinned to ${fmt(n.t)} in the recording of that timeline: the user means what was on screen then. get_moment with id "${n.id}" shows what happened around it (actions, animations on this element with their start and end, requests); check it before asking the user about timing.`,
   ]
   if ((n.replies || []).length) {
     lines.push("", "Conversation:")
@@ -174,6 +208,52 @@ const TOOLS = [
     name: "get_note",
     description: "Everything about one note: what the user asked, the element (selector, React component, source file:line, classes, size), the moment and timeline, and the conversation so far.",
     inputSchema: { type: "object", properties: { id: { type: ["string", "number"] } }, required: ["id"] },
+  },
+  {
+    name: "get_moment",
+    description:
+      "What happened in the recording around a note's moment (or any moment of a timeline): the user's actions, route changes and requests with their times, the animations on or near the noted element (start, end, duration, what they animate between, how far along at the moment), other animations, and when the screen changed most. Use it before asking the user about timing: a note is pinned to a moment, and the answer is usually in the recording.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: ["string", "number"], description: "A note id: the moment, timeline and element come from the note" },
+        timeline: { type: ["string", "number"], description: "Without a note: a timeline's name or id (default: the active one)" },
+        at: { type: ["string", "number"], description: "Without a note: the moment, as the dock shows it (00:10.91)" },
+        selector: { type: "string", description: "Without a note: an element to focus on" },
+        before_seconds: { type: "number", description: "How far back to look (default 5)" },
+        after_seconds: { type: "number", description: "How far ahead to look (default 5)" },
+      },
+    },
+  },
+  {
+    name: "get_animation",
+    description:
+      "One animation in detail: what it is and where it is defined, what started it, its timing (delay, duration, iterations, easing) and every keyframe, and recording times mapped onto its own clock (local ms after its delay, progress, eased progress, the keyframe segment) with the conversion to CSS %, Motion `times` and GSAP seconds. Values and boxes are included where the note sampled them. Give a note id (its primary animation, or `clip` to pick another of its animations), or a timeline and a clip id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: ["string", "number"], description: "A note id: its primary animation and its moment or range" },
+        clip: { type: "string", description: "A clip id (from get_moment / get_timeline_events / the note)" },
+        timeline: { type: ["string", "number"], description: "Without a note: a timeline's name or id (default: the active one)" },
+        at: { type: ["string", "number"], description: "A recording time to map (00:01.20)" },
+        from: { type: ["string", "number"], description: "Start of a range to map" },
+        to: { type: ["string", "number"], description: "End of a range to map" },
+      },
+    },
+  },
+  {
+    name: "get_timeline_events",
+    description: "Everything recorded on a timeline between two times: the user's actions, routes, page loads, requests, animations (optionally around one element) and screen changes, in order. Times as the dock shows them (00:10.91).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timeline: { type: ["string", "number"], description: "A timeline's name or id (default: the active one)" },
+        from: { type: ["string", "number"], description: "Start of the window (default: the start)" },
+        to: { type: ["string", "number"], description: "End of the window (default: the end)" },
+        selector: { type: "string", description: "Focus on the animations on or near this element" },
+        limit: { type: "number", description: "Most events to list (default 60, max 200)" },
+      },
+    },
   },
   {
     name: "get_active_timeline",
@@ -202,6 +282,30 @@ const TOOLS = [
   },
 ]
 
+// The guide every coding agent gets at initialize (also in skills/retake-notes).
+const INSTRUCTIONS = `Notes are change requests the user left on elements of their app in the Retake timeline, each pinned to a moment (or a range) of a recording of the running app. list_notes, then get_note for details; get_moment shows what happened around a note's moment (actions, animations on the element, requests), so check it before asking the user about timing. acknowledge when you start, resolve with a summary when done.
+
+Animations. A note on an animated element names the animation (its kind, where it is defined, its timing and every keyframe) and the exact point or range the user meant on that animation's own clock: local ms after its delay, progress (local / duration), eased progress (after the effect's easing; keyframe offsets apply to this), and the keyframe segment it falls in, with the computed values and the element's box there and one frame either side. Numbers the user typed ("at 100ms", "200-400 ms") are local time of that animation unless the note says otherwise. Change only what the note scopes: keep the values at every other point and the total duration.
+Most notes end with an "Exact edit": the animation's keyframes again on plain time, with the note's point or range edges as keyframes of their own and the matching part of each curve on both sides. Put it in place of the original (it moves exactly as before), then change only the marked part. If it says the @keyframes is shared, it gives this element its own copy; keep that unless the user meant every element.
+- CSS @keyframes: add stops at the range edges as % (local / duration) with the edge values given, so the rest doesn't move; change only what is between them. animation-timing-function inside a keyframe applies to the segment after it (default ease). A hold = two stops with the same value. If the duration changes, recompute every %. If the selector matches several elements, scope the change unless all were meant.
+- CSS transition: one segment only. For a hold, a two-step motion or a sub-range, use linear(...) stops or a cubic-bezier, or replace it with a keyframes animation started by the same trigger (given).
+- WAAPI (element.animate): add { offset, ...values, easing } at the edges. With an effect-level easing, offsets apply after it: set the effect easing to linear and move easing onto each keyframe first.
+- Motion: values are arrays with times (0-1 of the duration, delay excluded) and an ease array (one per segment); insert entries at local / duration. A spring has no ms range: convert it to keyframes + times, or tune stiffness/damping/bounce.
+- GSAP: retime with the position parameter ("<", "-=0.4", seconds); change part of a tween by splitting it into two .to() calls at the edge values.
+- Script-driven (inline style writes): edit the code at the given location and gate the change on the same elapsed time, or move it into keyframes.
+- SVG stroke draw: the dash offset is linear in progress; "pause halfway" = two equal stops around 50%.
+- Scroll-driven: the axis is scroll progress, not time; edit the keyframe % or animation-range. For JS parallax, clamp to a scroll range instead of changing the factor.
+- canvas / WebGL: Retake can't see inside; edit the per-frame code, gated on the same elapsed time.
+get_animation maps any recording time onto an animation's clock and into CSS %, Motion times and GSAP seconds. After editing, check the values at the range edges and one frame either side against the note's.`
+
+// For get_moment on a note: which recorded clips the note says are its element's.
+function knownOf(note) {
+  const rel = new Map()
+  for (const a of note.anims || []) if (a.id) rel.set(String(a.id), a.relation === "on" ? "on" : a.relation || "on")
+  for (const c of note.inside || []) if (c.id && !rel.has(String(c.id))) rel.set(String(c.id), "inside")
+  return { rel, running: (note.anims || []).map((a) => a.name || a.kind) }
+}
+
 const isOpen = (n) => !n.status || n.status === "pending" || n.status === "acknowledged"
 
 export function createTools(client) {
@@ -213,6 +317,34 @@ export function createTools(client) {
     })
     return note
   }
+  // A timeline by name or id (default: the active one) and its recording.
+  const timelineOf = (session, which) => {
+    const branches = session.branches || []
+    const b = which == null || which === "" ? branches.find((x) => String(x.id) === String(session.activeId)) || branches[0] : branches.find((x) => String(x.id) === String(which)) || branches.find((x) => String(x.name).toLowerCase() === String(which).toLowerCase())
+    if (!b) throw new Error(which == null ? "no timelines yet: record something in the dock first" : `no timeline "${which}"; get_active_timeline lists them`)
+    return b
+  }
+  const recordingOf = async (b) => {
+    const json = await client.recording(b.id).catch((err) => {
+      if (/→ 404/.test(err.message)) throw new Error(`timeline "${b.name}" has no saved recording yet (the dock saves it when paused); ask the user to pause, then try again`)
+      throw err
+    })
+    return readRecording(json)
+  }
+  const resolved = new Map()
+  const resolveSourceOf = async (n) => {
+    const src = n.source
+    if (!src || !unmapped(src)) return null
+    const key = `${src.file}:${src.line}:${src.col || ""}`
+    if (!resolved.has(key)) resolved.set(key, resolveSource(src, { base: client.base(), root: client.root() }).catch(() => null))
+    return resolved.get(key)
+  }
+  // An absolute source path inside the project reads better relative to it.
+  const relSource = (n) => {
+    if (!n.source || !n.source.file || !String(n.source.file).startsWith("/")) return n
+    const file = cleanSource(n.source.file, { root: client.root() })
+    return file === n.source.file ? n : { ...n, source: { ...n.source, file } }
+  }
   const handlers = {
     async list_notes({ status = "open" } = {}) {
       const session = await readSession()
@@ -221,7 +353,71 @@ export function createTools(client) {
     },
     async get_note({ id }) {
       const [session, note] = await Promise.all([readSession(), byId(id)])
-      return describe(note, session)
+      return describe(relSource(note), session, await resolveSourceOf(note))
+    },
+    async get_moment(/** @type {any} */ { id, timeline, at, selector, before_seconds = 5, after_seconds = 5 } = {}) {
+      const session = await readSession()
+      const before = Math.min(Math.max(Number(before_seconds) || 0, 0), 120) * 1000
+      const after = Math.min(Math.max(Number(after_seconds) || 0, 0), 120) * 1000
+      if (id != null && id !== "") {
+        const note = await byId(id)
+        const b = timelineOf(session, note.branchId)
+        const rec = await recordingOf(b)
+        const sel = note.selector || (note.el && note.el.selector) || null
+        const component = note.component || (note.el && note.el.components && note.el.components[0]) || null
+        const title = `Timeline "${b.name}" around note ${note.id} ("${note.text}") on ${sel || "an element"}:`
+        if (!Array.isArray(note.anims)) return report(rec, { at: note.t, from: note.t - before, to: note.t + after, selector: sel, component, title })
+        // The note knows which animations are its element's (by their recorded
+        // path): the element section and the verdict come from it, so this and
+        // get_note can't disagree.
+        const t0 = note.range ? note.range.from : note.t
+        const t1 = note.range ? note.range.to : note.t
+        const ctx = { start: rec.start || 0 }
+        const head = [...elementBlock(note, ctx), "", ...animationBlock(note, ctx)].join("\n")
+        const ctxReport = report(rec, { at: note.t, from: t0 - before, to: t1 + after, selector: sel, component, title, known: knownOf(note) })
+        return `Note ${note.id}'s element:\n${head}\n\n${ctxReport}`
+      }
+      if (at == null || at === "") throw new Error("get_moment needs a note id, or a timeline moment (at, like 00:10.91)")
+      const b = timelineOf(session, timeline)
+      const rec = await recordingOf(b)
+      const t = parseTime(at) + (rec.start || 0)
+      return report(rec, { at: t, from: t - before, to: t + after, selector: selector || null, title: `Timeline "${b.name}" around ${fmt(t - (rec.start || 0))}:` })
+    },
+    async get_animation(/** @type {any} */ { id, clip, timeline, at, from, to } = {}) {
+      const session = await readSession()
+      const times = (rec) => [at, from, to].filter((v) => v != null && v !== "").map((v) => parseTime(v) + (rec.start || 0))
+      if (id != null && id !== "") {
+        const note = await byId(id)
+        const anims = note.anims || []
+        let a = clip ? anims.find((x) => String(x.id) === String(clip)) : primaryOf(note)
+        const b = timelineOf(session, note.branchId)
+        const rec = await recordingOf(b).catch(() => null)
+        if (!a && rec) {
+          const c = (rec.clips || []).find((x) => String(x.id) === String(clip || (note.clip && note.clip.id)))
+          if (c) a = animFromClip(c)
+        }
+        if (!a) return `Note ${note.id} has no animation${anims.length ? ` with clip id ${clip}` : ""}: nothing animated on its element at its moment. get_moment with id "${note.id}" lists what animated nearby.`
+        const sampled = [a.at, a.from, a.to, ...(a.samples || [])].filter(Boolean)
+        const Ts = rec && times(rec).length ? times(rec) : sampled.length ? [...new Set([a.at, a.from, a.to].filter(Boolean).map((p) => p.T))] : []
+        return `Animation of note ${note.id} on ${note.selector || (note.el && note.el.selector) || "its element"}:\n${animationReport(a, Ts, { start: rec ? rec.start || 0 : 0, sampled })}`
+      }
+      if (!clip) throw new Error("get_animation needs a note id, or a clip id (with a timeline)")
+      const b = timelineOf(session, timeline)
+      const rec = await recordingOf(b)
+      const c = (rec.clips || []).find((x) => String(x.id) === String(clip))
+      if (!c) throw new Error(`no clip ${clip} on timeline "${b.name}"; get_timeline_events lists them`)
+      return `Timeline "${b.name}", clip ${c.id} on ${c.selector || "?"}:\n${animationReport(animFromClip(c), times(rec), { start: rec.start || 0 })}`
+    },
+    async get_timeline_events(/** @type {any} */ { timeline, from, to, selector, limit = 60 } = {}) {
+      const session = await readSession()
+      const b = timelineOf(session, timeline)
+      const rec = await recordingOf(b)
+      const s = rec.start || 0
+      const lo = from == null || from === "" ? null : parseTime(from) + s
+      const hi = to == null || to === "" ? null : parseTime(to) + s
+      if (lo != null && hi != null && hi < lo) throw new Error("`to` is before `from`")
+      const n = Math.min(Math.max(Number(limit) || 60, 1), 200)
+      return report(rec, { from: lo, to: hi, selector: selector || null, limit: n, title: `Timeline "${b.name}":` })
     },
     async get_active_timeline() {
       const session = await readSession()
@@ -286,7 +482,8 @@ export async function runMcp({ url } = {}) {
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "retake", version: PKG.version },
-        instructions: "Notes are change requests the user left on elements of their prototype in the Retake timeline. list_notes, then get_note for details; acknowledge when you start, resolve with a summary when done.",
+        instructions:
+          INSTRUCTIONS,
       })
     }
     if (method === "notifications/initialized" || (method && method.startsWith("notifications/"))) return

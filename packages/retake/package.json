@@ -21,6 +21,11 @@
     "./client": {
       "types": "./types/client.d.ts"
     },
+    "./next": {
+      "types": "./types/next.d.ts",
+      "default": "./src/next.js"
+    },
+    "./next-dev": "./src/next-dev.js",
     "./package.json": "./package.json"
   },
   "bin": {

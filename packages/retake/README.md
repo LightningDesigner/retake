@@ -51,6 +51,60 @@ export default defineConfig({
 
 `retake()` only runs in `vite dev`; `vite build` output has no Retake code in it.
 
+### Next.js: on your usual dev URL
+Install `retake-dev` (above) and add one file in the project root (in `src/` if
+your app lives in `src/app`). Then run `next dev` / `npm run dev` as always: the
+timeline shows on your normal dev URL (http://localhost:3000), no second port.
+
+```ts
+// proxy.ts (Next 16)
+export { default } from "retake-dev/next"
+```
+
+```ts
+// middleware.ts (Next 15.5)
+import retake from "retake-dev/next"
+export default retake
+export const config = { runtime: "nodejs" }
+```
+
+Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.0.tgz`): a
+`file:` or linked install is a symlink, which Turbopack doesn't follow out of the
+project, and `retake-dev/next` isn't found.
+
+Next 15 needs the Node.js runtime (Retake keeps `.retake/` on disk). It only runs in
+`next dev`: in `next build` / `next start` every request goes straight on, and the
+build has no dock or runtime in it.
+
+Already have a proxy or middleware? Wrap yours:
+
+```ts
+import { withRetake } from "retake-dev/next"
+
+export default withRetake(async (req) => {
+  // ...your middleware, as before
+})
+```
+
+Next reads `config` from your file as written (it can't be re-exported). Without one
+the proxy runs for every request and passes everything but page loads on. With a
+`matcher` of your own, add Retake's two entries to it:
+
+```ts
+export const config = {
+  matcher: [
+    "/__retake/:path*",
+    { source: "/((?!_next/static|_next/image).*)", has: [{ type: "header", key: "sec-fetch-mode", value: "navigate" }] },
+    // ...your entries
+  ],
+}
+```
+
+`withRetake` hands every request it doesn't answer to your function, so with a
+merged matcher your function also sees page loads it didn't match before.
+No install at all: `npx retake-dev .` runs `next dev` behind Retake's own port
+(3014) instead.
+
 ### Connect your coding agent (MCP)
 Notes you leave in the dock can go straight to your coding agent. Register the
 MCP server once, from the app folder. With Claude Code:
@@ -63,9 +117,25 @@ Any other MCP client (Cursor, Codex, Windsurf...) takes the same command,
 `npx -y retake-dev mcp`, in its MCP settings.
 
 With the dev server running, the agent can `list_notes`, `get_note`,
-`get_active_timeline`, `acknowledge`, `resolve`, `reply` and `watch_notes`.
+`get_moment`, `get_animation`, `get_timeline_events`, `get_active_timeline`,
+`acknowledge`, `resolve`, `reply` and `watch_notes`.
 It finds the server through `.retake/server.json` (or pass `--url http://localhost:3014`).
 Acknowledging and resolving show up on the note in the dock right away.
+
+A note is pinned to a moment of a recording. `get_moment` (a note id, or a
+timeline and a time like `00:10.91`) reads that recording around it: the user's
+clicks, keys, typing and route changes, the requests, the animations on or near
+the element (start, end, duration, what they animate between, how far along at
+the moment) and when the screen changed most. `get_timeline_events` lists the
+same for any stretch of a timeline. A note whose source is only a line of a
+compiled bundle (a Next.js chunk) is mapped back to the app's file and line
+through the bundle's source map.
+
+A note on an animation says exactly which part of it you mean (see
+[Notes on animations](#notes-on-animations)). `get_animation` gives that
+animation's timing and every keyframe, and maps any recording time onto its own
+clock, in CSS %, Motion `times` and GSAP seconds. `get_note`, `get_moment` and
+Copy for agent describe the element and its animation with the same words.
 
 ### The first 60 seconds
 1. **Use your app** for a few seconds: it's being recorded already.
@@ -81,9 +151,71 @@ Acknowledging and resolving show up on the note in the dock right away.
    the element, its React component, source file:line and CSS; or let your
    agent pick it up over MCP.
 
+### Picking an element
+Hold ⌘ over the paused app: a chip by the pointer lists what's under it, and the
+pick is what you can see there: text, an image or icon, a control, a painted box.
+Empty overlays (a glow, a stretched card link, a scrim) and invisible layers
+(opacity 0, a closed menu) stay in the list, dimmed with why, one wheel step or
+Tab away. On an icon you get the `<svg>` (or the button it's the icon of), with
+the shape inside it a step away; inside an open shadow root, the element itself;
+an embedded iframe is one element (and gets no clicks while paused). A second
+⌘-click on a pinned spot makes another note there.
+
+The note's selector finds the element again on a fresh load: no generated ids
+(`:r1:`, `radix-…`), no classes that came and went during the recording (`in`,
+`is-open`, `opacity-100`), test ids, labels and hrefs where they're unique. Its
+source is where the element itself was written, a server component's line too
+(the dev server reads the chunk's source map), never just the parent it was
+passed into; Next's own layout components aren't listed as yours.
+
+### Notes on animations
+Web animations aren't edited on a global timeline: each one belongs to an
+element, runs on its own clock (0 is the end of its delay), and moves the
+element between keyframes. Notes work the same way.
+
+- **⌘-click an element** and it gets a row on the track under the timelines, with
+  its own animations (and an ancestor's that moves it). Nothing moving on it?
+  The row says so and lists what animates inside it; click one to switch. Two
+  animations at once (a transform and an opacity transition) stack in thinner
+  rows; hover one to see its name.
+- **Click an animation** on that row to open it: a ruler on its own clock (the
+  delay hatched before 0), a diamond where each keyframe is reached, and small
+  lines of what it moves (x, y, scale, rotation, opacity, size). The hint reads
+  where the playhead is on it: `fadeUp · 100ms of 500 · 20% · seg 0→40% ease-out ·
+  x 248 y 568 · 320×64`. On the app, dashed boxes show where the element starts and
+  ends, and a dotted line the path it takes.
+- **A point**: click on the open animation (or step with ←/→ a frame at a time,
+  Shift+←/→ keyframe to keyframe). The note is pinned there: "at 100ms (20%) of
+  fadeUp on `<h1.title>`".
+- **A range**: drag across the open animation ("200–400ms · 40–80% of fadeUp").
+  It snaps to keyframes and 10ms steps (hold ⌥ to drag freely); drag past the
+  end for "from here to the end". Shift+drag on the timeline selects a range of
+  the recording first, then ⌘-click any element.
+- **Typed numbers** ("at 100ms", "between 200 and 400 ms", "after 40%") are read
+  on the open animation's own clock; a chip under the note says how, and a click
+  switches it to recording time.
+- Esc closes the open animation, then the note.
+
+The note carries, for that animation: its kind and where it's defined, timing,
+every keyframe, the point or both range edges on its own clock (local ms,
+progress, eased progress, the keyframe segment), the values and the element's
+box there and one frame either side, samples across a range, and what to change
+for its kind (CSS keyframes, transitions, `element.animate()`, Motion, GSAP,
+scroll-driven). It ends with an exact edit: the keyframes again on plain time,
+the point or range edges as keyframes of their own, each piece keeping its part
+of the curve, so an agent changes only the marked part and the rest moves as
+before. A `@keyframes` shared with other elements is flagged, and the edit gives
+the noted element its own copy. Motion written as inline styles every frame
+(GSAP, Motion's `x`, react-spring) is recorded too, with its first and last
+values and the library named; Motion keyframes come with every keyframe, their
+`times` and each segment's ease, read off the component's props. A CSS
+transition's exact edit is its timing as `linear()` stops.
+
 ### The dock
-- **Keys**: space or ⌥P plays and pauses, ←/→ step, F fits everything, + starts
-  a new timeline at the playhead, M drops a bookmark, ⌥T folds the dock away.
+- **Keys**: space or ⌥P plays and pauses, ←/→ step (on an open animation: its
+  frames; Shift: its keyframes), F fits everything, + starts a new timeline at
+  the playhead, M drops a bookmark, ⌥T folds the dock away, Esc closes an open
+  animation, a selected range, then the note.
 - **Resize** by dragging the divider at its top. Drag it all the way down and
   the timeline folds into a round button (bottom-right at first): the whole
   window is the app's, and recording carries on. Drag the button anywhere; it
@@ -98,7 +230,7 @@ npm uninstall retake-dev          # or pnpm remove / yarn remove / bun remove
 rm -rf .retake                    # Retake's session and recordings
 claude mcp remove retake          # if you added the MCP server (or remove it in your client's MCP settings)
 ```
-Remove `retake()` from `vite.config` if you added it.
+Remove `retake()` from `vite.config`, or Retake's `proxy.ts` / `middleware.ts` (or `withRetake`), if you added it.
 
 ## Commands
 ```sh
@@ -108,7 +240,7 @@ retake <project> --code-branches     # each timeline keeps its own version of th
 retake <project> -- --host           # anything after -- goes to the dev server
 retake -- <dev command>              # run that command with the timeline in front (retake -- next dev)
 retake http://localhost:3000         # put the timeline in front of a dev server that's already running
-retake init                          # print the vite.config lines
+retake init                          # print the vite.config / proxy.ts lines
 retake mcp                           # the MCP server your coding agent runs
 ```
 `--root <dir>` puts `.retake/` somewhere else; `--verbose` logs every request the
@@ -135,7 +267,7 @@ the package manager its lockfile names):
 | Framework | Run | Notes |
 |---|---|---|
 | Vite SPA (React, Vue, Svelte, plain) | `npx retake-dev .` | or `plugins: [retake()]` in `vite.config` |
-| Next.js | `npx retake-dev .` | tested on 16.3 (app and pages router, server actions) and 15.5 (app router), Turbopack |
+| Next.js | `proxy.ts` / `middleware.ts` ([above](#nextjs-on-your-usual-dev-url)) and your usual `next dev`, or `npx retake-dev .` | tested on 16.3 (app and pages router, server actions) and 15.5 (app router), Turbopack and webpack |
 | React Router 7 framework mode | `npx retake-dev .` | or `plugins: [retake(), reactRouter()]` and your usual `npm run dev`; tested on 7.18 |
 | Remix 2 (Vite) | `npx retake-dev .` | tested on 2.17 |
 | Astro | `npx retake-dev .` | tested on 7.3 with React islands and `<ClientRouter />` |
@@ -170,7 +302,9 @@ through the same front server and should work; open an issue if one doesn't.
   loaded chunks) run at their recorded moment, the dev server's own traffic (HMR)
   is left out of the recording, and a rebuilt moment gets the page's HTML as it
   was recorded (kept in `.retake/docs/`), not rendered again. Native `import()`
-  (Vite's lazy routes, Astro islands) can't be held to its moment.
+  (Vite's lazy routes, Astro islands) can't be held to its moment. With Next's
+  `proxy.ts` the same holds, except that a rebuilt moment's page is rendered again
+  (what the server renders differently each time, like the time, can differ).
 - **The dock covers the bottom of the app.** It floats over the bottom of
   the app (a cookie banner's buttons, Next's dev badge). Drag the dock's divider
   down (all the way down folds it into a button in the corner, as does ⌥T), or

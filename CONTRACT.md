@@ -22,7 +22,8 @@ Owners: S1 = src/runtime, src/core.js, src/plugin.js, src/code-versions.js, src/
 ## Runtime API (window.__retake in the app frame)
 timeline() → { now, end, viewport: {w,h},
   markers:  [{ t, end?, kind: "click"|"submit"|"route"|"focus"|"type", label, selector? }],   // user actions only; "type" = one burst (<800ms gaps), label "typed 42 chars"
-  clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi", label, selector, component?, property?, path, iterations? ("infinite"|n), pseudoElement? }],
+  clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi"|"js", label, selector, component?, property?, path, iterations? ("infinite"|n), dur?, delay?, from?, to? (first/last keyframe values), pseudoElement?,
+              stack?: [{ url, line, col }], first?, holds?: [[from, to]] }],   // js: inline style written frame after frame (GSAP, Motion's x, react-spring), from/to = first/last inline values, first = the values its first write set, holds = still stretches (≤ 1s) inside it; stack: where element.animate() was called
   activity: [{ t, v }] }                               // 10 Hz, v 0..1 = share of the viewport that changed, baselined (rolling 5s median); t = window start
 clipsFor(elementOrSelector) → clips                   // on that element and its descendants, incl. looping ones
 clipAt(t, selector?) → { clip, offset } | null      // offset = ms into that clip
@@ -54,6 +55,7 @@ window.__retakeShell (dock, called by the runtime):
 
 ## Server HTTP (Vite middleware or front server, under /__retake/)
 Mutating requests need header x-retake-token = window.__RETAKE_TOKEN (injected into the shell HTML).
+A PUT body may be `Content-Encoding: gzip` (the dock gzips bodies over 1 MB when the browser has CompressionStream: a Next.js middleware reads 10 MB at most).
 GET/PUT  /__retake/session           { branches:[{id,parentId,forkAt,name,codeVersion}], activeId, markers, notes }
 GET/PUT  /__retake/recording/:branchId
 GET      /__retake/notes
@@ -80,6 +82,8 @@ charset=utf-8 added. CSP: the page's nonce, else a 'sha256-…' for the tag, dro
 SAMEORIGIN and frame-ancestors 'self' are kept (the dock is same-origin), DENY/'none'/lists without 'self' are loosened to allow it.
 The same routing runs inside Vite when the plugin finds no index.html (a Vite-based framework renders its own pages), minus the proxy.
 
+Every request the front server forwards carries `X-Retake-Front: 1`, so an app with retake-dev/next in its middleware stands aside.
+
 Header marker: the dock (`__retakeConfig.marker === "header"`) puts no `__wb` on its frames' URLs and the runtime doesn't rewrite
 navigations. The server can't tell the dock's frame from an iframe the app embeds, so the injected script (`runtimeTag`) removes
 itself, then runs the runtime only if `parent.__retakeShell.isAppFrame(frameElement)` (URL marker: or `__wb=app` in the URL);
@@ -103,10 +107,41 @@ socket gets an `id` of its own (`<__next_r>-retake-…`): Next keeps one socket 
 `x-nextjs-html-request-id`, where Next sends their debug data (F71). The runtime leaves
 `__retake*` cookies out of its cookie snapshots.
 
+## Next.js middleware (src/next.js, src/next-dev.js; `retake-dev/next`)
+The app's own `next dev` docks itself: Next 16's `proxy.ts` (`export { default } from "retake-dev/next"`) or Next 15's `middleware.ts`
+(`runtime: "nodejs"`), or `withRetake(theirs)`. Outside `NODE_ENV === "development"` it returns nothing for every request and never loads
+next-dev.js (imported at run time, unbundled, as `retake-dev/next-dev`). In dev, in this order:
+- `x-retake-internal: 1` (its own fetch) or `x-retake-front: 1` → passed on
+- `/__retake/*` → api.js's handler around the web Request (event streams too), `.retake/` in the cwd (`RETAKE_ROOT`); server.json's url is
+  the first request's origin; a Host that isn't localhost/IP → 403
+- `Service-Worker: script` → 404
+- the front server's dock rule (GET, navigate, document, not cross-site, no `retake=0`) → `shellHtml({ token, marker: "header" })`; a Host that
+  isn't localhost/IP → the plain page
+- navigate + iframe/frame → the page fetched from the same URL with `x-retake-internal: 1` (the request's headers and cookies, `Accept-Encoding:
+  identity`, no conditional headers, redirects not followed), HTML run through `injectHtml` with `runtimeTag` for `frontRuntime("next", cwd)` +
+  marker "header"; CSP and X-Frame-Options adapted as by the front server; `Vary: Sec-Fetch-Dest, Sec-Fetch-Mode`
+- anything else → passed on (the user's middleware, if wrapped)
+No kept pages (F56): a rebuild gets the page rendered again. Token and session handler live on `globalThis` for the server's life.
+
 ## Note
-{ id, branchId, t, clip:{id,offset,duration}|null, selector, component, source:{file,line}|null,
+{ id, branchId, t, clip:{id,offset,duration,start,end}|null, selector, component,
+  source:{file,line,mapped?,compiled?,url?,col?}|null,   // compiled: only a bundle's line, no source map (url/col kept to map it later)
   classes, rect, text, status:"pending"|"acknowledged"|"resolved"|"dismissed",
-  replies:[{from:"user"|"agent", text, at}] }
+  replies:[{from:"user"|"agent", text, at}],
+  // Animation notes (all optional; src/note-text.js writes them for agents):
+  range:{from,to}|null, asked:{text,reading:"local"|"recording",from,to}|null,
+  target:{ path, selector, matches, index?, hint, tag, text, role, ariaLabel, picked:{via,skipped}, source, geometry },
+  anims:[{ id, relation:"on"|"pseudo ::after"|"ancestor (moves it)", primary, selector,
+           kind:"css-animation"|"css-transition"|"waapi"|"js"|"scroll-driven"|"smil", lib?:"motion"|"gsap"|"anime"|"react-spring",
+           name, defined:{file,line,what}|null, rule?, trigger?, timing:{delay,duration,endDelay,iterations,direction,fill,easing,playbackRate,start,activeStart,end},
+           keyframes:[{offset,easing,values}], approx?,                // approx: only the first and last keyframe known
+           shared?:[{id,selector}],                                   // the same @keyframes on other elements
+           motionProps?:{component,props:{initial,animate,transition,...}},   // a Motion element's props, as JSON text
+           motionKeyframes?:true, leadMs?,                            // js clip of Motion keyframes: keyframes/timing read off its animate + transition props
+                                                                      // (values in Motion's units: x 120; one easing per segment, effect easing linear); leadMs = local time of its first write
+           at?:Point, from?:Point, to?:Point, openEnd?, keyframesInside?:[offset], samples?:[{T,local,progress,values,geometry}] }],
+  inside:[{id,selector,name}] }
+  // Point = { T, local, iteration, phase:"delay"|"active"|"after", progress, eased, segment:{index,fromOffset,toOffset,easing,progress}, values, frame:{before,after}, geometry }
 
 ## Fallback
 S2 must work if endpoints 404 or timeline() is missing: in-memory state + a labelled mock in src/shell/mock/.

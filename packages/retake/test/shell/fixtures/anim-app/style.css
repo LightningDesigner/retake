@@ -1,0 +1,20 @@
+/* Element animation tracks (anim-track.spec.js, range-notes.spec.js). */
+body { margin: 0; padding: 32px; font: 16px/1.4 system-ui, sans-serif; background: #fff; color: #111; }
+.title { margin: 0 0 24px; font-size: 40px; }
+.hero { height: 64px; font-size: 40px; font-weight: 700; }
+.word { display: inline-block; opacity: 0; }
+/* rise: four keyframes, each with its own easing to the next; 1200ms after a 300ms delay. */
+@keyframes rise {
+  0% { opacity: 0; transform: translateY(40px); animation-timing-function: ease-out; }
+  40% { opacity: 0.6; transform: translateY(10px); animation-timing-function: linear; }
+  70% { opacity: 0.9; transform: translateY(-4px); animation-timing-function: ease-in; }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.hero.in .word { animation: rise 1200ms 300ms both; }
+.row { height: 80px; margin-top: 24px; position: relative; }
+.ticker { position: absolute; left: 0; top: 10px; width: 60px; height: 60px; border-radius: 12px; background: #4f46e5; }
+.still { margin-top: 24px; }
+.buttons { display: flex; gap: 8px; }
+.pill { display: inline-block; padding: 6px 14px; border-radius: 999px; background: #111; color: #fff; text-decoration: none;
+  transform: translateY(16px); opacity: 0.2; transition: transform 400ms ease-out, opacity 400ms ease-out; }
+.pill.in { transform: none; opacity: 1; }

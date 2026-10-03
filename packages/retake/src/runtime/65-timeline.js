@@ -154,6 +154,30 @@ function recordedStart(a) {
   return best.start
 }
 
+const KF_SKIP = ["offset", "easing", "composite", "computedOffset"]
+function keyframeValues(k) {
+  const out = {}
+  let n = 0
+  for (const p of Object.keys(k)) {
+    if (KF_SKIP.includes(p) || n >= 4 || k[p] == null) continue
+    const v = String(k[p])
+    if (v.length <= 80) (out[p] = v), n++
+  }
+  return out
+}
+// The frames of an element.animate() stack that aren't Retake's own (an
+// inline script in this document): [{ url, line, col }], innermost first.
+function stackFrames(stack) {
+  const here = location.href.replace(/#.*$/, "")
+  const out = []
+  for (const line of String(stack || "").split("\n").slice(1)) {
+    const m = /\(?((?:https?|file|webpack-internal):\/\/[^\s()]+?):(\d+):(\d+)\)?\s*$/.exec(line)
+    if (!m || m[1] === here) continue
+    out.push({ url: m[1], line: Number(m[2]), col: Number(m[3]) })
+    if (out.length >= 12) break
+  }
+  return out
+}
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
   const clips = rec.clips || (rec.clips = [])
@@ -162,8 +186,23 @@ function recordClip(e) {
   const iters = e.timing && e.timing.iterations
   if (iters === Infinity) c.iterations = "infinite"
   else if (iters > 1) c.iterations = iters
+  const timing = e.timing || {}
+  if ((iters ?? 1) !== 1 && Number(timing.duration) > 0) c.dur = Math.round(Number(timing.duration))
+  if (Number(timing.delay) > 0) c.delay = Math.round(Number(timing.delay))
+  // What it animates between (first and last keyframe), so a reader of the
+  // recording knows what was visible: { opacity: "0" } → { opacity: "1" }.
+  const kf = e.keyframes || []
+  if (kf.length >= 2) {
+    c.from = keyframeValues(kf[0])
+    c.to = keyframeValues(kf[kf.length - 1])
+  }
   if (c.property === undefined) delete c.property
   if (c.component === undefined) delete c.component
+  const stack = madeAt.get(e.anim)
+  if (stack) {
+    const frames = stackFrames(stack)
+    if (frames.length) c.stack = frames
+  }
   clips.push(c)
   clipOfEntry.set(e, c)
 }

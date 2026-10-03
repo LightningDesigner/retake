@@ -245,6 +245,8 @@ export async function startFront(options) {
     headers["X-Forwarded-Host"] = req.headers.host || ""
     headers["X-Forwarded-Proto"] = req.socket.encrypted ? "https" : "http"
     headers["X-Forwarded-Port"] = String(req.socket.localPort)
+    // An app with Retake in its own middleware (retake-dev/next) leaves it to us.
+    headers["X-Retake-Front"] = "1"
     if (frame) {
       for (const k of Object.keys(headers)) if (/^(accept-encoding|if-none-match|if-modified-since)$/i.test(k)) delete headers[k]
       headers["Accept-Encoding"] = "identity"
@@ -533,7 +535,7 @@ export async function startFront(options) {
 
   function dock(res, marker) {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-    res.end(shellHtml({ token, marker, docs: true }))
+    res.end(shellHtml({ token, marker, docs: true, root }))
   }
 
   // ---- WebSockets (HMR): a raw pipe -----------------------------------------

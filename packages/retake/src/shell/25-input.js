@@ -289,6 +289,12 @@ track.addEventListener("pointerdown", (e) => {
   }
   const hit = hitAt(e.clientX, e.clientY)
   if (hit && hit.kind === "note") return goToNoteId(hit.id)
+  // The focused element's row (32-anims.js): open a clip, pin a point, drag a range.
+  if (hit && (hit.kind.startsWith("focus") || hit.kind === "range-edge") && focusPointerDown(e, hit)) return
+  // A press on the track while writing a note moves the note's moment with it.
+  if (D.focus) (D.focusHold = true), (D.focus.touched = true)
+  // Shift+drag: a range of recording time, for the next element picked.
+  if (e.shiftKey) return rangePointerDown(e, s)
   if (hit && hit.kind === "capsule") {
     // ⌘ held on one of the element's animations: fit it, go to its start.
     const c = hit.clip
@@ -334,6 +340,13 @@ track.addEventListener("pointermove", (e) => {
   if (!s || !s.started) return
   const g = geom()
   overTrack = e
+  if (D.focusDrag && focusPointerMove(e)) return
+  if (D.rangeDrag && rangePointerMove(e)) return
+  if (D.focus) {
+    const fh = focusHit(e.clientX - g.left, e.clientY - g.top)
+    D.focus.hoverT = fh && fh.kind === "focus-row" && D.dragT == null ? fh.t : null
+    D.focus.hoverClip = fh && fh.kind === "focus-clip" ? fh.clip : null
+  }
   if (D.dragT != null) {
     if (!D.dragMoved && Math.abs(e.clientX - D.dragX0) < DEAD_PX) return
     D.dragMoved = true
@@ -352,9 +365,11 @@ track.addEventListener("pointermove", (e) => {
   if (e.ctrlKey) return
   hover(e, s, g)
 })
-track.addEventListener("pointerup", endScrub)
-track.addEventListener("pointercancel", endScrub)
+const endPress = () => focusPointerUp() || rangePointerUp() || endScrub()
+track.addEventListener("pointerup", endPress)
+track.addEventListener("pointercancel", endPress)
 track.addEventListener("pointerleave", () => {
+  if (D.focus) D.focus.hoverT = D.focus.hoverClip = null
   overTrack = null
   setBranchGuide(false)
   D.hoverRow = null
@@ -512,11 +527,19 @@ function dockKey(e, fromApp) {
   if (e.metaKey || e.ctrlKey || (!fromApp && typing(e.target))) return false
   const s = D.last
   if (!s || !s.started) return false
+  // Esc in a view-only app: an open clip closes, then a selected range goes, then the note.
+  if (e.key === "Escape" && (closeFocusClip() || clearRange())) return true
+  if (e.key === "Escape" && fromApp && !card.hidden) {
+    closeCard()
+    return true
+  }
   if (e.code === "Space" || (e.altKey && e.code === "KeyP")) {
     togglePlay()
     return true
   }
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    // An open clip of the focused element: its own frames and keyframes.
+    if (focusStep(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)) return true
     stepBy(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)
     return true
   }

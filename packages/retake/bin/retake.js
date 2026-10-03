@@ -38,7 +38,8 @@ Usage:
   retake http://localhost:3000      put the timeline in front of a running dev server
   retake -- <dev command>           run that command with the timeline in front
                                     (e.g. retake -- next dev, retake -- pnpm dev)
-  retake init                       print the vite.config lines instead
+  retake init                       print the lines for vite.config or Next's
+                                    proxy.ts instead
   retake mcp [--url http://localhost:3014]
                                     MCP server for coding agents (stdio)
 
@@ -289,6 +290,18 @@ function init() {
   })
 
 Options: retake({ codeBranches: true }) gives each timeline its own version of the code.
+
+Next.js: one file in the project root (src/ if your app is in src/app), dev only; the timeline
+shows on your usual dev URL:
+
+  // proxy.ts (Next 16)
+  export { default } from "retake-dev/next"
+
+  // middleware.ts (Next 15)
+  import retake from "retake-dev/next"
+  export default retake
+  export const config = { runtime: "nodejs" }
+
 Or leave the project untouched and run:  npx retake-dev .
 (Next, Nuxt, React Router, SvelteKit, Astro... too: it puts Retake in front of your dev server.)`)
 }

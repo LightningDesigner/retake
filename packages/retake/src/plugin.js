@@ -30,6 +30,8 @@ export function retake(options = {}) {
   options = { ...options, token: options.token || crypto.randomBytes(16).toString("hex") }
   const bus = createBus()
   let ssr = false
+  /** @type {string | undefined} */
+  let viteRoot
   // The dock for a top-level page load, the runtime injected into the dock's
   // frame (Sec-Fetch-Dest: iframe; isAppFrame() tells it from an app's own
   // iframe), and anything else left alone. Which one a request is stays known
@@ -43,7 +45,7 @@ export function retake(options = {}) {
     if (url.pathname.startsWith("/__retake/") || mode !== "navigate" || optOut) return pageKind.run("plain", next)
     if (req.method === "GET" && dest === "document" && req.headers["sec-fetch-site"] !== "cross-site") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-      return res.end(shellHtml({ ...options, marker: "header" }))
+      return res.end(shellHtml({ root: viteRoot, ...options, marker: "header" }))
     }
     if (dest !== "iframe" && dest !== "frame") return pageKind.run("plain", next)
     delete req.headers["accept-encoding"]
@@ -62,6 +64,8 @@ export function retake(options = {}) {
     },
     configureServer(server) {
       if (options.enabled === false) return
+      // Source paths in notes are given relative to the project.
+      viteRoot = options.root || server.config.root
       // No index.html: a framework renders the pages itself (React Router,
       // SvelteKit, Astro, TanStack Start...), and transformIndexHtml never sees
       // them. Then pages are told apart by their Sec-Fetch-* headers, like the
@@ -109,7 +113,7 @@ export function retake(options = {}) {
         // `?retake=0` opts a page load out entirely.
         if (params.get("retake") === "0") return
         if (params.get("__wb") === "plain") return
-        if (params.get("__wb") !== "app") return shellHtml(options)
+        if (params.get("__wb") !== "app") return shellHtml({ root: viteRoot, ...options })
         return [{ tag: "script", attrs: { "data-retake": "" }, children: runtimeSource(), injectTo: "head-prepend" }]
       },
     },

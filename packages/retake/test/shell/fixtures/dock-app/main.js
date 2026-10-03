@@ -114,3 +114,19 @@ if (flags.has("ext")) {
   a.textContent = "elsewhere"
   document.body.appendChild(a)
 }
+// ?fiber: two headings that look like React 19 elements rendered from a bundle
+// (public/chunks): one whose chunk has an index source map (the first frame
+// maps into the JSX runtime, the next into src/Hero.tsx), one with no map.
+if (flags.has("fiber")) {
+  const at = (file, fn, line, col) => `    at ${fn} (${location.origin}/chunks/${file}:${line}:${col})`
+  const fake = (id, text, name, stack) => {
+    const el = document.createElement("h2")
+    el.id = id
+    el.textContent = text
+    const type = { [name]: function () {} }[name]
+    el.__reactFiber$fixture = { type, _debugStack: { stack: ["Error: react-stack-top-frame", ...stack].join("\n") }, return: null }
+    document.body.appendChild(el)
+  }
+  fake("hero", "Hero title", "Hero", [at("app._.js", "render", 5, 3), at("app._.js", "Hero", 12, 5)])
+  fake("blob", "Blob title", "Blob", [at("blob-9f8e7d6c.js", "Blob", 14, 2)])
+}

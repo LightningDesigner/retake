@@ -1,7 +1,7 @@
-// The island: click to morph through four states (Ready, Recording, Going
-// back, Take 2 started). Size and shape change on CSS transitions, so dragging
-// the timeline back shows the frames in between. Used by the landing page's
-// "Try it" grid and by the playground (/try); both use the same markup (app/island.tsx).
+// The island: click to morph through four states (Ready, Recording, Now
+// playing, Upload done). Size and shape change on CSS transitions, so
+// dragging the timeline back shows the frames in between. On the playground
+// (app/island.tsx is its markup).
 const two = (n: number) => String(n).padStart(2, "0")
 
 export function island(root: ParentNode = document) {

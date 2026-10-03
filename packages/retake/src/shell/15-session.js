@@ -16,15 +16,21 @@ const net = {
   activeSavedAt: 0,
 }
 
+const GZIP_OVER = 1 << 20
+
 async function api(method, path, body) {
   const headers = {}
   if (method !== "GET") headers["x-retake-token"] = TOKEN
   if (body !== undefined) headers["content-type"] = "application/json"
-  const res = await fetch("/__retake/" + path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
-  })
+  /** @type {string | Blob | undefined} */
+  let data = body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body)
+  // A large upload goes gzipped (JSON shrinks ~10x): a Next.js middleware
+  // (retake-dev/next) gets 10 MB of a request body at most.
+  if (typeof data === "string" && data.length > GZIP_OVER && typeof CompressionStream === "function") {
+    data = await new Response(new Blob([data]).stream().pipeThrough(new CompressionStream("gzip"))).blob()
+    headers["content-encoding"] = "gzip"
+  }
+  const res = await fetch("/__retake/" + path, { method, headers, body: data })
   if (res.status === 404) return { missing: true }
   if (!res.ok) throw new Error(`${method} /__retake/${path}: ${res.status}`)
   const text = await res.text()

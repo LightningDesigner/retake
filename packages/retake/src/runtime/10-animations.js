@@ -186,8 +186,17 @@ function reclaimNative() {
   }
 }
 
+// Where the app (or the library it uses) called element.animate(): the stack,
+// kept per animation so its clip can say where it is defined (65-timeline.js).
+const madeAt = new WeakMap()
 Element.prototype.animate = function (...args) {
   const a = orig.animate.apply(this, args)
+  try {
+    const limit = Error.stackTraceLimit
+    Error.stackTraceLimit = 30
+    madeAt.set(a, new Error().stack)
+    Error.stackTraceLimit = limit
+  } catch {}
   adopt(a, true)
   return a
 }

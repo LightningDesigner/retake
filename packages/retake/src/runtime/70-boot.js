@@ -402,7 +402,14 @@ function boot() {
   findSmil(document)
   syncSmil(clock.now, null, segmentAt(clock.now).t)
   if (shell) shell.attach(PT)
-  if (shell) W.addEventListener("blur", () => shell.meta && shell.meta(false))
+  // This window losing focus lets go of ⌘ (a ⌘-shortcut took it away), but
+  // only the frame on show's: one built behind, or one being swapped out,
+  // blurs on its own while ⌘ is still held (F99).
+  if (shell)
+    W.addEventListener("blur", () => {
+      if (typeof shell.shows === "function" && !shell.shows(W)) return
+      if (shell.meta) shell.meta(false)
+    })
   // Let the first render settle on real frames before time starts moving.
   real.raf(() =>
     real.raf(async () => {

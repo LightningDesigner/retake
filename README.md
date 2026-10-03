@@ -26,14 +26,23 @@ export default defineConfig({
 })
 ```
 
-Other frameworks: `npx retake-dev -- next dev`, or put it in front of a dev server that's already running with `npx retake-dev http://localhost:3000`.
+On Next.js add one file and keep `next dev`: the timeline shows on your usual dev URL.
+
+```ts
+// proxy.ts (Next 16)
+export { default } from "retake-dev/next"
+```
+
+On Next 15 it's `middleware.ts`: `import retake from "retake-dev/next"`, `export default retake` and `export const config = { runtime: "nodejs" }`.
+
+Other frameworks: `npx retake-dev -- <your dev command>`, or put it in front of a dev server that's already running with `npx retake-dev http://localhost:3000`.
 
 ## Install with your agent
 
 Paste this into Claude Code, Cursor or any coding agent:
 
 ```text
-Add Retake to this project: install retake-dev as a dev dependency with the project's package manager, add a "dev:retake": "retake ." script to package.json, add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
+Add Retake to this project so its timeline shows on the normal dev URL: install retake-dev as a dev dependency with the project's package manager. Next.js 16: add proxy.ts with export { default } from "retake-dev/next". Next.js 15: add middleware.ts with import retake from "retake-dev/next", export default retake, export const config = { runtime: "nodejs" }. If a proxy or middleware already exists, wrap its default export in withRetake from "retake-dev/next". Vite: add retake() from "retake-dev" to the Vite plugins. Anything else: add a "dev:retake": "retake ." script to package.json. Add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install
 ```
 
 Or install the skill and run `/retake`:
@@ -51,6 +60,14 @@ claude mcp add retake -- npx -y retake-dev mcp
 ```
 
 Cursor, Codex and other MCP clients take the same command, `npx -y retake-dev mcp`.
+
+A note is pinned to a moment of the recording, so the agent can read what happened around it (clicks, animations on the element with their start and end, requests) with `get_moment` instead of asking you. The `retake-notes` skill shows it how to work through notes:
+
+```bash
+npx skills add LightningDesigner/retake
+```
+
+(It installs both skills: `retake` to set Retake up, `retake-notes` to act on notes.)
 
 ## Features
 

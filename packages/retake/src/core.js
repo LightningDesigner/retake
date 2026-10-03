@@ -56,6 +56,8 @@ export function shellHtml(options = {}) {
     // No Retake server behind it (a static or serverless deploy): the dock
     // never asks /__retake/ for anything and keeps the session in memory.
     ...(options.server === false ? { server: false } : {}),
+    // The project folder: source paths in notes are given relative to it.
+    ...(options.root ? { root: options.root } : {}),
   }
   return read("shell", "shell.html")
     .replace(
@@ -66,8 +68,19 @@ export function shellHtml(options = {}) {
     .replace("/*CSS*/", () => read("shell", "shell.css"))
     .replace("/*JS*/", () => {
       const files = setFiles("shell")
-      return `;(function () {\n"use strict";\n${files.map((f) => read("shell", f)).join("\n")}\n})();`
+      return `;(function () {\n"use strict";\n${noteTextSource()}\n${files.map((f) => read("shell", f)).join("\n")}\n})();`
     })
+}
+
+// src/note-text.js (the note as text for an agent, shared with `retake mcp`)
+// for the dock: its exports as one const, `NT`.
+export function noteTextSource() {
+  const src = read("note-text.js")
+  const names = new Set()
+  const body = src
+    .replace(/^export (?:async )?(function|const|let) (\w+)/gm, (_, kind, name) => (names.add(name), `${kind} ${name}`))
+    .replace(/^export \{([^}]*)\}\s*$/gm, (_, list) => (list.split(",").forEach((n) => n.trim() && names.add(n.trim())), ""))
+  return `const NT = (function () {\n${body}\nreturn { ${[...names].join(", ")} }\n})();`
 }
 
 // The script a server injects into a page it can't tell apart from the app's

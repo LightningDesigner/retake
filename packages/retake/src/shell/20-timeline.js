@@ -198,7 +198,9 @@ function treeOrder() {
 }
 
 function layoutLanes(g) {
-  const avail = g.h - RULER - 4
+  // The focused element's row (32-anims.js) takes its height first.
+  const fh = focusHeight(g)
+  const avail = g.h - RULER - 4 - fh
   const order = treeOrder()
   const n = order.length
   const compact = n * LANE > avail
@@ -212,6 +214,7 @@ function layoutLanes(g) {
     y += pitch
   })
   D.rowOrder = order.map((b) => b.id)
+  D.focusRow = fh ? { y0: Math.min(Math.round(y) + 2, g.h - fh), h: fh } : null
   return lanes
 }
 
@@ -479,6 +482,7 @@ function renderTimeline(s, shownT) {
     D.branches.map((b) => `${b.id}.${b.end.toFixed(0)}.${b.forkAt}`).join(","),
     tl.markers.length, act ? act.values.length : -1, D.notes.map((n) => `${n.id}.${n.status}.${n.branchId}`).join(","),
     D.markers.length, lensClips ? D.lens.key : "", D.branchT, D.snapT, D.dragT, growing || bandFading ? performance.now() : 0, D.hoverRow,
+    focusKey(), D.range ? `${D.range.from}-${D.range.to}` : "",
   ].join("|")
   if (key === sceneKey) return
   sceneKey = key
@@ -532,6 +536,9 @@ function renderTimeline(s, shownT) {
   scene.lanes.push({ id: active.id, y: p.y, x0: p.x0, x1: p.x1, color, active: true, empty: p.empty })
   scene.actions = drawActions(g, tl.markers, A.y, lo, activeEnd, dim)
   if (lensClips) scene.capsules = drawLens(g, lensClips, A.y)
+  // The focused element's own row, and a range of recording time (Shift+drag).
+  if (D.focus) scene.focus = drawFocusRow(g, s)
+  if (D.range) scene.range = drawRecordingRange(g)
 
   // Bookmarks, on the ruler.
   ctx.fillStyle = "#f2f2f5"
@@ -602,6 +609,12 @@ function renderTimeline(s, shownT) {
       scene.notes.push({ id: n.id, x, y: L.y, r: 5 })
       return
     }
+    // A range note: a thin bracket from its start to its end.
+    if (n.range && n.range.to > n.range.from) {
+      const x1 = xOf(n.range.to, g)
+      ctx.fillRect(x, L.y - 12, Math.max(1, x1 - x), 1)
+      ctx.fillRect(x1 - 0.5, L.y - 14, 1, 5)
+    }
     const label = String(i + 1)
     const w = 8 + label.length * 5
     roundRect(x - w / 2, L.y - 17, w, 12, 6)
@@ -627,6 +640,8 @@ function hitAt(clientX, clientY) {
   const sc = D.scene
   if (!sc) return null
   for (const n of sc.notes) if (Math.abs(x - n.x) <= n.r && Math.abs(y - n.y) <= n.r) return { kind: "note", id: n.id }
+  const fh = focusHit(x, y)
+  if (fh) return fh
   for (const c of sc.capsules) if (x >= c.x0 - 2 && x <= c.x1 + 2 && Math.abs(y - c.y) <= 8) return { kind: "capsule", clip: c.clip }
   if (y < RULER) for (const b of sc.bookmarks) if (Math.abs(x - b.x) <= 5) return { kind: "bookmark", id: b.id }
   let best = null
@@ -642,7 +657,8 @@ let gutterKey = ""
 const invalidateGutter = () => (gutterKey = "")
 function renderGutter(lanes) {
   if (gutter.querySelector("input")) return // renaming
-  const key = D.compact + ":" + D.rowPitch + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|")
+  const fr = D.focus && D.focusRow ? `${D.focus.label}@${D.focusRow.y0}:${D.focusRow.h}` : ""
+  const key = D.compact + ":" + D.rowPitch + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|") + fr
   if (key === gutterKey) return
   gutterKey = key
   // Short dock: just the colour dots (the name shows on hover).
@@ -655,7 +671,7 @@ function renderGutter(lanes) {
       const title = D.compact ? ` title="${esc(b.name)}"` : ""
       return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;height:${D.rowPitch}px;margin-top:${-D.rowPitch / 2}px;--c:${colorOf(b)}"${title}><i></i><span>${esc(b.name)}</span></div>`
     })
-    .join("")
+    .join("") + (fr ? `<div class="focus-name" style="top:${D.focusRow.y0}px;height:${Math.min(D.focusRow.h, 26)}px" title="${esc(D.focus.label)}">${esc(D.focus.label)}</div>` : "")
 }
 
 // ---- the header ---------------------------------------------------------------------
@@ -700,16 +716,25 @@ function renderHead(s, shownT) {
   const playing = (!!s.playing || !!(D.building && D.building.play)) && D.dragT == null
   playBtn.classList.toggle("playing", playing)
   playBtn.setAttribute("aria-label", playing ? "Pause" : "Play")
-  // The hint area is only for a short warning (see flash()).
+  // The hint area is only for a short warning (see flash()), or, while a
+  // clip of the focused element is open, where the playhead is on its clock.
   if (performance.now() < flashUntil) return
+  const ro = focusReadout(s, shownT)
+  if (ro) {
+    if (hintEl.textContent !== ro) hintEl.textContent = ro
+    hintEl.classList.add("show", "readout")
+    hintEl.classList.remove("warn")
+    return
+  }
   if (hintEl.textContent) hintEl.textContent = ""
-  hintEl.classList.remove("show", "warn")
+  hintEl.classList.remove("show", "warn", "readout")
 }
 
 // A short message in the hint's place: a warning (a refused checkout, say),
 // or with `warn: false` news ("Timeline 2 started").
 function flash(msg, { warn = true } = {}) {
   flashUntil = performance.now() + (warn ? 3500 : 2500)
+  hintEl.classList.remove("readout")
   hintEl.textContent = msg
   hintEl.classList.add("show")
   hintEl.classList.toggle("warn", warn)

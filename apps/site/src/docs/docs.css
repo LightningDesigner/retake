@@ -1,0 +1,175 @@
+/* The docs (app/docs). Colours, fonts and motion come from the site's tokens in
+   src/style.css; everything here is scoped to .docs so the landing page's
+   heading and section rules never reach it, and these never reach the landing page. */
+.docs {
+  --d-text: var(--text);
+  --d-surface: var(--raised);
+  --d-side-w: 208px;
+  --d-mono: var(--mono);
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: grid;
+  grid-template-columns: var(--d-side-w) minmax(0, 1fr);
+  gap: 56px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--d-text);
+}
+html:has(.docs) { scroll-padding-top: 24px; }
+
+/* sidebar: a list beside the page; a select above it on phones */
+.d-side { position: sticky; top: 0; align-self: start; max-height: 100svh; overflow-y: auto; padding: 40px 0 48px; margin-left: -12px; }
+.d-pick { display: none; }
+.d-group + .d-group { margin-top: 20px; }
+.d-group-name { font-size: 12px; font-weight: 400; color: var(--dim); padding: 0 12px; margin-bottom: 4px; }
+.d-side ul { list-style: none; margin: 0; padding: 0; }
+.d-side-nav a { display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; color: var(--muted);
+  transition: color .15s var(--ease), background-color .15s var(--ease); }
+.d-side-nav a:hover { color: var(--fg); }
+.d-side-nav a[aria-current="page"] { color: var(--fg); background: var(--fill-2); }
+
+/* the page: the article, and "On this page" beside it on wide screens */
+.d-main { min-width: 0; padding: 48px 0 120px; }
+.d-page { display: grid; grid-template-columns: minmax(0, 720px) 184px; gap: 56px; }
+.d-article { min-width: 0; }
+.d-toc { position: sticky; top: 48px; align-self: start; font-size: 13px; line-height: 1.5; }
+.d-toc-title { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+.d-toc ul { list-style: none; margin: 0; padding: 0 0 0 12px; box-shadow: inset 1px 0 0 var(--line); }
+.d-toc a { display: flex; align-items: center; min-height: 40px; padding: 4px 0; color: var(--muted); transition: color .15s var(--ease); }
+.d-toc a:hover { color: var(--fg); }
+
+/* type */
+.docs h1 { font-family: var(--serif); font-size: var(--h1-docs); line-height: 1.08; letter-spacing: -.02em; font-weight: 400; margin: 0 0 14px;
+  background: none; color: var(--fg); -webkit-text-fill-color: currentColor; }
+.d-head { margin-bottom: 40px; padding-bottom: 32px; box-shadow: inset 0 -1px 0 var(--line); }
+.d-lede { margin: 0; font-size: var(--lede); line-height: 1.6; color: var(--muted); max-width: 620px; }
+.docs h2.d-h2 { font-family: var(--serif); font-size: var(--h2); line-height: 1.2; letter-spacing: -.01em; font-weight: 400; margin: 56px 0 14px; max-width: none; color: var(--fg); }
+.docs h3.d-h3 { font-size: 16px; line-height: 1.4; letter-spacing: -.01em; font-weight: 600; margin: 32px 0 8px; color: var(--fg); }
+.d-head + .d-h2, .d-head + section > .d-h2 { margin-top: 0; }
+.d-h2 a, .d-h3 a { color: inherit; }
+.d-h2 a:hover::after, .d-h3 a:hover::after { content: " #"; color: var(--dim); }
+.d-article p { margin: 0 0 16px; }
+.d-article ul, .d-article ol { margin: 0 0 16px; padding-left: 20px; }
+.d-article li { margin: 6px 0; }
+.d-article li::marker { color: var(--dim); }
+.d-article strong, .d-article b { color: var(--fg); font-weight: 500; }
+.d-article p a, .d-article li a, .d-article td a, .d-note a { color: var(--fg); text-decoration: underline; text-decoration-color: rgba(255, 255, 255, .3);
+  text-underline-offset: 3px; transition: text-decoration-color .15s var(--ease); }
+.d-article p a:hover, .d-article li a:hover, .d-article td a:hover, .d-note a:hover { text-decoration-color: var(--fg); }
+.d-ic { font-size: .87em; color: var(--fg); padding: 1px 6px; border-radius: 6px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); overflow-wrap: break-word;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.d-nw { white-space: nowrap; }
+.d-article kbd { white-space: nowrap; }
+
+/* code blocks */
+.d-code { margin: 0 0 20px; border-radius: 12px; background: var(--d-surface); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.d-code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 44px; padding: 0 2px 0 16px; box-shadow: inset 0 -1px 0 var(--line); }
+.d-code-title { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-code pre { margin: 0; padding: 14px 16px 16px; overflow-x: auto; font-size: 13px; line-height: 1.65; color: var(--fg); tab-size: 2; }
+.d-code pre code { font: inherit; }
+.d-c { color: var(--dim); }
+/* package-manager tabs on a code block */
+.d-tabs .d-code-head { padding-left: 4px; }
+.d-tablist { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.d-tablist button { all: unset; cursor: pointer; display: inline-flex; align-items: center; height: 40px; padding: 0 12px; border-radius: 8px; font-size: 12px; color: var(--muted);
+  transition: color .15s var(--ease), background-color .15s var(--ease); }
+.d-tablist button:hover { color: var(--fg); }
+.d-tablist button[aria-selected="true"] { color: var(--fg); box-shadow: inset 0 -2px 0 var(--blue); border-radius: 8px 8px 0 0; }
+.d-tablist button:focus-visible { outline: 2px solid rgba(82, 168, 255, .7); outline-offset: -2px; }
+
+/* tables */
+.d-table { margin: 0 0 24px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); overflow-x: auto; }
+.d-table table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.55; }
+.d-table th { text-align: left; font: 500 11px var(--d-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--dim);
+  padding: 12px 16px; background: var(--d-surface); box-shadow: inset 0 -1px 0 var(--line); white-space: nowrap; }
+.d-table td { padding: 12px 16px; vertical-align: top; }
+.d-table tr + tr td { box-shadow: inset 0 1px 0 var(--line); }
+.d-table td:first-child { white-space: nowrap; color: var(--fg); }
+.d-table td .d-ic { white-space: nowrap; }
+.d-table.wrap-first td:first-child { white-space: normal; min-width: 180px; }
+.d-table td p { margin: 0; }
+
+/* callouts */
+.d-note { margin: 0 0 20px; padding: 14px 16px 14px 36px; position: relative; border-radius: 12px; background: var(--d-surface); box-shadow: inset 0 0 0 1px var(--line); font-size: 14px; line-height: 1.6; }
+.d-note::before { content: ""; position: absolute; left: 16px; top: 22px; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 3px rgba(82, 168, 255, .18); }
+.d-note.warn::before { background: var(--amber); box-shadow: 0 0 0 3px rgba(255, 178, 36, .18); }
+.d-note p { margin: 0; }
+.d-note p + p { margin-top: 8px; }
+
+/* steps (numbered, with a thread down the side) */
+.d-steps { list-style: none; counter-reset: step; padding: 0 !important; margin: 0 0 24px; }
+.d-steps > li { position: relative; counter-increment: step; padding: 0 0 18px 40px; margin: 0; }
+.d-steps > li::before { content: counter(step, decimal-leading-zero); position: absolute; left: 0; top: 1px; font: 500 12px var(--d-mono); color: var(--dim); }
+.d-steps > li::after { content: ""; position: absolute; left: 7px; top: 26px; bottom: 4px; width: 1px; background: var(--line); }
+.d-steps > li:last-child::after { display: none; }
+
+/* link cards ("Where next") */
+.d-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; }
+.d-card { display: flex; flex-direction: column; gap: 4px; padding: 16px; border-radius: 12px; background: var(--d-surface); box-shadow: inset 0 0 0 1px var(--line);
+  transition: box-shadow .15s var(--ease), background-color .15s var(--ease); }
+.d-card:hover { box-shadow: inset 0 0 0 1px var(--line-2); background: var(--raised-2); }
+.d-card b { color: var(--fg); font-weight: 500; font-size: 15px; }
+.d-card span { font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+/* the timeline diagram on the overview */
+.d-figure { margin: 0 0 24px; padding: 20px 16px 12px; border-radius: 12px; background: var(--d-surface); box-shadow: inset 0 0 0 1px var(--line); }
+.d-figure svg { display: block; width: 100%; height: auto; }
+.d-figure figcaption { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+/* changelog */
+.d-release { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.d-tag { font: 500 11px var(--d-mono); color: var(--muted); padding: 2px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-2); }
+
+/* FAQ */
+.d-faq { margin: 0 0 8px; }
+.d-faq + .d-faq { box-shadow: inset 0 1px 0 var(--line); padding-top: 4px; }
+
+/* previous / next */
+.d-pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 64px; }
+.d-pager-link { display: flex; flex-direction: column; gap: 2px; min-height: 64px; justify-content: center; padding: 12px 16px; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--line); color: var(--fg); font-size: 15px; transition: box-shadow .15s var(--ease), background-color .15s var(--ease); }
+.d-pager-link span { font-size: 11px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+.d-pager-link.next { text-align: right; }
+.d-pager-link:hover { box-shadow: inset 0 0 0 1px var(--line-2); background: var(--fill); }
+
+@media (max-width: 1199px) {
+  .d-page { grid-template-columns: minmax(0, 1fr); }
+  .d-toc { display: none; }
+}
+@media (max-width: 899px) {
+  .docs { display: block; padding: 0 16px; }
+  html:has(.docs) { scroll-padding-top: 16px; }
+  /* The sidebar becomes a select above the page. */
+  .d-side { position: static; max-height: none; overflow: visible; padding: 24px 0 0; margin: 0; }
+  .d-side-nav { display: none; }
+  .d-pick { position: relative; display: flex; align-items: center; }
+  .d-pick select { appearance: none; -webkit-appearance: none; width: 100%; height: 44px; padding: 0 40px 0 14px; border: 0; border-radius: 10px; font: 500 15px var(--sans);
+    color: var(--fg); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; }
+  .d-pick select:focus-visible { outline: 2px solid rgba(82, 168, 255, .7); outline-offset: 2px; }
+  .d-pick svg { position: absolute; right: 14px; color: var(--muted); pointer-events: none; }
+  .d-main { padding-top: 32px; }
+  .d-cards { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .d-pager { grid-template-columns: minmax(0, 1fr); }
+  .d-pager-link.next { text-align: left; }
+  .d-head { margin-bottom: 32px; padding-bottom: 24px; }
+  .docs h2.d-h2 { margin-top: 44px; }
+}
+.d-head + .d-release .d-h2, .d-head + .d-faq .d-h2 { margin-top: 0; }
+.d-release .d-h2 { margin-bottom: 14px; }
+
+/* Tables on phones: each row a block, each cell under its column's name. */
+@media (max-width: 639px) {
+  .d-table { overflow-x: visible; }
+  .d-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .d-table table, .d-table tbody, .d-table tr, .d-table td { display: block; }
+  .d-table tr { padding: 12px 16px; }
+  .d-table tr + tr { box-shadow: inset 0 1px 0 var(--line); }
+  .d-table tr + tr td, .d-table td { box-shadow: none; padding: 0; }
+  .d-table td + td { margin-top: 6px; color: var(--d-text); }
+  .d-table td:first-child, .d-table.wrap-first td:first-child { white-space: normal; min-width: 0; }
+  .d-table td + td::before { content: attr(data-label); display: block; font: 500 10px var(--d-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--dim); margin-bottom: 2px; }
+  .d-table td .d-ic { white-space: normal; }
+}

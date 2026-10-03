@@ -19,3 +19,5 @@ interface HTMLIFrameElement {
   /** What a frame being built takes over (10-dock.js makeFrame). */
   __retakeStash?: any
 }
+/** src/note-text.js's exports, inlined ahead of the dock's files by core.js (noteTextSource). */
+declare const NT: typeof import("../../src/note-text.js")

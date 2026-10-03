@@ -48,6 +48,7 @@ function Anim() {
   return <div>
     <button id="go" onClick={go}>animate</button>
     <motion.div id="m" animate={{ x: on ? 300 : 0, opacity: on ? 0.3 : 1 }} transition={{ duration: 1 }} style={{ width: 30, height: 30, background: "tomato" }} />
+    <motion.div id="mk" animate={on ? { x: [0, 120, 120, 240] } : { x: 0 }} transition={{ duration: 1.2, times: [0, 0.3, 0.6, 1], ease: "easeInOut" }} style={{ width: 30, height: 30, background: "navy" }} />
     <AnimatePresence>{!on && <motion.div id="p" exit={{ opacity: 0, scale: 0.5 }} transition={{ duration: 0.8 }} style={{ width: 30, height: 30, background: "purple" }} />}</AnimatePresence>
     <div id="g" ref={g} style={{ width: 30, height: 30, background: "teal" }} />
     <animated.div id="s" style={{ x: spring.x, width: 30, height: 30, background: "gold" }} />
@@ -57,3 +58,5 @@ function Anim() {
 const router = createBrowserRouter([{ path: "/", element: <Layout />, children: [
   { index: true, element: <p>home page</p> }, { path: "anim", element: <Anim /> }, { path: "about", element: <p id="about">about page</p> }] }])
 createRoot(document.getElementById("root")!).render(<StrictMode><RouterProvider router={router} /></StrictMode>)
+
+// touched by server.spec

@@ -163,6 +163,73 @@ function locate(hit) {
   return out
 }
 
+// A rule in a <link rel=stylesheet> (Next, Nuxt, SvelteKit...): its text and
+// source map fetched once per sheet (index maps with sections too, as
+// Turbopack writes them), then the same lookup as locate().
+const linkedCache = new Map() // href -> Promise<{ text, lines, sources, offsets } | null>
+function linkedSheet(href) {
+  if (linkedCache.has(href)) return linkedCache.get(href)
+  // As a stylesheet: Vite answers a bare fetch of a .css URL with a JS module
+  // that wraps the CSS in a string (every rule on one line).
+  const p = real
+    .fetch(href, { headers: { accept: "text/css,*/*;q=0.1" } })
+    .then((r) => (r.ok ? r.text() : null))
+    .then(async (text) => {
+      if (text == null) return null
+      const out = { text, sections: [] }
+      const m = /\/\*# sourceMappingURL=([^\s*]+)\s*\*\//.exec(text)
+      if (!m) return out
+      let map = null
+      try {
+        if (m[1].startsWith("data:")) map = JSON.parse(new TextDecoder().decode(fromB64(m[1].split(",").pop())))
+        else {
+          const r = await real.fetch(new URL(m[1], href).href)
+          map = r.ok ? await r.json() : null
+        }
+      } catch {}
+      if (!map) return out
+      const parts = Array.isArray(map.sections) ? map.sections.map((s) => ({ line: (s.offset && s.offset.line) || 0, map: s.map })) : [{ line: 0, map }]
+      for (const part of parts) if (part.map && part.map.mappings != null) out.sections.push({ line: part.line, sources: part.map.sources || [], lines: decodeMappings(part.map.mappings) })
+      return out
+    })
+    .catch(() => null)
+  linkedCache.set(href, p)
+  return p
+}
+async function locateLinked(hit, out) {
+  const sheet = await linkedSheet(hit.sheet.href)
+  if (!sheet) return out
+  const head = hit.rule instanceof CSSKeyframesRule ? `@keyframes ${hit.rule.name}` : hit.rule.selectorText
+  let idx = sheet.text.indexOf(head)
+  if (idx < 0) idx = sheet.text.indexOf(head.split(",")[0].trim())
+  if (idx < 0) return out
+  const before = sheet.text.slice(0, idx)
+  const genLine = before.split("\n").length - 1
+  const genCol = idx - before.lastIndexOf("\n") - 1
+  // Turbopack names each part: /* [project]/app/globals.css [app-client] (css) */
+  const named = [...before.matchAll(/\/\* \[project\]\/([^\s*]+)[^*]*\*\//g)].pop()
+  if (named) out.file = named[1]
+  // No source map and not a bundle: the served file is the source (plain CSS from a dev server).
+  else if (!sheet.sections.length) out.line = genLine + 1
+  let sec = null
+  for (const s of sheet.sections) if (s.line <= genLine) sec = s
+  const segs = sec && sec.lines[genLine - sec.line]
+  if (!segs || !segs.length) return out
+  let seg = null
+  for (const sg of segs) if (sg[0] <= genCol) seg = sg
+  if (!seg) seg = segs[0]
+  out.line = seg[2] + 1
+  const srcName = sec.sources[seg[1]]
+  if (srcName) {
+    try {
+      out.file = srcName.startsWith("file://") ? decodeURIComponent(new URL(srcName).pathname) : srcName.replace(/^turbopack:\/\/\/?(\[project\]\/)?/, "").replace(/^webpack:\/\/[^/]*\//, "")
+    } catch {
+      out.file = srcName
+    }
+  }
+  return out
+}
+
 // A Tailwind utility (e.g. .animate-pulse) from Tailwind's generated CSS?
 function tailwindUtility(hit) {
   const sel = hit.selector.replace(/\\/g, "")
@@ -213,9 +280,14 @@ async function cssSourceFor(x) {
   }
   if (!hit) return null
   const out = locate(hit)
+  if (out.line == null && hit.sheet.href) await locateLinked(hit, out)
   if (t.kind === "css-animation" && t.name) {
     const kf = findKeyframes(t.name)
-    if (kf) out.keyframes = { name: t.name, ...locate(kf) }
+    if (kf) {
+      const k = locate(kf)
+      if (k.line == null && kf.sheet.href) await locateLinked(kf, k)
+      out.keyframes = { name: t.name, ...k }
+    }
   }
   const utility = tailwindUtility(hit)
   if (utility) {

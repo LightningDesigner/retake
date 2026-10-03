@@ -1,7 +1,8 @@
 // The deployed site ships the dock, so the page is the live demo. In
 // production this does what Retake's front server does in dev (see
-// packages/retake/src/server/front.js), for the site's two pages:
-//   a top-level load of / or /try   gets the dock (app/retake-dock), whose
+// packages/retake/src/server/front.js), for the pages in src/site.ts:
+//   a top-level load of / or /playground
+//                                   gets the dock (app/retake-dock), whose
 //                                   frame loads the same URL
 //   the dock's frame (Sec-Fetch-Dest: iframe)
 //                                   gets the page with the time runtime as its
@@ -9,7 +10,8 @@
 //   anything else, ?retake=0, or a browser with no Sec-Fetch-* headers
 //                                   gets the plain page
 // In dev (`pnpm dev`) the front server in front of `next dev` does all this,
-// so the proxy stands aside.
+// so the proxy stands aside. The docs (/docs/*) aren't matched: deployed,
+// they're plain pages.
 import { NextResponse, type NextRequest } from "next/server"
 import { PAGES } from "./src/site.ts"
 
@@ -84,4 +86,4 @@ function withInternal(headers: Headers) {
   return h
 }
 
-export const config = { matcher: ["/", "/try", "/retake-dock/:page*", "/retake-runtime"] }
+export const config = { matcher: ["/", "/playground", "/retake-dock/:page*", "/retake-runtime"] }

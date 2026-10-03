@@ -1,0 +1,59 @@
+import Link from "next/link"
+import type { Metadata } from "next"
+import { docMetadata, NPM } from "../../../src/docs/nav.ts"
+import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
+
+export const metadata: Metadata = docMetadata("changelog")
+
+const toc = [
+  { id: "v0-5-0", label: "0.5.0" },
+  { id: "v0-4-0", label: "0.4.0" },
+]
+
+function Release({ id, version, tag }: { id: string; version: string; tag: string }) {
+  return (
+    <div className="d-release">
+      <h2 id={id} className="d-h2"><a href={`#${id}`}>{version}</a></h2>
+      <span className="d-tag">{tag}</span>
+    </div>
+  )
+}
+
+export default function Changelog() {
+  return (
+    <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-0" version="0.5.0" tag="Dock" />
+      <ul>
+        <li><b>Collapse to an icon.</b> Drag the divider to the bottom edge, or press <K>⌥T</K>: the dock folds into a round button in the corner, keeps recording, and shows the phase as a dot. Remembered across reloads. <Link href="/docs/features#collapse">More</Link></li>
+        <li><b>Notes only when paused.</b> Note pins show while the app is paused or in the past. While it&apos;s live or playing they&apos;re hidden, and the count still shows how many notes the take has.</li>
+        <li><b>Leaving the page keeps the last seconds.</b> Typing a new address or reloading the dock while recording no longer loses what came after the last save.</li>
+        <li><b>Phones.</b> 40px controls, a divider you can drag with a finger to resize or fold the dock, Start fresh as an icon on narrow screens, and the dock and its corner button clear of the home indicator.</li>
+        <li><b>Room for the dock.</b> In the app&apos;s frame, <C>window.__retakeDockHeight</C> is the height the dock covers (0 when folded), and a <C>retake:dock</C> event says when it changes.</li>
+        <li><C>shellHtml({"{ server: false }"})</C> for a dock with no Retake server behind it (a static deploy): it never asks <C>/__retake/</C> and keeps the session in memory.</li>
+      </ul>
+
+      <Release id="v0-4-0" version="0.4.0" tag="First release" />
+      <H3>Going back</H3>
+      <ul>
+        <li>A timeline docked at the bottom of your app that records from page load. Drag back and the app is at that moment.</li>
+        <li>A virtual clock for timers, <C>requestAnimationFrame</C>, <C>Date</C>, idle callbacks, CSS and Web Animations; seeded <C>Math.random</C> and <C>crypto</C>.</li>
+        <li>Server replies answered from the recording: <C>fetch</C> (streams chunk by chunk), XHR, <C>EventSource</C>, WebSockets; observers and worker messages too. Storage, cookies and IndexedDB restored.</li>
+        <li>Going back shows a live preview at once, builds the real moment behind it and swaps it in.</li>
+      </ul>
+      <H3>Takes and notes</H3>
+      <ul>
+        <li>Takes: <K>+</K> or <K>Ctrl</K>-click starts a new timeline from any moment, paused.</li>
+        <li>Notes on elements and their animation layers, with <b>Copy for agent</b>: element, React component, source file and line, CSS and the moment.</li>
+        <li>An MCP server (<C>retake mcp</C>) with seven tools, so your coding agent can read, acknowledge, reply to and resolve notes.</li>
+        <li><C>--code-branches</C>: each take keeps its own version of the code (Vite apps).</li>
+      </ul>
+      <H3>Any dev server</H3>
+      <ul>
+        <li>The Vite plugin, <C>retake()</C>, and the CLI, <C>npx retake-dev .</C>, which leaves your files alone.</li>
+        <li>The front server for frameworks that render their own HTML: Next.js 15 and 16, React Router 7, Remix 2, Astro, SvelteKit, Nuxt; <C>retake -- &lt;command&gt;</C> and <C>retake http://…</C> for anything else.</li>
+        <li>Types for the plugin and for <C>window.__retake</C> (<C>retake-dev/client</C>).</li>
+        <li>Licensed under PolyForm Shield 1.0.0.</li>
+      </ul>
+    </DocArticle>
+  )
+}

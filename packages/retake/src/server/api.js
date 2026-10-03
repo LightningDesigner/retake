@@ -8,6 +8,7 @@
 //   GET      /__retake/notes/:id
 //   PATCH    /__retake/notes/:id          { status?, reply? }
 //   GET      /__retake/events             SSE: note-updated, code-version, active-changed, session
+//   GET      /__retake/map?url=&line=&col= a compiled chunk on disk (a server component's) → { file, line }
 //
 // Mutating requests need `x-retake-token`. The token is injected into the
 // shell page and written to <root>/.retake/server.json for local tools (MCP).
@@ -15,6 +16,8 @@ import fs from "node:fs"
 import path from "node:path"
 import zlib from "node:zlib"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
+import { cleanSource, isLibrary, originalPosition } from "./sourcemap.js"
 
 const gzip = promisify(zlib.gzip)
 const gunzip = promisify(zlib.gunzip)
@@ -110,7 +113,15 @@ function readBody(req) {
         req.destroy()
       } else chunks.push(c)
     })
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
+    req.on("end", () => {
+      const body = Buffer.concat(chunks)
+      // The dock gzips large uploads (a Next.js middleware takes 10 MB at most).
+      if (!/^\s*gzip\s*$/i.test(String(req.headers["content-encoding"] || ""))) return resolve(body.toString("utf8"))
+      gunzip(body, { maxOutputLength: MAX_BODY }).then(
+        (b) => resolve(b.toString("utf8")),
+        (err) => reject(Object.assign(err, { status: err instanceof RangeError ? 413 : 400 })),
+      )
+    })
     req.on("error", reject)
   })
 }
@@ -148,6 +159,66 @@ export function writeServerInfo({ root, url, token, base = "/" }) {
         if (JSON.parse(fs.readFileSync(file, "utf8")).pid === process.pid) fs.rmSync(file, { force: true })
       } catch {}
     })
+  }
+}
+
+/**
+ * Where a line of a compiled chunk on disk came from (a server component's
+ * element: React's stack names `file:///…/.next/server/…chunk.js`, which the
+ * dock can't fetch). Only .js files inside the project, and maps next to them
+ * or inlined. → { file, line } or { file: null }.
+ * @param {string} root
+ * @param {URLSearchParams} q
+ */
+export function mapChunk(root, q) {
+  const none = { file: null, line: null }
+  const line = Number(q.get("line"))
+  const col = Number(q.get("col")) || null
+  let file
+  try {
+    const u = String(q.get("url") || "").replace(/^about:\/\/React\/Server\//, "").replace(/[?#].*$/, "")
+    file = path.resolve(u.startsWith("file:") ? fileURLToPath(u) : u)
+  } catch {
+    return none
+  }
+  const inside = (f) => {
+    const real = (() => {
+      try {
+        return fs.realpathSync(f)
+      } catch {
+        return f
+      }
+    })()
+    const r = (() => {
+      try {
+        return fs.realpathSync(root)
+      } catch {
+        return root
+      }
+    })()
+    return real === r || real.startsWith(r + path.sep)
+  }
+  if (!(line > 0) || !/\.(m|c)?js$/.test(file) || !inside(file) || !fs.existsSync(file)) return none
+  try {
+    const code = fs.readFileSync(file, "utf8")
+    const refs = [...code.matchAll(/\/\/[#@] sourceMappingURL=(\S+)/g)]
+    const ref = refs.length ? refs[refs.length - 1][1] : null
+    let json
+    if (ref && ref.startsWith("data:")) {
+      const comma = ref.indexOf(",")
+      const body = ref.slice(comma + 1)
+      json = /;base64/.test(ref.slice(0, comma)) ? Buffer.from(body, "base64").toString("utf8") : decodeURIComponent(body)
+    } else {
+      const mapFile = ref ? path.resolve(path.dirname(file), decodeURIComponent(ref)) : file + ".map"
+      if (!inside(mapFile) || !fs.existsSync(mapFile)) return none
+      json = fs.readFileSync(mapFile, "utf8")
+    }
+    const pos = originalPosition(JSON.parse(json), line, col)
+    if (!pos) return none
+    const src = cleanSource(pos.source, { root, sources: pos.sources })
+    return isLibrary(src) ? none : { file: src, line: pos.line }
+  } catch {
+    return none
   }
 }
 
@@ -198,6 +269,7 @@ export function createSessionHandler({ root, token, bus }) {
       }
       return send(res, 200, { config })
     }
+    if (route[0] === "map" && route.length === 1 && req.method === "GET") return send(res, 200, mapChunk(root, url.searchParams))
     const known = ["session", "recording", "notes", "events"].includes(route[0])
     if (!known) return next() // e.g. /__retake/version and /checkout (code-versions)
     if (mutating && req.headers["x-retake-token"] !== token) return send(res, 403, { error: "missing or wrong x-retake-token" })

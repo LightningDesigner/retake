@@ -7,7 +7,8 @@
 //   - the proxy's matcher covers the page
 // Then it starts `next start` on a free port and asks for each page as a
 // top-level load (the dock), as the dock's frame (the page with the runtime
-// as its first script), and with ?retake=0 (the plain page). See proxy.ts.
+// as its first script), and with ?retake=0 (the plain page), and checks that
+// /docs is a plain page and /try is gone. See proxy.ts.
 import fs from "node:fs"
 import http from "node:http"
 import net, { type AddressInfo } from "node:net"
@@ -21,7 +22,7 @@ const out = path.join(site, ".next", "server")
 const read = (...p: string[]) => (fs.existsSync(path.join(out, ...p)) ? fs.readFileSync(path.join(out, ...p), "utf8") : "")
 const problems: string[] = []
 const say = (m: string) => problems.push(m)
-// A page's prerendered file: / -> index.html, /try -> try.html.
+// A page's prerendered file: / -> index.html, /playground -> playground.html.
 const file = (name: string, p: Page) => (name === "index" ? "index" : p.path.slice(1))
 
 if (!fs.existsSync(out)) say(".next/server is missing (run next build first)")
@@ -96,6 +97,10 @@ if (!problems.length) {
     }
     if ((await get("/__retake/session")).status !== 404) say("/__retake/session isn't a 404 (the dock would look for a server)")
     if ((await get("/retake-dock/index", "document")).status !== 404) say("/retake-dock/index is reachable directly")
+    // The docs are plain pages (not in the proxy's matcher); /try is gone.
+    const docs = await get("/docs", "document")
+    if (docs.status !== 200 || docs.text.includes("wb-dock")) say("/docs isn't the plain docs page")
+    if ((await get("/try", "document")).status !== 404) say("/try still answers (the playground is /playground)")
   } catch (e) {
     say(e instanceof Error ? e.message : String(e))
   } finally {

@@ -72,7 +72,9 @@ function logMutations(records) {
     if (r.type === "attributes" && r.attributeName === HOVER_ATTR) continue // our :hover stand-in
     if (r.type === "attributes") {
       const next = later((x) => x.type === "attributes" && x.target === r.target && x.attributeName === r.attributeName)
-      domLog.push({ t, kind: "attr", node: r.target, name: r.attributeName, old: r.oldValue, now: next ? next.oldValue : r.target.getAttribute(r.attributeName) })
+      const now = next ? next.oldValue : r.target.getAttribute(r.attributeName)
+      domLog.push({ t, kind: "attr", node: r.target, name: r.attributeName, old: r.oldValue, now })
+      if (r.attributeName === "style") noteStyleWrite(r.target, t, r.oldValue, now) // script-driven motion (62-motion.js)
     } else if (r.type === "characterData") {
       const next = later((x) => x.type === "characterData" && x.target === r.target)
       domLog.push({ t, kind: "text", node: r.target, old: r.oldValue, now: next ? next.oldValue : r.target.data })
