@@ -49,7 +49,15 @@ Retake is a dev-only timeline for the app's dev server. Nothing ships in the pro
    .claude/skills/retake
    skills-lock.json
    ```
-7. Optional, so notes reach you: register the MCP server, `npx -y retake-dev mcp` (Claude Code: `claude mcp add retake -- npx -y retake-dev mcp`).
+7. Connect the MCP server so notes left in the timeline reach the agent, without the user typing anything. Add it to the project's MCP config (merge with what's there, don't overwrite other servers):
+   - Claude Code, `.mcp.json` at the project root:
+     ```json
+     { "mcpServers": { "retake": { "command": "npx", "args": ["-y", "retake-dev", "mcp"] } } }
+     ```
+   - Cursor, `.cursor/mcp.json`: the same `mcpServers` entry.
+   - Other clients: the command is `npx -y retake-dev mcp`.
+   The server finds the running timeline through `.retake/server.json`, written when the dev server starts. Tell the user that their agent will ask once to enable the `retake` server (Claude Code asks when the project is next opened, or run `/mcp`), and that the tools work while the dev server is running.
+8. Package manager: use the project's own version (if `packageManager` is set in package.json, run it through `corepack`, e.g. `corepack pnpm add -D retake-dev`), so the install doesn't fail on a store or lockfile mismatch.
 
 Then tell the user: with the Next.js file or the Vite plugin, run the usual `npm run dev` (or their package manager's equivalent) and open the usual dev URL; the timeline is docked at the bottom. With the script, run `npm run dev:retake` and open the URL it prints, usually http://localhost:3014.
 
