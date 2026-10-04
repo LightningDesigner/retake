@@ -80,13 +80,68 @@ export const COPY_PROMPT = [
   `Timeline: "Timeline 2", branched from "Timeline 1" at 00:04.21`,
 ].join("\n")
 
+// Timeline 2's recording around the note, in the shape `retake mcp` reads
+// (readRecording in src/server/moments.js): the user typed a title, saved, the
+// request came back and the toast slid in. Times in ms on the recording's clock.
+export const RECORDING = {
+  v: 1,
+  start: 0,
+  end: 7840,
+  events: [
+    { t: 4980, type: "focusin", editable: true, css: "#draft-title", label: "Title" },
+    { t: 5010, type: "input", inputType: "insertText", data: "Q", css: "#draft-title", value: "Q" },
+    { t: 5400, type: "input", inputType: "insertText", data: "3 plan", css: "#draft-title", value: "Q3 plan" },
+    { t: 5980, type: "click", css: "#save", label: "Save" },
+    { t: 6230, type: "net", list: "fetches", i: 0, kind: "end" },
+  ],
+  fetches: [{ t0: 5990, key: "POST /api/drafts", status: 200 }],
+  routes: [],
+  segments: [],
+  clips: [
+    { id: 7, start: 6240, end: 6590, kind: "transition", property: "transform", label: "transform", selector: el.selector, component: "Toast", from: { transform: "translateY(16px)" }, to: { transform: "none" } },
+    { id: 8, start: 6240, end: 6590, kind: "transition", property: "opacity", label: "opacity", selector: el.selector, component: "Toast", from: { opacity: "0" }, to: { opacity: "1" } },
+    { id: 9, start: 6000, end: 6600, kind: "css-animation", label: "spin", selector: "#save > svg.spinner", dur: 600, iterations: 1 },
+  ],
+}
+
+// Code timelines (GET /__retake/code), before and after the agent's edit:
+// Timeline 2's code is on disk, then Toast.tsx changes in Timeline 2 only.
+const V1 = "7f3a1c5e90"
+const V2 = "b41c09e2d7"
+const codeState = (edited: boolean) => ({
+  enabled: true,
+  checkedOut: 2,
+  checkedOutName: "Timeline 2",
+  disk: edited ? V2 : V1,
+  newest: edited ? V2 : V1,
+  suspended: null,
+  lease: null,
+  leaseLost: null,
+  timelines: {
+    1: { fork: V1, head: V1, changed: 0, files: [] },
+    2: edited ? { fork: V1, head: V2, changed: 1, files: ["src/components/Toast.tsx"] } : { fork: V1, head: V1, changed: 0, files: [] },
+  },
+})
+
+const PATCH = `diff --git a/src/components/Toast.tsx b/src/components/Toast.tsx
+--- a/src/components/Toast.tsx
++++ b/src/components/Toast.tsx
+@@ -40,7 +40,7 @@ export function Toast({ title, body }: ToastProps) {
+   return (
+     <li
+       className="toast is-entering"
+-      style={{ transition: "transform 0.35s linear, opacity 0.35s ease" }}
++      style={{ transition: "transform 0.35s ease-out 60ms, opacity 0.35s ease" }}
+     >`
+
 interface Tools {
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>
 }
 
 // retake-dev's MCP tools over a client that answers from SESSION instead of a
 // running dev server. Loaded unbundled, from the package's own files.
-async function tools(): Promise<Tools> {
+// `edited`: after the agent's edit landed in Timeline 2.
+async function tools(edited = false): Promise<Tools> {
   const req = createRequire(path.join(process.cwd(), "package.json"))
   const dir = path.dirname(req.resolve("retake-dev/package.json"))
   const mcp = await import(/* turbopackIgnore: true */ /* webpackIgnore: true */ pathToFileURL(path.join(dir, "src", "server", "mcp.js")).href)
@@ -95,7 +150,7 @@ async function tools(): Promise<Tools> {
     base: () => "http://localhost:3014",
     root: () => process.cwd(),
     session: async () => SESSION,
-    recording: async () => null,
+    recording: async () => RECORDING,
     notes: async () => notes(),
     note: async (id: string) => {
       const n = notes().find((x) => String(x.id) === String(id))
@@ -104,12 +159,21 @@ async function tools(): Promise<Tools> {
     },
     patch: async (id: string) => ({ ...notes().find((x) => String(x.id) === String(id)) }),
     nextEvent: async () => null,
+    code: async () => codeState(edited),
+    codeDiff: async () => ({ branch: 2, against: "fork", from: V1, to: V2, files: [{ path: "src/components/Toast.tsx", status: "modified" }], patch: PATCH }),
+    codeCheckout: async (body: { branchId: number }) => ({
+      ok: true,
+      branchId: body.branchId,
+      version: body.branchId === 2 ? V2 : V1,
+      enabled: true,
+      files: [{ path: "src/components/Toast.tsx", change: "write" }],
+    }),
   })
 }
 
 // A tool's answer as the agent reads it: the text in the MCP result.
-async function call(name: string, args: Record<string, unknown> = {}) {
-  const out = await (await tools()).handlers[name](args)
+async function call(name: string, args: Record<string, unknown> = {}, edited = false) {
+  const out = await (await tools(edited)).handlers[name](args)
   return typeof out === "string" ? out : JSON.stringify(out, null, 2)
 }
 
@@ -117,3 +181,8 @@ export const getNoteText = () => call("get_note", { id: NOTE.id })
 export const listNotesText = () => call("list_notes")
 export const activeTimelineText = () => call("get_active_timeline")
 export const resolveText = () => call("resolve", { id: NOTE.id, summary: "Switched the toast's transform to ease-out and added a 60ms delay in Toast.tsx." })
+export const momentText = () => call("get_moment", { id: NOTE.id, before_seconds: 1.5, after_seconds: 1 })
+export const timelineEventsText = () => call("get_timeline_events", { timeline: "Timeline 2", from: "00:05.00", to: "00:07.00" })
+export const animationText = () => call("get_animation", { id: NOTE.id, at: "00:06.38" })
+export const checkoutText = () => call("checkout_timeline", { timeline: "Timeline 1" }, true)
+export const codeDiffText = () => call("get_code_diff", { timeline: "Timeline 2" }, true)

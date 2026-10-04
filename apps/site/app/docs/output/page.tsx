@@ -43,7 +43,7 @@ export default async function Output() {
           [<C key="c">Element</C>, "Tag with its id or first class, and up to 80 characters of its text"],
           [<C key="c">Selector</C>, <>A CSS path from the nearest ancestor with an id, with <C>:nth-of-type</C> where siblings share a tag</>],
           [<C key="c">Component</C>, <>React components that rendered it, innermost first (<C>Toast &lt; ToastStack</C>). Library wrappers (providers, Radix slots, Framer Motion presence) are skipped</>],
-          [<C key="c">Animation</C>, <>Only for a picked <C>::before</C>/<C>::after</C> layer: the animation, its keyframes, duration and iterations</>],
+          [<C key="c">Animation</C>, <>For a note on an animation: its kind, where it&apos;s defined, timing, keyframes, the point or range on its own clock, what started it, and an exact edit (<Link href="/docs/features#animations">more</Link>)</>],
           [<C key="c">CSS</C>, <>The stylesheet rule&apos;s file and line (and its <C>@keyframes</C>), when found</>],
           [<C key="c">Source</C>, "The file and line of the JSX that made the element"],
           [<C key="c">Classes</C>, "Its class list"],
@@ -54,6 +54,10 @@ export default async function Output() {
           [<C key="c">Earlier replies</C>, "Your agent's replies so far, if any"],
         ]}
       />
+      <p>
+        Some notes carry more: a <b>Group</b> block for a <Link href="/docs/features#group">Whole group</Link> note, a hover, press or focus <b>state</b> listing every effect it started,{" "}
+        <b>Recent animations</b> when nothing ran at the moment, and a <b>Media</b> line for a video (<Link href="/docs/features#triggers">more</Link>).
+      </p>
 
       <H2 id="get-note">Over MCP: get_note</H2>
       <p>

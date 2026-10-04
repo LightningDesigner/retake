@@ -58,9 +58,13 @@ export default function Install() {
 
       <H2 id="agent">Install with your agent</H2>
       <p>Paste this into Claude Code, Cursor or any coding agent:</p>
-      <Code title="Prompt">{`Add Retake to this project so its timeline shows on the normal dev URL: install retake-dev as a dev dependency with the project's package manager. Next.js 16: add proxy.ts with export { default } from "retake-dev/next". Next.js 15: add middleware.ts with import retake from "retake-dev/next", export default retake, export const config = { runtime: "nodejs" }. If a proxy or middleware already exists, wrap its default export in withRetake from "retake-dev/next". Vite: add retake() from "retake-dev" to the Vite plugins. Anything else: add a "dev:retake": "retake ." script to package.json. Add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install`}</Code>
+      <Code title="Prompt">{`Add Retake to this project so its timeline shows on the normal dev URL: install retake-dev as a dev dependency with the project's package manager. Put the Next file next to the app/ folder (the root, or src/ for src/app). Next.js 16: add proxy.ts with export { default } from "retake-dev/next". Next.js 15: add middleware.ts with import retake from "retake-dev/next", export default retake, export const config = { runtime: "nodejs" }. If a proxy or middleware already exists, wrap its default export in withRetake from "retake-dev/next". Vite: add retake() from "retake-dev" to the Vite plugins. Anything else: add a "dev:retake": "retake ." script to package.json. Add .retake/ to .gitignore, and don't change anything else. Docs: https://retake-omega.vercel.app/docs/install`}</Code>
       <p>Or install the skill once and run <C>/retake</C> in your agent:</p>
       <Code title="Terminal">{"npx skills add LightningDesigner/retake"}</Code>
+      <p>
+        The skill does the same, and also connects the <Link href="/docs/mcp">MCP server</Link>: it adds <C>retake</C> to the project&apos;s <C>.mcp.json</C> (or <C>.cursor/mcp.json</C>),
+        so your notes reach your agent without another step. Your agent asks once to turn it on. It installs a second skill, <C>retake-notes</C>, on how to work through notes.
+      </p>
 
       <H2 id="npx">Try it without installing</H2>
       <PmTabs label="Package manager" commands={{ npm: "npx retake-dev .", pnpm: "pnpm dlx retake-dev .", yarn: "yarn dlx retake-dev .", bun: "bunx retake-dev ." }} />
@@ -94,14 +98,30 @@ export default function Install() {
 
       <H2 id="nextjs">Next.js</H2>
       <p>
-        Add one file in the project root (in <C>src/</C> if your app lives in <C>src/app</C>) and keep running <C>next dev</C>: the timeline shows on your usual dev URL,
+        Install <C>retake-dev</C> in the project (<Link href="#install">above</Link>), add one file, and keep running <C>next dev</C>: the timeline shows on your usual dev URL,
         with no second port. <C>npx retake-dev init</C> prints these lines.
       </p>
+      <ul>
+        <li><b>Where the file goes:</b> next to your <C>app/</C> folder. That&apos;s the project root, or <C>src/</C> if your app lives in <C>src/app</C> (<C>src/proxy.ts</C> / <C>src/middleware.ts</C>).</li>
+        <li><b>Which file:</b> Next 16 and Next 15 need different ones. Check <C>next</C> in your <C>package.json</C>.</li>
+      </ul>
       <Code lang="ts" title="proxy.ts (Next 16)">{NEXT_16}</Code>
       <Code lang="ts" title="middleware.ts (Next 15)">{NEXT_15}</Code>
+      <Note>
+        <p>
+          On Next 15, don&apos;t copy the Next 16 line into <C>middleware.ts</C>: it needs all three lines, including the Node.js runtime (Retake keeps <C>.retake/</C> on disk).
+        </p>
+      </Note>
       <p>
-        Next 15 needs the Node.js runtime: Retake keeps <C>.retake/</C> on disk. It only runs in <C>next dev</C>; in <C>next build</C> and <C>next start</C> every request goes
-        straight on, and the build has no dock or runtime in it. Notes and <C>npx -y retake-dev mcp</C> work as with the CLI.
+        <b>Open the page in a browser</b> to see the timeline. It&apos;s added only for real page loads, so <C>curl</C> shows the plain page, and the first request or two right after{" "}
+        <C>next dev</C> starts may arrive before Retake has loaded (&ldquo;Retake timeline docked&rdquo; prints when it has).
+      </p>
+      <p>
+        It only runs in <C>next dev</C>; in <C>next build</C> and <C>next start</C> every request goes straight on, and the build has no dock or runtime in it. Notes and{" "}
+        <C>npx -y retake-dev mcp</C> work as with the CLI. For separate code per timeline without CLI flags, set <C>RETAKE_CODE_TIMELINES=1</C> (<Link href="/docs/api#code-timelines">more</Link>).
+      </p>
+      <p>
+        Install it from the registry (or a tarball). A <C>file:</C> or linked install is a symlink, which Turbopack doesn&apos;t follow out of the project, and <C>retake-dev/next</C> isn&apos;t found.
       </p>
       <p>Already have a proxy or middleware? Wrap yours:</p>
       <Code lang="ts" title="proxy.ts">{NEXT_WRAP}</Code>
@@ -168,9 +188,12 @@ npx retake-dev -- next dev --turbo  # retake runs this command`}</Code>
 
       <H2 id="uninstall">Uninstall</H2>
       <Code title="Terminal">{`npm uninstall retake-dev    # or pnpm remove / yarn remove / bun remove
-rm -rf .retake              # the session, recordings and notes
+rm -rf .retake              # the session, recordings, notes and code snapshots
 claude mcp remove retake    # if you added the MCP server`}</Code>
-      <p>Remove <C>retake()</C> from <C>vite.config</C> or Retake&apos;s <C>proxy.ts</C> / <C>middleware.ts</C> if you added it, and the server from any other MCP client&apos;s settings.</p>
+      <p>
+        Remove <C>retake()</C> from <C>vite.config</C> or Retake&apos;s <C>proxy.ts</C> / <C>middleware.ts</C> if you added it, the <C>retake</C> entry from <C>.mcp.json</C> if the skill
+        added one, and the server from any other MCP client&apos;s settings. With separate code on, stop Retake first so the newest code is back on disk.
+      </p>
     </DocArticle>
   )
 }

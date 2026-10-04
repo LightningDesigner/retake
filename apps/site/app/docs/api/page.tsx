@@ -7,6 +7,7 @@ export const metadata: Metadata = docMetadata("api")
 
 const toc = [
   { id: "cli", label: "CLI" },
+  { id: "code-timelines", label: "Code timelines" },
   { id: "plugin", label: "Vite plugin" },
   { id: "exports", label: "Server building blocks" },
   { id: "http", label: "Session HTTP API" },
@@ -19,7 +20,7 @@ import { retake } from "retake-dev"
 export default defineConfig({
   plugins: [
     retake({
-      codeTimelines: "ask", // each take keeps its own code (true rewrites files when you switch)
+      codeTimelines: "ask", // each timeline keeps its own code (true rewrites files when you switch)
       banner: true,        // the "Retake  timeline docked at …" line
     }),
   ],
@@ -60,8 +61,9 @@ export default function Api() {
           [<C key="c">retake dev &lt;project&gt;</C>, "The same"],
           [<C key="c">retake http://localhost:3000</C>, "Puts the timeline in front of a dev server that's already running"],
           [<C key="c">retake -- &lt;dev command&gt;</C>, <>Runs that command with the timeline in front (<C>retake -- next dev</C>, <C>retake -- pnpm dev</C>)</>],
-          [<C key="c">retake init</C>, <>Prints the <C>vite.config</C> lines</>],
+          [<C key="c">retake init</C>, <>Prints the lines for <C>vite.config</C> or Next&apos;s <C>proxy.ts</C></>],
           [<C key="c">retake mcp</C>, <>The <Link href="/docs/mcp">MCP server</Link> (stdio)</>],
+          [<C key="c">retake code …</C>, <>Each timeline&apos;s code, from a terminal (<Link href="#code-timelines">below</Link>)</>],
         ]}
       />
       <Table
@@ -70,9 +72,11 @@ export default function Api() {
         rows={[
           [<C key="c">--port &lt;n&gt;</C>, <>Port to serve on. Default <C>3014</C>. For <C>mcp</C>: the server at <C>http://localhost:&lt;n&gt;</C></>],
           [<C key="c">--root &lt;dir&gt;</C>, <>Where <C>.retake/</C> goes. Default: the project, or the current folder</>],
-          [<C key="c">--code-timelines</C>, "Each take keeps its own code: switching to a take puts its code on disk (snapshots in .retake/, the newest code put back when Retake stops). --no-code-timelines: takes share the files. Default: the dock asks. --code-branches is the old name"],
+          [<C key="c">--code-timelines</C>, <>Each timeline keeps its own code: switching to one puts its code on disk (the newest goes back when Retake stops). <C>--code-branches</C> is the old name</>],
+          [<C key="c">--no-code-timelines</C>, "Every timeline shares the files. Without either flag the dock asks the first time it matters"],
           [<C key="c">--verbose</C>, <>Logs every request the front server handles to <C>.retake/front.log</C></>],
           [<C key="c">--url &lt;url&gt;</C>, <>For <C>mcp</C>: the Retake server to talk to</>],
+          [<C key="c">--branch &lt;name&gt;</C>, <>For <C>retake code export</C>: the branch name (default <C>retake/timeline-&lt;id&gt;</C>)</>],
           [<C key="c">-- …</C>, <>After a project: arguments for its dev server (<C>retake . -- --host</C>). Without one: the dev command</>],
           [<C key="c">-v</C>, <><C>--version</C>: prints the version</>],
           [<C key="c">-h</C>, <><C>--help</C>: prints the usage</>],
@@ -80,8 +84,37 @@ export default function Api() {
       />
       <p>
         Environment: <C>RETAKE_URL</C> is <C>--url</C> for <C>mcp</C>. <C>RETAKE_CACHE_DIR</C> moves the wrapper config and Vite cache Retake keeps for a Vite app
-        (default <C>$TMPDIR/retake/</C>). <C>PORT</C> is given to the dev command Retake starts.
+        (default <C>$TMPDIR/retake/</C>). <C>PORT</C> is given to the dev command Retake starts.{" "}
+        <C>RETAKE_CODE_TIMELINES</C> is for Next&apos;s <C>proxy.ts</C> / <C>middleware.ts</C>, where there are no flags: <C>1</C> separate code, <C>0</C> shared, unset the dock asks.
       </p>
+
+      <H2 id="code-timelines">Code timelines</H2>
+      <p>
+        Each timeline can keep its own code (<Link href="/docs/features#code">how it works</Link>). Turn it on or off with the dock&apos;s prompt, a lane&apos;s right-click menu, or:
+      </p>
+      <Table
+        className="wrap-first"
+        head={["Where", "On", "Off"]}
+        rows={[
+          ["CLI", <C key="c">--code-timelines</C>, <C key="c">--no-code-timelines</C>],
+          ["Vite plugin", <C key="c">{"retake({ codeTimelines: true })"}</C>, <C key="c">{"retake({ codeTimelines: false })"}</C>],
+          [<>Next&apos;s <C>proxy.ts</C></>, <C key="c">RETAKE_CODE_TIMELINES=1 next dev</C>, <C key="c">RETAKE_CODE_TIMELINES=0</C>],
+        ]}
+      />
+      <p>Left unset, the dock asks once, the first time the code changes with two timelines; the answer is kept in <C>.retake/settings.json</C>.</p>
+      <p>
+        <C>retake code</C> works with or without a dev server running (through its HTTP API when one is, else on <C>.retake/</C> directly). Run it in the project, or pass <C>--root</C>.
+      </p>
+      <Table
+        className="wrap-first"
+        head={["Command", "Does"]}
+        rows={[
+          [<C key="c">retake code status</C>, "Each timeline's code version and the files it changed since it started, and whose code is on disk. list is the same"],
+          [<C key="c">retake code checkout &lt;timeline&gt;</C>, "Puts that timeline's code on disk (by id or name)"],
+          [<C key="c">retake code restore [version]</C>, "Puts the newest code back on disk, or a given version"],
+          [<C key="c">retake code export &lt;timeline&gt;</C>, <>Makes a git branch of that timeline&apos;s code, on top of HEAD (<C>--branch &lt;name&gt;</C>). Your working tree, index and HEAD stay as they are</>],
+        ]}
+      />
 
       <H2 id="plugin">Vite plugin</H2>
       <p><C>retake(options)</C> returns the plugins for <C>vite dev</C>; it does nothing in <C>vite build</C>.</p>
@@ -91,7 +124,7 @@ export default function Api() {
         head={["Option", "Type", "Default", "Does"]}
         rows={[
           [<C key="c">enabled</C>, <C key="t">boolean</C>, <C key="d">true</C>, "false turns the plugin off; pages are served as they are"],
-          [<C key="c">codeTimelines</C>, <C key="t">{"boolean | \"ask\""}</C>, <C key="d">&quot;ask&quot;</C>, "Each take keeps its own code; switching to a take puts its code on disk. \"ask\": the dock asks the first time it matters (codeBranches: true is the old name)"],
+          [<C key="c">codeTimelines</C>, <C key="t">{"boolean | \"ask\""}</C>, <C key="d">&quot;ask&quot;</C>, "Each timeline keeps its own code; switching to one puts its code on disk. \"ask\": the dock asks the first time it matters (codeBranches: true is the old name)"],
           [<C key="c">token</C>, <C key="t">string</C>, "random per start", <>The token mutating <C>/__retake/</C> requests must carry</>],
           [<C key="c">root</C>, <C key="t">string</C>, "Vite's root", <>Where <C>.retake/</C> goes</>],
           [<C key="c">banner</C>, <C key="t">boolean</C>, <C key="d">true</C>, "false hides the startup line"],
@@ -116,26 +149,28 @@ export default function Api() {
 
       <H2 id="http">Session HTTP API</H2>
       <p>
-        Every Retake server (the plugin and the front server) answers these under <C>/__retake/</C>. Takes, recordings and notes are kept in <C>.retake/</C>.
+        Every Retake server (the plugin and the front server) answers these under <C>/__retake/</C>. Timelines, recordings and notes are kept in <C>.retake/</C>.
       </p>
       <Table
         className="wrap-first"
         head={["Route", "Does"]}
         rows={[
           [<C key="c">GET /__retake/session</C>, <><C>{"{ branches, activeId, markers, notes }"}</C>. Each branch: <C>{"{ id, parentId, forkAt, name, codeVersion }"}</C></>],
-          [<C key="c">PUT /__retake/session</C>, "Replaces the session; recordings of takes it no longer has are deleted"],
-          [<C key="c">GET /__retake/recording/:id</C>, "A take's recording (JSON; gzipped on disk)"],
-          [<C key="c">PUT /__retake/recording/:id</C>, "Saves a take's recording"],
+          [<C key="c">PUT /__retake/session</C>, "Replaces the session; recordings of timelines it no longer has are deleted"],
+          [<C key="c">GET /__retake/recording/:id</C>, "A timeline's recording (JSON; gzipped on disk)"],
+          [<C key="c">PUT /__retake/recording/:id</C>, "Saves a timeline's recording"],
           [<C key="c">DELETE /__retake/recording/:id</C>, "Deletes it"],
           [<C key="c">GET /__retake/notes</C>, "Every note"],
           [<C key="c">GET /__retake/notes/:id</C>, "One note (404 if there's none)"],
           [<C key="c">PATCH /__retake/notes/:id</C>, <><C>{"{ status?, reply? }"}</C>: <C>status</C> is pending, acknowledged, resolved or dismissed; <C>reply</C> a string (from the agent, or the user with header <C>x-retake-from: user</C>). Returns the note</>],
           [<C key="c">GET /__retake/events</C>, <>Server-sent events: <C>session</C>, <C>note-updated</C>, <C>active-changed</C>, <C>code-version</C></>],
           [<C key="c">GET /__retake/health</C>, "Front server only: 200 once the dev server behind it has answered, 503 before"],
-          [<C key="c">GET /__retake/code</C>, <>Each take&apos;s code: <C>{"{ enabled, checkedOut, disk, newest, timelines: { [id]: { fork, head, changed, files } } }"}</C></>],
-          [<C key="c">POST /__retake/code/checkout</C>, <><C>{"{ branchId, force? }"}</C>: puts a take&apos;s code on disk (with code timelines on). Returns the files that changed</>],
-          [<C key="c">GET /__retake/code/diff?branch=</C>, "The files a take changed since it started, and a unified diff"],
-          [<C key="c">POST /__retake/code/enabled</C>, <><C>{"{ on }"}</C>: separate code per take, or shared</>],
+          [<C key="c">GET /__retake/code</C>, <>Each timeline&apos;s code: <C>{"{ enabled, checkedOut, disk, newest, timelines: { [id]: { fork, head, changed, files } } }"}</C></>],
+          [<C key="c">POST /__retake/code/checkout</C>, <><C>{"{ branchId, force? }"}</C>: puts a timeline&apos;s code on disk (with code timelines on). Returns the files that changed</>],
+          [<C key="c">GET /__retake/code/diff?branch=&amp;against=</C>, <>The files a timeline changed since it started (or against another timeline&apos;s id), and a unified diff</>],
+          [<C key="c">POST /__retake/code/enabled</C>, <><C>{"{ on }"}</C>: separate code per timeline, or shared</>],
+          [<C key="c">POST /__retake/code/restore</C>, <><C>{"{ version? }"}</C>: puts that version (default: the newest) back on disk</>],
+          [<C key="c">POST /__retake/code/resume</C>, "Resumes swapping after a git branch switch paused it"],
         ]}
       />
       <H3 id="token">The token</H3>

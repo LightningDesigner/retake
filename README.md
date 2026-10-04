@@ -10,7 +10,7 @@ Works with Vite, Next.js, React Router, Remix, Astro, SvelteKit and Nuxt. Dev on
 npx retake-dev .
 ```
 
-Run it from your app's folder and open the URL it prints. Your files aren't touched. To keep it in the project:
+Run it from your app's folder and open the URL it prints. Your files aren't touched (unless you choose to give each timeline its own code). To keep it in the project:
 
 ```bash
 npm install retake-dev -D
@@ -73,8 +73,13 @@ npx skills add LightningDesigner/retake
 
 - **Scrub back**: drag the playhead and the app follows, frame by frame
 - **Real moments**: let go and the page is rebuilt at that moment, not a screenshot
-- **Takes**: Ctrl-click the timeline to branch; every take stays as a lane
+- **Timelines**: Ctrl-click the timeline (or press +) to branch; every timeline stays as a lane
+- **Code per timeline**: with separate code on, each timeline rebuilds on its own code; `retake code` from a terminal
 - **Notes**: hold ⌘ and click an element to leave a note pinned to that moment
+- **Notes on animations**: a point or a range on an animation's own clock, with an exact edit; one note for a whole group
+- **Hover, press and focus**: notes say what started each animation and list what ran last
+- **Your agent reads it**: an MCP server with twelve tools, from notes to the recording around them
+- **Keyboard**: pick, open animations, make ranges and turn on Whole group without a mouse
 - **Any framework**: one front server in front of your dev server, HMR included
 - **Nothing in production**: `vite build` and `next build` output have no Retake code
 

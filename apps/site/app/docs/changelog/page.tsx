@@ -6,6 +6,7 @@ import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
 export const metadata: Metadata = docMetadata("changelog")
 
 const toc = [
+  { id: "v0-5-5", label: "0.5.5" },
   { id: "v0-5-4", label: "0.5.4" },
   { id: "v0-5-3", label: "0.5.3" },
   { id: "v0-5-2", label: "0.5.2" },
@@ -26,6 +27,12 @@ function Release({ id, version, tag }: { id: string; version: string; tag: strin
 export default function Changelog() {
   return (
     <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-5" version="0.5.5" tag="Springs" />
+      <ul>
+        <li><b>Motion springs.</b> A note on a spring gives its stiffness, damping, how far it overshoots and when it settles, with the numbers to change for &quot;less bouncy&quot;, &quot;slower&quot; or &quot;faster&quot;. A point or range on a spring is converted to keyframes for an exact edit.</li>
+        <li>Picking an element again while writing a note keeps what you typed.</li>
+      </ul>
+
       <Release id="v0-5-4" version="0.5.4" tag="Fixes" />
       <ul>
         <li><K>Enter</K> opens an animation at its start even when the playhead is in its delay, so the arrows and <K>Shift</K>+arrows work straight away.</li>
@@ -49,8 +56,11 @@ export default function Changelog() {
         <li><b>Clearer exact edits.</b> They say they change only the note&apos;s point or range; &ldquo;faster&rdquo;, &ldquo;hold longer&rdquo; and the like get an <C>Intent:</C> line instead. Loops get exact edits too.</li>
         <li><b>Picking under overlays.</b> The ⌘ list shows everything stacked at the pointer (strokes under an image, inline words) and marks what animates; click any row.</li>
         <li><b>Ranges from the keyboard.</b> On an open animation, <K>Shift</K>+<K>←</K>/<K>→</K> grows a range from the point; <K>⌥</K>+<K>←</K>/<K>→</K> moves between keyframes.</li>
-        <li><b>Timelines keep their own code.</b> Each timeline rebuilds with the code it had, in every mode; <C>retake code</C> from a terminal, and agents get <C>checkout_timeline</C> and <C>get_code_diff</C>.</li>
+        <li><b>Timelines keep their own code.</b> Each timeline rebuilds with the code it had, in every mode. The first code change with two timelines asks <b>Separate code</b> or <b>Share code</b>; the newest code goes back on disk when Retake stops. <Link href="/docs/features#code">More</Link></li>
+        <li><b>Safe with git.</b> HEAD, the index and refs are never touched, a branch switch pauses swapping, and hot updates are held while files switch.</li>
+        <li><b>Code from a terminal and for agents.</b> <C>retake code status | list | checkout | restore | export</C>; <C>acknowledge</C> puts the note&apos;s timeline&apos;s code on disk, and agents get <C>checkout_timeline</C> and <C>get_code_diff</C>.</li>
         <li>Source lines on Next 15 with Turbopack for elements a bundled library rendered.</li>
+        <li>Front server: a kept page is served again whenever the code it was rendered with is back on disk.</li>
       </ul>
 
       <Release id="v0-5-1" version="0.5.1" tag="Animations" />
@@ -70,6 +80,7 @@ export default function Changelog() {
         <li><b>Phones.</b> 40px controls, a divider you can drag with a finger to resize or fold the dock, Start fresh as an icon on narrow screens, and the dock and its corner button clear of the home indicator.</li>
         <li><b>Room for the dock.</b> In the app&apos;s frame, <C>window.__retakeDockHeight</C> is the height the dock covers (0 when folded), and a <C>retake:dock</C> event says when it changes.</li>
         <li><C>shellHtml({"{ server: false }"})</C> for a dock with no Retake server behind it (a static deploy): it never asks <C>/__retake/</C> and keeps the session in memory.</li>
+        <li><b>Timeline names.</b> Timelines are named Timeline 1, Timeline 2 (they were Main, Take 2). Old sessions show the new names; names you gave them stay.</li>
       </ul>
 
       <Release id="v0-4-0" version="0.4.0" tag="First release" />

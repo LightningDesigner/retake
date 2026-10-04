@@ -1520,6 +1520,10 @@ function openComposer(el, point, layer) {
     lookUpCss(desc, layer.anim)
   }
   const clip = desc.pseudo ? pseudoClip(t, desc) : clipFor(t, desc.selector, el)
+  // Picked again while a note is being written (a second click, a row of the
+  // layer list after the press that opened it): the words typed so far stay (F149).
+  const typed = draft && !card.hidden ? /** @type {HTMLTextAreaElement | null} */ (card.querySelector("textarea")) : null
+  const keep = typed ? typed.value : ""
   draft = { el: desc, t, clip, picked: layer && layer.picked ? layer.picked : null, asked: null, askedReading: null }
   openNote = null
   // The element becomes the dock's focus: its own animations get a row on the track (32-anims.js).
@@ -1531,6 +1535,7 @@ function openComposer(el, point, layer) {
   refreshComposer()
   placeCard(anchorOf(draft.el))
   const ta = card.querySelector("textarea")
+  ta.value = keep
   setTimeout(() => ta.focus())
   ta.addEventListener("input", updateAsked)
   // Enter saves and folds the note down to its pin; Shift+Enter is a new line.

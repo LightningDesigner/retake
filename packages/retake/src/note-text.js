@@ -176,6 +176,7 @@ export function segmentOf(keyframes, eased) {
  */
 export function valuesAt(anim, T) {
   const p = pointOf(anim, T)
+  if (anim.spring && anim.spring.transition) return springValuesAt(anim.spring, p.local)
   const kf = (anim.keyframes || []).filter((k) => k && k.offset != null)
   const s = p.segment
   if (!s || kf.length < 2) return {}
@@ -213,6 +214,173 @@ export const recordingOf = (anim, local) => {
   const rate = Number(t.playbackRate) || 1
   const activeStart = t.activeStart != null ? Number(t.activeStart) : (Number(t.start) || 0) + (Number(t.delay) || 0) / rate
   return activeStart + local / rate
+}
+
+// ---- Motion springs ----------------------------------------------------------------------
+// A spring has no keyframes in time: its curve comes from what the component
+// wrote. This is Motion's own spring (motion-dom's generators/spring, Motion
+// 12-14): the same resolution of stiffness / damping / mass or duration /
+// visualDuration + bounce, the same curve and the same rest test (|velocity| ≤
+// restSpeed and |distance| ≤ restDelta, checked every frame), so its overshoot,
+// swings and settle time are the ones Motion ran. Local ms; durations as
+// written (seconds); velocity in units per second.
+
+const SPRING_MAX_MS = 20000
+const bounceRatio = (b) => (b < 0 ? 1 / Math.max(1 + b, 0.05) : Math.max(1 - b, 0.05))
+function newton(f, d, x) {
+  for (let i = 1; i < 12; i++) x -= f(x) / d(x)
+  return x
+}
+// An overdamped spring's frequency, scaled so it arrives when a critically damped one would.
+function overdampedScale(z, ct) {
+  if (!(z > 1)) return 1
+  const r = Math.sqrt(z * z - 1)
+  const slow = z - r
+  const fast = z + r
+  const target = 2 * r * Math.exp(-ct) * (1 + ct)
+  return newton((x) => fast * Math.exp(-slow * x) - slow * Math.exp(-fast * x) - target, (x) => Math.exp(-fast * x) - Math.exp(-slow * x), ct) / ct
+}
+// Stiffness and damping from a duration (ms) and a bounce.
+function springFromDuration(ms, bounce) {
+  const z = bounceRatio(bounce)
+  const d = Math.min(Math.max(ms / 1000, 0.01), 10)
+  const ang = (w, r) => w * Math.sqrt(1 - r * r)
+  let env
+  let der
+  if (z < 1) {
+    env = (w) => 0.001 - ((w * z) / ang(w, z)) * Math.exp(-w * z * d)
+    der = (w) => ((-env(w) + 0.001 > 0 ? -1 : 1) * -(z * z * w * w * d) * Math.exp(-w * z * d)) / ang(w * w, z)
+  } else {
+    env = (w) => -0.001 + Math.exp(-w * d) * (w * d + 1)
+    der = (w) => Math.exp(-w * d) * (-w * d * d)
+  }
+  const cf = newton(env, der, 5 / d)
+  const w = cf * overdampedScale(z, cf * d)
+  return { stiffness: w * w, damping: z * 2 * w, duration: d * 1000 }
+}
+
+/**
+ * What Motion makes of a spring transition as written (duration, visualDuration in seconds).
+ * @returns {{ stiffness: number, damping: number, mass: number, dampingRatio: number, timeDefined: boolean, fromDuration: boolean, duration: number | null }}
+ */
+export function springOptions(w) {
+  w = w || {}
+  const valid = (v, zero) => v != null && (zero ? Number(v) >= 0 : Number(v) > 0) && Number(v) < Infinity
+  const k = valid(w.stiffness) ? Number(w.stiffness) : null
+  const c = valid(w.damping, true) ? Number(w.damping) : null
+  const m = valid(w.mass) ? Number(w.mass) : null
+  // Stiffness, damping or mass win over duration / bounce.
+  const o = { stiffness: k ?? 100, damping: c ?? 10, mass: m ?? 1, dampingRatio: 0, timeDefined: k == null && c == null && m == null && (w.duration != null || w.bounce != null), fromDuration: false, duration: null }
+  if (o.timeDefined) {
+    if (w.visualDuration) {
+      const z = bounceRatio(Number(w.bounce) || 0)
+      const r = ((2 * Math.PI) / (Number(w.visualDuration) * 1.2)) * overdampedScale(z, (2 * Math.PI) / 1.2)
+      o.stiffness = r * r
+      o.damping = 2 * z * r
+    } else {
+      Object.assign(o, springFromDuration(w.duration != null ? Number(w.duration) * 1000 : 800, w.bounce != null ? Number(w.bounce) : 0.3))
+      o.fromDuration = true
+    }
+    if (!valid(o.stiffness) || !valid(o.damping, true)) Object.assign(o, { stiffness: 100, damping: 10, fromDuration: false })
+  }
+  o.dampingRatio = o.damping / (2 * Math.sqrt(o.stiffness * o.mass))
+  return o
+}
+
+/**
+ * A spring's curve from `from` to `to` as Motion runs it, and what it does:
+ * `at(local)`, settle time, every peak (a turn more than restDelta from the
+ * end value; pct > 0 past it, < 0 short of it), the overshoot, the swings.
+ * @param {any} w the transition as written (type, stiffness, damping, mass, velocity, bounce, visualDuration, duration, restSpeed, restDelta)
+ * @param {number} from
+ * @param {number} to
+ */
+export function springCurve(w, from, to) {
+  w = w || {}
+  const o = springOptions(w)
+  const delta = to - from
+  const v0 = o.timeDefined ? 0 : -(Number(w.velocity) || 0) / 1000
+  const z = o.dampingRatio
+  const w0 = Math.sqrt(o.stiffness / o.mass) / 1000
+  const decay = z * w0
+  let x
+  if (z < 1) {
+    const wd = w0 * Math.sqrt(1 - z * z)
+    const A = (v0 + decay * delta) / wd
+    x = (t) => to - Math.exp(-decay * t) * (A * Math.sin(wd * t) + delta * Math.cos(wd * t))
+  } else if (z === 1) x = (t) => to - Math.exp(-w0 * t) * (delta + (v0 + w0 * delta) * t)
+  else {
+    const wd = w0 * Math.sqrt(z * z - 1)
+    const slow = decay - wd
+    const fast = decay + wd
+    const limit = o.timeDefined ? Infinity : 300 / wd
+    const fall = (rate, t) => Math.exp(t > limit ? -rate * limit - decay * (t - limit) : -rate * t)
+    const P = (v0 + decay * delta) / wd
+    x = (t) => to - ((delta + P) / 2) * fall(slow, t) - ((delta - P) / 2) * fall(fast, t)
+  }
+  const speed = (t) => ((x(t + 0.005) - x(t - 0.005)) / 0.01) * 1000
+  const granular = Math.abs(delta) < 5
+  const restSpeed = Number(w.restSpeed) || (granular ? 0.01 : 2)
+  const restDelta = Number(w.restDelta) || (granular ? 0.005 : 0.5)
+  const rests = (t) => Math.abs(speed(t)) <= restSpeed && Math.abs(to - x(t)) <= restDelta
+  // A physics spring's animation lasts until the first 50ms step that rests
+  // (Motion's calcGeneratorDuration); every frame that rests before that
+  // shows the end value, so it is at rest for good from the start of the
+  // resting stretch that reaches that step: its last style write.
+  let settle = Infinity
+  if (o.fromDuration) settle = /** @type {number} */ (o.duration)
+  else if (delta === 0 && !v0) settle = 0
+  else
+    for (let t = 0; t <= SPRING_MAX_MS; t += 50)
+      if (rests(t)) {
+        settle = t
+        while (settle > 0 && rests(settle - 1)) settle--
+        break
+      }
+  const at = (t) => (t <= 0 ? from : t >= settle ? to : !o.fromDuration && rests(t) ? to : x(t))
+  const peaks = []
+  let count = 0
+  const end = Math.min(settle, SPRING_MAX_MS)
+  for (let t = 1, prev = x(0), v = x(1); t < end; t++) {
+    const next = x(t + 1)
+    if ((v - prev) * (next - v) < 0 && Math.abs(v - to) > restDelta) {
+      count++
+      if (peaks.length < 24) peaks.push({ atMs: t, value: round(v, 2), pct: delta ? round(((v - to) / delta) * 100, 1) : 0 })
+    }
+    prev = v
+    v = next
+  }
+  const past = peaks.filter((p) => p.pct > 0).sort((a, b) => b.pct - a.pct)[0]
+  return { options: o, from, to, restSpeed, restDelta, settleMs: settle, at, peaks, overshoot: past ? { value: past.value, pct: past.pct, atMs: past.atMs } : null, oscillations: count }
+}
+
+// A spring's numbers for the payload: the curve's, with the resolved physics.
+export function springInfo(w, from, to) {
+  const c = springCurve(w, from, to)
+  const o = c.options
+  return {
+    stiffness: round(o.stiffness, 2),
+    damping: round(o.damping, 2),
+    mass: round(o.mass, 3),
+    dampingRatio: round(o.dampingRatio, 3),
+    timeDefined: o.timeDefined,
+    fromDuration: o.fromDuration,
+    restSpeed: c.restSpeed,
+    restDelta: c.restDelta,
+    settleMs: c.settleMs,
+    overshoot: c.overshoot,
+    oscillations: c.oscillations,
+    peaks: c.peaks.slice(0, 8),
+  }
+}
+
+// The keys a spring moves, each with its own from / to: { x: { from, to } }.
+const springKeys = (s) => (s.values && Object.keys(s.values).length ? s.values : { [s.key]: { from: s.from, to: s.to } })
+/** The spring's values at a local time. */
+function springValuesAt(s, local) {
+  const out = {}
+  for (const [k, v] of Object.entries(springKeys(s))) out[k] = num(springCurve(s.transition, v.from, v.to).at(local), 2)
+  return out
 }
 
 // ---- reading numbers the user typed ------------------------------------------------------
@@ -263,6 +431,7 @@ const LIB_WORD = { motion: "Motion (framer-motion)", gsap: "GSAP", anime: "anime
 const animTitle = (a) => {
   if (a.kind === "css-animation") return `@keyframes ${a.name || "?"}`
   if (a.kind === "css-transition") return `${a.name || "transition"}`
+  if (a.spring) return `Motion spring (${Object.keys(springKeys(a.spring)).join(", ")}) from the motion element's animate / transition props, run from script`
   if (a.kind === "js" && a.motionKeyframes) return `Motion keyframes (${a.name || "values"}) from the motion element's animate / transition props, run from script`
   if (a.kind === "js") return `${a.lib && a.lib !== "raf" ? `${LIB_WORD[a.lib] || a.lib}, ` : ""}${KIND_WORD.js}`
   if (a.kind === "waapi" && a.lib) return `${LIB_WORD[a.lib] || a.lib} animation (it runs as element.animate())`
@@ -404,6 +573,7 @@ const ordinal = (n) => `${n}${n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 ===
 
 function timingLine(a) {
   const t = a.timing || {}
+  if (a.spring) return `${a.spring.fromDuration ? `duration ${msText(t.duration)} (a duration-based spring stops at its duration)` : `no fixed duration: it settles at ${msText(t.duration)} (from its parameters)`}, delay ${msText(t.delay)}; local 0 placed from its first style write${a.leadMs ? ` (${num(a.leadMs, 1)}ms before it)` : ""}, ±1 frame`
   if (a.kind === "js" && a.motionKeyframes) return `${msText(t.duration)}, delay ${msText(t.delay)}, ${iterCount(t) === Infinity ? "looping" : `${num(iterCount(t))} iteration${iterCount(t) === 1 ? "" : "s"}`}; each segment has its own ease (below; Motion applies a single ease to every segment); local 0 placed from its first style write${a.leadMs ? ` (${num(a.leadMs, 1)}ms before it)` : ""}, ±1 frame`
   if (a.kind === "js") return `${msText(t.duration)} of inline style writes (the curve is in the script: Retake saw the values it wrote, not its easing)`
   const iters = iterCount(t)
@@ -420,6 +590,7 @@ function timingLine(a) {
 }
 
 function keyframeLines(a) {
+  if (a.spring) return springLines(a)
   const kf = a.keyframes || []
   if (!kf.length) return []
   if (a.kind === "js" && !a.motionKeyframes) {
@@ -636,6 +807,7 @@ function transitionStops(a) {
 
 /** The exact-edit block for an animation (CSS @keyframes, element.animate(), Motion, a CSS transition), or []. */
 export function editPlan(a) {
+  if (a.spring) return springPlan(a)
   if (a.kind === "css-transition" && !a.approx) {
     const stops = transitionStops(a)
     const kf = a.keyframes || []
@@ -697,6 +869,188 @@ export function editPlan(a) {
   return lines
 }
 
+// ---- a Motion spring in words ------------------------------------------------------------
+// a.spring (CONTRACT "Note"): key, from, to, values (every key it moves),
+// written (the transition as the component wrote it, null for Motion's
+// default), transition (what runs: written, or the default), source, and the
+// curve's numbers (springInfo). Everything here runs the curve again.
+
+const SPRING_FIELDS = ["type", "stiffness", "damping", "mass", "velocity", "bounce", "visualDuration", "duration", "restSpeed", "restDelta"]
+const springJs = (tr) => `{ ${SPRING_FIELDS.filter((k) => tr && tr[k] != null).map((k) => `${k}: ${typeof tr[k] === "string" ? JSON.stringify(tr[k]) : num(tr[k], 3)}`).join(", ")} }`
+const curveOf = (s, tr = s.transition) => springCurve(tr, s.from, s.to)
+const peakText = (s, p, i) => `peak ${i + 1} at ${msText(p.atMs)} (${s.key} ${num(p.value, 1)}, ${num(Math.abs(p.pct), 1)}% ${p.pct > 0 ? "past" : "short of"} ${num(s.to)})`
+const overshootText = (s, c) => (c.overshoot ? `overshoots ${num(c.overshoot.pct, 1)}% (${s.key} ${num(c.overshoot.value, 1)} at ${msText(c.overshoot.atMs)})` : "doesn't overshoot")
+const settleText = (c) => (Number.isFinite(c.settleMs) ? `settles at ${msText(c.settleMs)}` : `never settles (damping 0: it swings forever; Retake looked at ${SPRING_MAX_MS / 1000}s)`)
+
+function springLines(a) {
+  const s = a.spring
+  const c = curveOf(s)
+  const o = c.options
+  const physics = `stiffness ${num(o.stiffness, 1)}, damping ${num(o.damping, 1)}, mass ${num(o.mass, 2)}`
+  const lines = []
+  if (s.source === "default") lines.push(`  spring: Motion's default spring for ${s.key} (the transition sets nothing for it): ${springJs(s.transition)}, damping ratio ${num(o.dampingRatio, 3)}`)
+  else if (o.timeDefined) lines.push(`  spring: ${["visualDuration", "duration", "bounce"].filter((k) => s.written[k] != null).map((k) => `${k} ${num(s.written[k], 3)}`).join(", ")} (as written: ${springJs(s.written)}) → ${physics}, damping ratio ${num(o.dampingRatio, 3)}`)
+  else lines.push(`  spring: ${physics} (as written: ${springJs(s.written)}), damping ratio ${num(o.dampingRatio, 3)}`)
+  const swings = c.oscillations ? `, ${c.oscillations} swing${c.oscillations > 1 ? "s" : ""} past or short of ${num(s.to)}` : ""
+  lines.push(`  ${s.key} ${num(s.from)} → ${num(s.to)}: ${overshootText(s, c)}${swings}, ${settleText(c)} (Motion stops once |velocity| ≤ ${num(c.restSpeed)}/s and it is within ${num(c.restDelta, 3)} of ${num(s.to)})`)
+  const others = Object.entries(springKeys(s)).filter(([k]) => k !== s.key)
+  if (others.length) lines.push(`  also on this spring: ${others.map(([k, v]) => `${k} ${num(v.from)} → ${num(v.to)}`).join(", ")}`)
+  // The curve at its turns and in between, so its shape reads without a plot.
+  const end = Number.isFinite(c.settleMs) ? c.settleMs : SPRING_MAX_MS
+  const marks = new Map(c.peaks.slice(0, 6).map((p, i) => [p.atMs, `peak ${i + 1}`]))
+  const Ts = [...new Set([0, ...[0.25, 0.5].map((f) => Math.round((c.peaks[0] ? c.peaks[0].atMs : end) * f)), ...marks.keys(), Math.round(end)])].sort((x, y) => x - y)
+  lines.push(`  curve (local → ${s.key}): ${Ts.map((t) => `${msText(t)} ${num(c.at(t), 1)}${marks.has(t) ? ` (${marks.get(t)})` : t === Math.round(end) && Number.isFinite(c.settleMs) ? " (at rest)" : ""}`).join(", ")}`)
+  return lines
+}
+
+// Where a local time is on the curve: "on its way to peak 1 (…)", "after peak 2 (…), heading back to 300"…
+function springWhere(s, local) {
+  const c = curveOf(s)
+  if (local >= c.settleMs) return `at rest at ${num(s.to)} (settled at ${msText(c.settleMs)})`
+  const i = c.peaks.findIndex((p) => p.atMs > local)
+  if (i === 0) return `on its way to ${peakText(s, c.peaks[0], 0)}`
+  if (i < 0) return c.peaks.length ? `after its last peak (${msText(c.peaks[c.peaks.length - 1].atMs)}), settling at ${num(s.to)}` : `approaching ${num(s.to)} without overshooting`
+  return `after peak ${i} (${msText(c.peaks[i - 1].atMs)}, ${s.key} ${num(c.peaks[i - 1].value, 1)}), heading to ${peakText(s, c.peaks[i], i)}`
+}
+
+// The transition with its bounce set for about `goal` % overshoot: damping (physics) or bounce (time-defined).
+function springForOvershoot(s, goal) {
+  const tr = s.transition
+  const o = springOptions(tr)
+  const pct = (t) => {
+    const c = curveOf(s, t)
+    return c.overshoot ? c.overshoot.pct : 0
+  }
+  if (o.timeDefined) {
+    let lo = 0
+    let hi = 0.95
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2
+      if (pct({ ...tr, bounce: mid }) <= goal) lo = mid
+      else hi = mid
+    }
+    return { ...tr, bounce: Math.floor(lo * 100) / 100 }
+  }
+  const cc = 2 * Math.sqrt(o.stiffness * o.mass)
+  let lo = cc * 0.01
+  let hi = cc
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2
+    if (pct({ ...tr, damping: mid }) <= goal) hi = mid
+    else lo = mid
+  }
+  return { ...tr, damping: hi >= 10 ? Math.ceil(hi) : Math.ceil(hi * 10) / 10 }
+}
+// The same bounce, every time × f.
+function springScaled(s, f) {
+  const tr = s.transition
+  const o = springOptions(tr)
+  if (o.timeDefined) return tr.visualDuration ? { ...tr, visualDuration: round(Number(tr.visualDuration) * f, 2) } : { ...tr, duration: round((tr.duration != null ? Number(tr.duration) : 0.8) * f, 2) }
+  return { ...tr, stiffness: round(o.stiffness / (f * f), o.stiffness / (f * f) >= 10 ? 0 : 1), damping: round(o.damping / f, 1) }
+}
+// "damping 10 → 24 (stiffness 300 as it is)", or the whole transition to write for Motion's default.
+function springEdit(s, tr) {
+  if (s.source === "default") return `write the transition out: transition={{ ${s.key}: ${springJs(tr)} }} (Motion's default for ${s.key} is ${springJs(s.transition)})`
+  const changed = SPRING_FIELDS.filter((k) => tr[k] != null && tr[k] !== s.transition[k])
+  const kept = SPRING_FIELDS.filter((k) => k !== "type" && s.written[k] != null && !changed.includes(k))
+  return `${changed.map((k) => `${k} ${s.transition[k] != null ? num(s.transition[k], 3) : `(unset: ${num(springOptions(s.transition)[k], 1)})`} → ${num(tr[k], 3)}`).join(", ")}${kept.length ? ` (${kept.map((k) => `${k} ${num(s.written[k], 3)}`).join(", ")} as ${kept.length > 1 ? "they are" : "it is"})` : ""}`
+}
+const springResult = (s, tr) => {
+  const c0 = curveOf(s)
+  const c1 = curveOf(s, tr)
+  const ov = (c) => (c.overshoot ? `${num(c.overshoot.pct, 1)}% (${s.key} ${num(c.overshoot.value, 1)} at ${msText(c.overshoot.atMs)})` : "none")
+  return `overshoot ${ov(c0)} → ${ov(c1)}, ${Number.isFinite(c1.settleMs) ? `settles at ${msText(c1.settleMs)}` : "never settles"} instead of ${Number.isFinite(c0.settleMs) ? msText(c0.settleMs) : "never"}`
+}
+const keepEnd = (s) => `Keep animate's ${s.key} (${num(s.to)}): the end value stays.`
+
+/** An intent on a spring, with exact numbers. */
+function springIntentLine({ kind, word }, a, ranged) {
+  const s = a.spring
+  const q = `Intent: "${word}" on a spring:`
+  const c = curveOf(s)
+  const o = c.options
+  const now = c.overshoot ? c.overshoot.pct : 0
+  if (ranged && kind !== "less-bouncy" && kind !== "more-bouncy" && kind !== "earlier" && kind !== "later") return `${q} with a range: a spring's parameters change the whole curve, so for only the part between the marks convert it to keyframes (the exact edit below) and change those; if the whole spring was meant, see How.`
+  switch (kind) {
+    case "less-bouncy": {
+      if (now < 0.5) return `${q} it doesn't overshoot now (damping ratio ${num(o.dampingRatio, 2)}); what reads as bouncy may be how fast it arrives: make it slower (stiffness down, or visualDuration up).`
+      const tr = springForOvershoot(s, now / 4)
+      const none = o.timeDefined ? "bounce 0 is critically damped: no overshoot at all" : `damping ${num(Math.ceil(2 * Math.sqrt(o.stiffness * o.mass) * 10) / 10, 1)} (2√(stiffness × mass)) is critically damped: no overshoot at all`
+      return `${q} ${springEdit(s, tr)}: ${springResult(s, tr)}. ${none}. ${keepEnd(s)}`
+    }
+    case "more-bouncy": {
+      const tr = springForOvershoot(s, Math.min(Math.max(now * 1.75, now + 8), 70))
+      return `${q} ${springEdit(s, tr)}: ${springResult(s, tr)}. ${keepEnd(s)}`
+    }
+    case "faster":
+    case "shorter":
+    case "slower":
+    case "longer": {
+      const f = kind === "slower" || kind === "longer" ? 1.5 : 1 / 1.5
+      const tr = springScaled(s, f)
+      const how = o.timeDefined ? (s.transition.visualDuration ? "visualDuration" : "duration") : "stiffness ÷ f², damping ÷ f"
+      return `${q} ${springEdit(s, tr)} (${how}: the same bounce, every time × ${num(f, 2)}): ${springResult(s, tr)}. ${keepEnd(s)}`
+    }
+    case "hold":
+      return `${q} a spring can't hold partway: convert it to keyframes (the exact edit below) and put two keyframes with the same value at the note's point.`
+    default:
+      return null
+  }
+}
+
+function springHow(a) {
+  const s = a.spring
+  const o = curveOf(s).options
+  const knobs = o.timeDefined ? `${s.transition.visualDuration ? "visualDuration" : "duration"} (how long it takes) and bounce (how far it overshoots: 0 = none, higher = more)` : "stiffness (how fast: every time scales with 1/√stiffness) and damping (how much it bounces: more damping, less overshoot; 2√(stiffness × mass) = none) with mass"
+  return `How (Motion spring): the curve comes from the spring's parameters, not from times: ${knobs}. Change those in the transition${whereText(a.defined) ? ` at ${whereText(a.defined)}` : ""} for how it moves overall (Intent above has exact numbers); keep animate's ${s.key} (${num(s.to)}) so it still ends there. A precise range in ms needs keyframes: the exact edit below converts the spring to them. Check the overshoot, the swings and the settle time against the numbers above.`
+}
+
+// The spring as Motion keyframes on plain time (linear between points, within
+// restDelta of the curve), with the note's point or range edges as keyframes.
+export function springKeyframes(s, marks = []) {
+  const c = curveOf(s)
+  const end = Number.isFinite(c.settleMs) ? c.settleMs : SPRING_MAX_MS
+  const tol = Math.max(c.restDelta, Math.abs(s.to - s.from) * 0.005)
+  const fixed = [...new Set([0, end, ...c.peaks.map((p) => p.atMs), ...marks.map((m) => Math.min(Math.max(m.t, 0), end))].map((t) => round(t, 1)))].sort((x, y) => x - y)
+  const err = (a, b) => {
+    let worst = 0
+    for (let i = 1; i < 8; i++) worst = Math.max(worst, Math.abs(c.at(a + ((b - a) * i) / 8) - (c.at(a) + ((c.at(b) - c.at(a)) * i) / 8)))
+    return worst
+  }
+  const Ts = []
+  const split = (a, b, depth) => {
+    if (depth >= 7 || b - a <= 4 || err(a, b) <= tol) return
+    const m = round((a + b) / 2, 1)
+    split(a, m, depth + 1)
+    Ts.push(m)
+    split(m, b, depth + 1)
+  }
+  for (let i = 0; i < fixed.length; i++) {
+    Ts.push(fixed[i])
+    if (i < fixed.length - 1) split(fixed[i], fixed[i + 1], 0)
+  }
+  return Ts.map((t) => ({ t, offset: end ? round(t / end, 4) : 0, value: t >= end ? s.to : round(c.at(t), 2), mark: (marks.find((m) => Math.abs(Math.min(Math.max(m.t, 0), end) - t) < 0.06) || {}).mark || null }))
+}
+
+const SPRING_MARK = { from: "the range's start", to: "the range's end", at: "the note's point" }
+function springPlan(a) {
+  const s = a.spring
+  const marks = a.from && a.to ? [{ t: a.from.local, mark: "from" }, { t: a.to.local, mark: "to" }] : a.at && a.at.phase === "active" ? [{ t: a.at.local, mark: "at" }] : []
+  const stops = springKeyframes(s, marks)
+  const end = stops[stops.length - 1].t
+  const t = a.timing || {}
+  const keys = Object.entries(springKeys(s))
+  const what = a.from && a.to ? `between the marks, ${KEEP_MARKS}` : marks.length ? "at the marked keyframe (and as little around it as the request allows)" : "where the request says"
+  const lines = [`Exact edit (Motion spring → keyframes): only for a precise part of it (a range in ms, a hold); for how it moves overall change the spring (Intent / How). The same motion as now as keyframes on plain time with ease "linear" (within ${num(Math.max(curveOf(s).restDelta, Math.abs(s.to - s.from) * 0.005), 2)} of the spring at every point)${marks.length ? `, with the note's ${a.from && a.to ? "range edges" : "point"} as keyframes of their own` : ""}. It replaces the spring for ${keys.map(([k]) => k).join(" and ")} in the animate state that goes ${s.key} ${num(s.from)} → ${num(s.to)} (the other state keeps its own value and transition). Then change only what is ${what}:`]
+  const vals = (k, v) => (k === s.key ? stops.map((x) => num(x.value, 2)) : stops.map((x) => num(springCurve(s.transition, v.from, v.to).at(x.t), 2)))
+  lines.push(`  animate={{ ${keys.map(([k, v]) => `${k}: [${vals(k, v).join(", ")}]`).join(", ")} }}`)
+  const timing = `{ type: "keyframes", duration: ${num(end / 1000, 3)}, delay: ${num((Number(t.delay) || 0) / 1000, 3)}, times: [${stops.map((x) => num(x.offset, 4)).join(", ")}], ease: "linear" }`
+  lines.push(`  transition={{ ${keys.map(([k]) => `${k}: ${timing}`).join(", ")} }}   (other values' transitions as they are)`)
+  const marked = stops.map((x, i) => (x.mark ? `index ${i} = ${SPRING_MARK[x.mark]}, local ${msText(x.t)} (${s.key} ${num(x.value, 1)})` : null)).filter(Boolean)
+  if (marked.length) lines.push(`  marked: ${marked.join("; ")}`)
+  return lines
+}
+
 function motionHow(a, at, check) {
   const t = a.timing || {}
   const eased = !isLinear(t.easing)
@@ -709,6 +1063,7 @@ export function howTo(a) {
   const t = a.timing || {}
   const easedEffect = !isLinear(t.easing)
   const check = "Check the values at the range edges and one frame either side against the ones above."
+  if (a.spring) return springHow(a)
   const at = a.from && a.to ? `${num(a.from.progress * 100, 1)}% and ${num(a.to.progress * 100, 1)}%` : a.at && a.at.phase === "after" ? "100% (its end: the note is after it ended)" : a.at ? `${num(a.at.progress * 100, 1)}%` : "the point"
   switch (a.kind) {
     case "css-animation":
@@ -750,7 +1105,26 @@ function animLines(a, ctx, note) {
   if (a.gsap && a.gsap.tweens) for (const tw of a.gsap.tweens.slice(0, 6)) lines.push(`  gsap tween ${num(tw.start, 3)}s → ${num(tw.end, 3)}s ${tw.ease || ""} ${valuesText(tw.props)}`.trimEnd())
   if (a.scroll) lines.push(`  scroll: ${a.scroll.timeline || "scroll"} timeline${a.scroll.range ? `, range ${a.scroll.range}` : ""}${a.scroll.scrollY != null ? `, scrollY ${Math.round(a.scroll.scrollY)}` : ""}${a.scroll.progress != null ? `, progress ${pct(a.scroll.progress)}` : ""}`)
   const dur = Number(t.duration) || 0
-  if (a.from && a.to) {
+  if (a.spring && a.from && a.to) {
+    const s = a.spring
+    const c = curveOf(s)
+    const f = a.from
+    const to = a.to
+    lines.push(`Range: local ${msText(f.local)} → ${msText(to.local)} on the spring's curve: ${s.key} ${num(curveOf(s).at(f.local), 1)} → ${num(curveOf(s).at(to.local), 1)} (it ${settleText(c)}); recording ${clockText(f.T - start)} → ${clockText(to.T - start)}`)
+    const inside = c.peaks.map((p, i) => ({ p, i })).filter(({ p }) => p.atMs >= f.local && p.atMs <= to.local)
+    lines.push(`  ${inside.length ? `inside it: ${inside.map(({ p, i }) => peakText(s, p, i)).join("; ")}` : `no peak inside it: ${springWhere(s, f.local)}`}${to.local >= c.settleMs ? "; it reaches rest inside the range" : ""}`)
+    const g0 = (a.samples && a.samples[0] && a.samples[0].geometry) || f.geometry
+    lines.push("  " + pointLine(`at ${msText(f.local)}`, f, null))
+    for (const x of (a.samples || []).slice(1, -1)) lines.push("  " + pointLine(`at ${msText(x.local)}`, x, g0))
+    lines.push("  " + pointLine(`at ${msText(to.local)}`, to, g0))
+  } else if (a.spring && a.at) {
+    const p = a.at
+    const s = a.spring
+    const phase = p.phase === "delay" ? `in its delay, ${msText(-p.local)} before local 0` : `local ${msText(p.local)} of the spring (${settleText(curveOf(s))})`
+    lines.push(`At: ${phase}; recording ${clockText(p.T - start)}; ${s.key} ${num(curveOf(s).at(Math.max(p.local, 0)), 1)} on the spring: ${p.phase === "delay" ? `still at ${num(s.from)}` : springWhere(s, p.local)}`)
+    lines.push("  " + pointLine("values", p, null))
+    if (p.frame) lines.push(`  one frame before: ${valuesText(p.frame.before) || "?"}; one frame after: ${valuesText(p.frame.after) || "?"}`)
+  } else if (a.from && a.to) {
     const f = a.from
     const to = a.to
     const end = note && note.range && a.openEnd ? " (to the end)" : ""
@@ -785,6 +1159,8 @@ function animLines(a, ctx, note) {
 function scopeLine(note, a) {
   if (!a) return note.range ? `Scope: the user means recording ${clockText(note.range.from - 0)} → ${clockText(note.range.to - 0)} on this element.` : null
   const dur = Number((a.timing || {}).duration) || 0
+  if (a.spring && a.from && a.to) return `Scope: local ${Math.round(a.from.local)}–${Math.round(a.to.local)}ms of this spring. Its parameters shape the whole curve: change them when the request is about how it moves (Intent and How below); for only this part, convert it to keyframes (the exact edit below) and change those between the marks.`
+  if (a.spring && a.at && a.at.phase !== "after") return `Scope: the user means local ${msText(a.at.local)} of this spring (${a.spring.key} ${num(curveOf(a.spring).at(Math.max(a.at.local, 0)), 1)}). A spring's parameters shape the whole curve, so a request about how it moves (bouncy, slow, snappy) is a change to them (Intent and How below); keep where it ends unless asked.`
   if (a.from && a.to) return `Scope: change only local ${Math.round(a.from.local)}–${Math.round(a.to.local)}ms of this animation; keep the values at every other point and the total duration (${msText(dur)}).`
   if (a.at && a.at.phase === "after") return `Scope: the note is after this animation ended, so the user means where it ends (its last values above). Change the end values; keep the start and the timing unless asked.`
   if (a.at) return `Scope: the user means local ${msText(a.at.local)} (progress ${num(a.at.progress, 3)}) of this animation. Change it there and as little around it as the request allows; keep the start, the end and the total duration unless asked.`
@@ -798,6 +1174,8 @@ function scopeLine(note, a) {
 
 /** @type {[string, RegExp][]} */
 const INTENTS = [
+  ["more-bouncy", /\b(more bouncy|bouncier|more bounce|more springy|springier)\b/i],
+  ["less-bouncy", /\b(less bouncy|less bounce|less springy|too bouncy|too springy|bouncy|bounces?|bouncing|wobbl\w*|jiggl\w*|overshoots?|overshooting)\b/i],
   ["hold", /\b(hold(?:s|ing)?|linger|pause there|stay(?:s)? (?:there|longer)|freeze)\b/i],
   ["faster", /\b(faster|quicker|snappier|speed (?:it |this |them )?up|too slow)\b/i],
   ["slower", /\b(slower|slow (?:it |this |them )?down|too fast|more slowly)\b/i],
@@ -811,12 +1189,16 @@ export function intentsOf(text) {
   const out = []
   for (const [kind, re] of INTENTS) {
     const m = re.exec(String(text || ""))
-    if (!m || (kind === "longer" && out.some((x) => x.kind === "hold"))) continue
+    if (!m || (kind === "longer" && out.some((x) => x.kind === "hold")) || (kind === "less-bouncy" && out.some((x) => x.kind === "more-bouncy"))) continue
     out.push({ kind, word: m[0].toLowerCase() })
   }
   return out.slice(0, 2)
 }
 function intentLine({ kind, word }, a, ranged) {
+  if (a && a.spring) {
+    const line = springIntentLine({ kind, word }, a, ranged)
+    if (line) return line
+  }
   const t = (a && a.timing) || {}
   const its = a ? `its duration (${msText(t.duration)} now)` : "each one's duration"
   const q = `Intent: "${word}"`
@@ -834,6 +1216,10 @@ function intentLine({ kind, word }, a, ranged) {
     case "earlier":
     case "later":
       return `${q} reads as a change to when it starts: ${kind === "earlier" ? "shorten" : "lengthen"} ${a ? `the delay (${msText(t.delay)} now)` : "each one's delay"} or start it from ${kind === "earlier" ? "an earlier" : "a later"} trigger${a && a.trigger && a.trigger.what ? ` (now ${a.trigger.what})` : ""}; keep its keyframes and duration.`
+    case "less-bouncy":
+      return `${q} reads as less overshoot: bring the keyframes that go past the end value (or a back / elastic ease) toward it; keep the start, the end and the timing.`
+    case "more-bouncy":
+      return `${q} reads as more overshoot: add a keyframe past the end value before it settles (or use a back ease); keep the start, the end and the timing.`
     case "hold":
       return `${q} = a plateau: two stops with the same value at the note's point (the exact edit marks it). The hold takes time from the parts after it unless the duration grows (then recompute every %).`
     default:
@@ -919,7 +1305,7 @@ export function animationBlock(note, ctx = {}) {
     if (!group) lines.push(...intentLines(note, p, !!(p.from && p.to)))
     lines.push(howTo({ ...p, matches: note.target && note.target.matches }))
     const plan = editPlan(p.relation === "on" && note.target && note.target.selector ? { ...p, selector: note.target.selector } : p)
-    if (plan.length) lines.push(EDIT_USE, ...plan)
+    if (plan.length) lines.push(...(p.spring ? [] : [EDIT_USE]), ...plan)
     const rest = anims.filter((x) => x !== p).sort((x, y) => (isInstant(x) ? 1 : 0) - (isInstant(y) ? 1 : 0))
     const stated = note.state && note.state.effects && note.state.effects.length > 1 ? new Set(note.state.effects.map((e) => e.id)) : new Set()
     for (const a of rest) lines.push("", ...(isInstant(a) ? [instantLine(a)] : animLines(a, ctx, note).filter((l) => !(stated.has(a.id) && l.startsWith("  started by "))).map((l, i) => (i === 0 ? l.replace(/^Animation:/, "Also running:") : l))))
@@ -1060,6 +1446,13 @@ export function animationReport(a, Ts, ctx = {}) {
   }
   for (const T of Ts) {
     const p = pointOf(a, T)
+    if (a.spring) {
+      const s = a.spring
+      const c = curveOf(s)
+      lines.push("", `Recording ${clockText(T - start)}: ${p.phase === "delay" ? `in the delay (${msText(-p.local)} before local 0), ${s.key} ${num(s.from)}` : `local ${msText(p.local)}, ${s.key} ${num(c.at(p.local), 1)} on the spring: ${springWhere(s, p.local)}`}`)
+      if (p.phase !== "delay" && Number.isFinite(c.settleMs)) lines.push(`  in the keyframes conversion (the note's exact edit): times ${num(Math.min(p.local / c.settleMs, 1), 4)} of ${msText(c.settleMs)}`)
+      continue
+    }
     const sampled = (ctx.sampled || []).find((s) => s && Math.abs(s.T - T) < FRAME)
     lines.push("", `Recording ${clockText(T - start)}: ${p.phase === "delay" ? `in the delay (${msText(-p.local)} before local 0)` : p.phase === "after" ? "after the end" : `local ${msText(p.local)}`}, progress ${num(p.progress, 4)}, eased ${num(p.eased, 4)}${p.segment ? `, ${segText(p.segment)} at ${pct(p.segment.progress)}` : ""}`)
     const eased = !isLinear((a.timing || {}).easing)

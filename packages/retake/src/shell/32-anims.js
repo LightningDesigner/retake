@@ -287,12 +287,112 @@ function motionModel(clip, el) {
   return m
 }
 
+// Motion springs: no keyframes in time; the curve comes from the transition
+// (NT.springCurve runs Motion's own spring). A value's transition is
+// transition[key] ?? transition.default ?? transition (inherit: true merges
+// in the root), and with nothing defined for it (only orchestration keys like
+// delay) Motion picks a spring for x / y / rotate / scale... itself. The
+// curve must end when the recording's writes did, or it isn't this spring.
+const TRANSFORM_KEY = /^(x|y|z|rotate[XYZ]?|scale[XYZ]?|skew[XY]?|translate[XYZ]|perspective|transformPerspective)$/
+const ORCHESTRATION = new Set(["when", "delay", "delayChildren", "staggerChildren", "staggerDirection", "repeat", "repeatType", "repeatDelay", "from", "elapsed"])
+const SPRING_WRITTEN = ["type", "stiffness", "damping", "mass", "velocity", "bounce", "visualDuration", "duration", "restSpeed", "restDelta"]
+const defaultSpring = (key, to) => (/^scale/.test(key) ? { type: "spring", stiffness: 550, damping: to === 0 ? 2 * Math.sqrt(550) : 30, restSpeed: 10 } : { type: "spring", stiffness: 500, damping: 25, restSpeed: 10 })
+function valueTransition(tr, key) {
+  if (!tr || typeof tr !== "object") return {}
+  const v = tr[key] ?? tr.default ?? tr
+  if (v !== tr && v && typeof v === "object" && v.inherit) {
+    const { inherit, ...rest } = v
+    return { ...tr, ...rest }
+  }
+  return v && typeof v === "object" ? v : {}
+}
+function springModel(clip, el) {
+  if (clip.kind !== "js" || !el) return null
+  let p = null
+  try {
+    for (let f = fiberOf(el), i = 0; f && i < 4 && !p; f = f.return, i++) {
+      const q = f.memoizedProps || {}
+      if (q.animate && typeof q.animate === "object" && !Array.isArray(q.animate)) p = q
+    }
+  } catch {}
+  if (!p) return null
+  const moved = String(clip.property || "")
+  const root = p.transition && typeof p.transition === "object" ? p.transition : undefined
+  const found = []
+  for (const key of Object.keys(p.animate)) {
+    if (!(TRANSFORM_KEY.test(key) ? /transform/.test(moved) : key === "opacity" && /opacity/.test(moved))) continue
+    const v = p.animate[key]
+    const pair = Array.isArray(v) ? v : [null, v]
+    const to = parseFloat(pair[1])
+    if (pair.length !== 2 || !Number.isFinite(to)) continue
+    const vt = valueTransition(root, key)
+    let tr = null
+    let source = "transition"
+    if (vt.type === "spring") tr = Object.fromEntries(SPRING_WRITTEN.filter((k) => vt[k] != null && (k === "type" || Number.isFinite(Number(vt[k])))).map((k) => [k, k === "type" ? "spring" : Number(vt[k])]))
+    else if (TRANSFORM_KEY.test(key) && !Object.keys(vt).some((k) => !ORCHESTRATION.has(k))) {
+      tr = defaultSpring(key, to)
+      source = "default"
+    }
+    if (!tr) continue
+    // From: the first keyframe if it's written, else the value before the clip's first write.
+    const from = pair[0] != null ? parseFloat(pair[0]) : motionValueOf(key, clip.from) ?? (/^(scale|opacity)/.test(key) ? 1 : 0)
+    if (!Number.isFinite(from) || from === to) continue
+    found.push({ key, from, to, tr, source, delay: Number(vt.delay || (root && root.delay)) || 0 })
+  }
+  if (!found.length) return null
+  const main = found[0]
+  const same = found.filter((x) => JSON.stringify(x.tr) === JSON.stringify(main.tr) && x.delay === main.delay)
+  const curve = NT.springCurve(main.tr, main.from, main.to)
+  // Where local 0 is: the first recorded write's value, found on the curve's first frames.
+  const v1 = motionValueOf(main.key, clip.first)
+  const dir = Math.sign(main.to - main.from)
+  let lead = 0
+  if (v1 != null && (curve.at(3 * FRAME_MS) - v1) * dir >= 0) {
+    let lo = 0
+    let hi = 3 * FRAME_MS
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2
+      if ((curve.at(mid) - v1) * dir < 0) lo = mid
+      else hi = mid
+    }
+    lead = (lo + hi) / 2
+  }
+  const settle = Number.isFinite(curve.settleMs) ? curve.settleMs : clip.end != null ? clip.end - clip.start + lead : 0
+  if (clip.end != null && Number.isFinite(curve.settleMs) && Math.abs(settle - (clip.end - clip.start + lead)) > Math.max(3 * FRAME_MS, 0.25 * settle)) return null
+  const delay = main.delay * 1000
+  const activeStart = clip.start - lead
+  const base = NT.animFromClip(clip)
+  const ends = (side) => Object.fromEntries(same.map((x) => [x.key, String(x[side])]))
+  return {
+    ...base,
+    lib: "motion",
+    name: `${same.map((x) => x.key).join(", ")} spring`,
+    timing: { delay, duration: settle, endDelay: 0, iterations: 1, direction: "normal", fill: "both", easing: "linear", playbackRate: 1, start: activeStart - delay, activeStart, end: clip.end == null ? null : clip.end },
+    keyframes: [
+      { offset: 0, easing: "linear", values: ends("from") },
+      { offset: 1, easing: "linear", values: ends("to") },
+    ],
+    spring: {
+      key: main.key,
+      from: main.from,
+      to: main.to,
+      values: Object.fromEntries(same.map((x) => [x.key, { from: x.from, to: x.to }])),
+      written: main.source === "default" ? null : main.tr,
+      transition: main.tr,
+      source: main.source,
+      ...NT.springInfo(main.tr, main.from, main.to),
+    },
+    leadMs: Math.round(lead * 10) / 10,
+    approx: false,
+  }
+}
+
 function modelOf(clip, target) {
   const key = `${D.activeId}:${clip.id}`
   const have = animModels.get(key)
   if (have && !have.approx) return have
   let m = null
-  if (clip.kind === "js") m = motionModel(clip, target)
+  if (clip.kind === "js") m = springModel(clip, target) || motionModel(clip, target)
   if (m) {
     animModels.set(key, m)
     libOfElement(m, target)
@@ -479,7 +579,7 @@ function sampleModel(model, el, target, pseudo, Ts) {
     for (const T of Ts) {
       if (performance.now() - t0 > SAMPLE_BUDGET_MS) break
       // Motion keyframes read off its props: the values come from them; the box only at the moment on show.
-      if (model.motionKeyframes) {
+      if (model.motionKeyframes || model.spring) {
         const p = NT.pointOf(model, T)
         out.push({ T: r1(T), local: p.local, progress: p.progress, values: NT.valuesAt(model, T), geometry: shownAt != null && Math.abs(T - shownAt) <= 1 ? geometryOf(el) : null })
         continue
@@ -509,7 +609,7 @@ function sampleModel(model, el, target, pseudo, Ts) {
 function fullPoint(model, el, target, pseudo, T) {
   const p = NT.pointOf(model, T)
   const s = sampleModel(model, el, target, pseudo, [T - FRAME_MS, T, T + FRAME_MS])
-  if (s.length === 3 && model.motionKeyframes) {
+  if (s.length === 3 && (model.motionKeyframes || model.spring)) {
     p.values = s[1].values
     p.frame = { before: s[0].values, after: s[2].values }
     p.geometry = s[1].geometry || (D.last && Math.abs(shownTime(D.last) - T) <= 1 ? geometryOf(el) : null)

@@ -158,6 +158,7 @@ checkout waits 250 ms and fetches the frame's page once) live on `globalThis` fo
            shared?:[{id,selector}],                                   // the same @keyframes on other elements
            motionProps?:{component,props:{initial,animate,transition,...}},   // a Motion element's props, as JSON text
            motionKeyframes?:true, leadMs?,                            // js clip of Motion keyframes: keyframes/timing read off its animate + transition props
+           spring?:{key,from,to,written,source,stiffness,damping,mass,dampingRatio,restSpeed,restDelta,settleMs,overshoot:{value,pct,atMs},oscillations,peaks:[{atMs,value,pct}]},   // a Motion spring: parameters as written + the simulated curve
                                                                       // (values in Motion's units: x 120; one easing per segment, effect easing linear); leadMs = local time of its first write
            at?:Point, from?:Point, to?:Point, openEnd?, keyframesInside?:[offset], samples?:[{T,local,progress,values,geometry}],
            runs?:[{id,start,end}],                                    // the same animation started again on this element (≤ 60), one entry for all

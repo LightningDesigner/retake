@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.5
+
+- Motion springs are described as springs. A note on an element moved by a
+  spring (`type: "spring"` with stiffness / damping / mass, visualDuration or
+  duration + bounce, or Motion's default spring for x, y, scale and rotate)
+  carries the spring as written, where it starts and ends, and the curve Motion
+  ran: how far it overshoots and when, how many times it swings, when it
+  settles, and the value at the note's moment. "Less bouncy", "slower" and
+  "faster" come with exact numbers (the damping or bounce that takes most of
+  the overshoot away, the stiffness or visualDuration for the new speed), and
+  a range on a spring is mapped onto its curve, with the spring converted to
+  keyframes for changing only that part. `get_animation` explains it the same way.
+- Picking again while writing a note (a second click on the page) kept the
+  note open but emptied it. What was typed now stays.
+
 ## 0.5.4
 
 - Enter on a picked element whose animation was still in its delay opened it

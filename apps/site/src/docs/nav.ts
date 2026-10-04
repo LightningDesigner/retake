@@ -30,16 +30,16 @@ export const GROUPS: Array<{ name: string; pages: DocPage[] }> = [
   {
     name: "Use",
     pages: [
-      page("features", "Features", "Features", "The timeline, scrubbing and previews, rebuilt moments, takes, notes, Start fresh and every keyboard shortcut in the dock."),
+      page("features", "Features", "Features", "The timeline, scrubbing and rebuilt moments, timelines with their own code, notes on elements, animations and groups, and every keyboard shortcut in the dock."),
       page("output", "Output", "Output", "What a note gives your coding agent: the Copy for agent prompt and the MCP get_note text, field by field, with real examples."),
-      page("mcp", "MCP", "MCP server", "Connect Retake's notes to Claude Code, Cursor, Codex or any MCP client, and the seven tools it exposes."),
-      page("api", "API", "API reference", "CLI flags, Vite plugin options, the session HTTP API under /__retake/, and the window.__retake runtime API."),
+      page("mcp", "MCP", "MCP server", "Connect Retake's notes to Claude Code, Cursor, Codex or any MCP client, and the twelve tools it exposes, with real output."),
+      page("api", "API", "API reference", "CLI flags, retake code, Vite plugin options, the session HTTP API under /__retake/, and the window.__retake runtime API."),
     ],
   },
   {
     name: "More",
     pages: [
-      page("faq", "FAQ", "FAQ", "Production builds, browsers, what isn't rewound, where data lives, the license, Safari, and signing in."),
+      page("faq", "FAQ", "FAQ", "Production builds, rewriting files, what notes don't understand yet, browsers, what isn't rewound, where data lives, signing in and the license."),
       page("changelog", "Changelog", "Changelog", "What changed in each release of retake-dev."),
     ],
   },

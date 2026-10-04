@@ -15,7 +15,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { spawn } from "node:child_process"
+import { spawn, execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { chromium } from "@playwright/test"
 import { createServer } from "vite"
@@ -278,6 +278,44 @@ createRoot(document.getElementById("root")).render(<App />)
       return out
     },
   },
+  e8: {
+    title: "Motion spring (the motion package): less bouncy",
+    files: page(`<div id="root"></div>`, { css: `.dot { width: 44px; height: 44px; border-radius: 50%; background: #0891b2; margin-top: 60px; }\n`, js: "main.jsx" }),
+    jsName: "main.jsx",
+    js: `import { useState } from "react"
+import { createRoot } from "react-dom/client"
+import { motion } from "motion/react"
+
+function App() {
+  const [go, setGo] = useState(false)
+  return (
+    <div>
+      <button id="go" onClick={() => setGo(true)}>Go</button>
+      <motion.div className="dot" animate={{ x: go ? 240 : 0 }} transition={{ type: "spring", stiffness: 260, damping: 8 }} />
+    </div>
+  )
+}
+
+createRoot(document.getElementById("root")).render(<App />)
+`,
+    // Its own install of the real package (not the repo's framer-motion).
+    deps: { motion: "14.0.0", react: "19.2.0", "react-dom": "19.2.0" },
+    target: ".dot",
+    delay: 0,
+    note: { kind: "point", local: 150 },
+    text: "less bouncy",
+    samples: Array.from({ length: 51 }, (_, i) => i * 30),
+    check(b, a) {
+      const over = (s) => Math.max(...s.map((x) => x.tx)) - 240
+      const out = [
+        { L: 0, what: "starts where it did", ok: near(a[0].tx, b[0].tx, 1) },
+        { L: 1500, what: "ends at the same x (240)", ok: near(a[a.length - 1].tx, 240, 0.5) && near(b[b.length - 1].tx, 240, 0.5) },
+        { L: -1, what: `overshoot at most half: ${over(b).toFixed(1)}px → ${over(a).toFixed(1)}px`, ok: over(a) <= over(b) / 2 },
+      ]
+      for (let i = 0; i < b.length; i++) out.push({ L: b[i].local, what: "y same", ok: near(a[i].ty, b[i].ty, 0.5) })
+      return out
+    },
+  },
 }
 
 function setup(fresh) {
@@ -291,6 +329,10 @@ function setup(fresh) {
     fs.writeFileSync(path.join(dir, e.jsName || "main.js"), e.js)
     // React and framer-motion come from the package's own devDependencies.
     if (e.motion) fs.symlinkSync(path.join(PKG, "node_modules"), path.join(dir, "node_modules"))
+    if (e.deps) {
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: `anim-eval-${id}`, private: true, type: "module", dependencies: e.deps }, null, 2))
+      execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: dir, stdio: "inherit" })
+    }
     console.log("wrote", dir)
   }
 }

@@ -199,6 +199,8 @@ test("⌥T while typing a note types, it doesn't fold the dock or drop the draft
   await page.mouse.click(b.x + b.w / 2, b.y + b.h / 2)
   const ta = page.locator("#wb-note textarea")
   await expect(ta).toBeVisible()
+  // The composer focuses its field a task after it opens: type once it has the focus.
+  await expect(ta).toBeFocused()
   await ta.fill("Make the dagger ")
   await ta.press("Alt+KeyT")
   await expect(page.locator(SHOW)).toBeHidden()
@@ -209,6 +211,22 @@ test("⌥T while typing a note types, it doesn't fold the dock or drop the draft
   await page.locator(".track").click()
   await page.keyboard.press("Alt+KeyT")
   await expect(page.locator(SHOW)).toBeVisible()
+  expect(h.dockErrors).toEqual([])
+})
+
+test("picking again while a note is being written keeps what was typed (F149)", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL)
+  await recordSome(h, ["#toggle"])
+  await h.pause()
+  await page.locator('[data-tool="comment"]').click()
+  const b = await h.box("#card")
+  await page.mouse.click(b.x + b.w / 2, b.y + b.h / 2)
+  const ta = page.locator("#wb-note textarea")
+  await expect(ta).toBeFocused()
+  await ta.fill("Keep these words")
+  await page.mouse.click(b.x + b.w / 2 + 4, b.y + b.h / 2)
+  await expect(ta).toBeVisible()
+  await expect(ta).toHaveValue("Keep these words")
   expect(h.dockErrors).toEqual([])
 })
 

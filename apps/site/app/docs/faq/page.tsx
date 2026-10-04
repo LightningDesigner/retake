@@ -7,6 +7,8 @@ export const metadata: Metadata = docMetadata("faq")
 
 const toc = [
   { id: "production", label: "Does it ship to production?" },
+  { id: "rewrite", label: "Does it rewrite my files?" },
+  { id: "not-understood", label: "What doesn't it understand yet?" },
   { id: "browsers", label: "Which browsers?" },
   { id: "safari", label: "Does it work in Safari?" },
   { id: "not-rewound", label: "What isn't rewound?" },
@@ -24,8 +26,35 @@ export default function Faq() {
         <H2 id="production">Does it ship to production?</H2>
         <p>
           No. The Vite plugin only runs in <C>vite dev</C>; <C>vite build</C> output has no Retake code in it. The CLI and the front server are dev tools you start by hand,
-          and they don&apos;t change your project&apos;s files (except separate code per take, which does when you switch takes, on purpose). Uninstall it and nothing is left but the <C>.retake/</C> folder.
+          and they don&apos;t change your project&apos;s files unless you choose <Link href="#rewrite">separate code</Link>. Uninstall it and nothing is left but the <C>.retake/</C> folder.
         </p>
+      </div>
+      <div className="d-faq">
+        <H2 id="rewrite">Does it rewrite my files?</H2>
+        <p>
+          Only with <b>Separate code</b> on (<Link href="/docs/features#code">timelines keep their own code</Link>). Then switching to a timeline puts its code on disk, so your files change
+          under you. With <b>Share code</b>, or before you answer the dock&apos;s question, Retake only takes snapshots into <C>.retake/</C> and never writes your files.
+        </p>
+        <p>How it&apos;s kept safe:</p>
+        <ul>
+          <li>Every version is a snapshot in <C>.retake/</C>, and checkouts are journaled: a swap cut short is undone at the next start (the half-switched files are kept as a version too).</li>
+          <li>When Retake stops, the newest code goes back on disk. After a crash it&apos;s put back at the next start. <C>retake code restore</C> does it by hand.</li>
+          <li>Git&apos;s HEAD, index and refs are never touched. No checkout runs while git is busy, and a branch switch pauses swapping until you resume it.</li>
+          <li><C>node_modules</C>, framework output (<C>.next</C>, <C>.svelte-kit</C>, <C>.nuxt</C>, <C>next-env.d.ts</C>) and paths in <C>.retake/ignore</C> are never swapped.</li>
+          <li>While files switch, the dev server&apos;s hot updates are held, so the app never reloads on a half-written tree.</li>
+        </ul>
+      </div>
+      <div className="d-faq">
+        <H2 id="not-understood">What doesn&apos;t it understand yet?</H2>
+        <Table
+          className="wrap-first"
+          head={["Not yet", "What a note gives instead"]}
+          rows={[
+            ["Canvas and WebGL drawings", "Retake sees the canvas element, not what's drawn in it. The note points at the canvas and the moment; your agent edits the per-frame code"],
+            ["Spring physics outside Motion", "React Spring and GSAP physics replay correctly, but only Motion springs are read as springs. For others the note gives the element, the moment and the values on screen"],
+            ["A press with no transition", <>A <C>:active</C> style that changes at once leaves no animation to record, so the note can&apos;t say how the press moved. Presses with a transition are listed</>],
+          ]}
+        />
       </div>
       <div className="d-faq">
         <H2 id="browsers">Which browsers?</H2>
@@ -61,16 +90,17 @@ export default function Faq() {
         <Table
           head={["Path", "What"]}
           rows={[
-            [<C key="c">session.json</C>, "Takes, bookmarks and notes"],
-            [<C key="c">recordings/</C>, "One gzipped recording per take: your inputs and what your API answered"],
+            [<C key="c">session.json</C>, "Timelines, bookmarks and notes"],
+            [<C key="c">recordings/</C>, "One gzipped recording per timeline: your inputs and what your API answered"],
             [<C key="c">docs/</C>, "Front server: the frame's pages as they came, so a rebuild gets the HTML it was recorded with (the last 200)"],
-            [<C key="c">versions/</C>, "Code snapshots: each take's code (code-timelines.json says which is whose)"],
+            [<C key="c">versions/</C>, <>Code snapshots, one per version of your code (<C>blobs/</C> holds the files; <C>code-timelines.json</C> says which is whose timeline&apos;s)</>],
+            [<C key="c">settings.json</C>, "Your answer to Separate code or Share code"],
             [<C key="c">server.json</C>, "The running server's URL and token, for the MCP server. Removed when it stops"],
             [<C key="c">front.log</C>, <>With <C>--verbose</C>: every request the front server handled</>],
           ]}
         />
         <p>
-          Recordings hold what you typed and what your API answered, so treat <C>.retake/</C> like any local data. <b>Start fresh</b> in the dock clears the takes, notes and recordings; <C>rm -rf .retake</C> clears everything.
+          Recordings hold what you typed and what your API answered, so treat <C>.retake/</C> like any local data. <b>Start fresh</b> in the dock clears the timelines, notes and recordings; <C>rm -rf .retake</C> clears everything.
           <C> --root</C> puts it somewhere else.
         </p>
       </div>
@@ -92,7 +122,7 @@ export default function Faq() {
       <div className="d-faq">
         <H2 id="react">Do I need React?</H2>
         <p>
-          No. Recording, going back and takes work with any framework or none. Notes name the React component and source line when the app is React in development mode;
+          No. Recording, going back and timelines work with any framework or none. Notes name the React component and source line when the app is React in development mode;
           on anything else they still carry the selector, classes, computed styles, size and moment.
         </p>
       </div>

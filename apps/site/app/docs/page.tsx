@@ -41,7 +41,7 @@ export default function Overview() {
     >
       <p>
         It runs in front of your dev server: a Vite app, Next.js, React Router, Remix, Astro, SvelteKit, Nuxt, or anything else that serves HTML.
-        The timeline docks at the bottom of the page. Your files aren&apos;t touched and nothing ships in a production build.
+        The timeline docks at the bottom of the page. Nothing ships in a production build, and your files aren&apos;t touched unless you give each timeline <Link href="/docs/features#code">its own code</Link>.
       </p>
 
       <H2 id="start">30-second start</H2>
@@ -82,7 +82,7 @@ export default function Overview() {
       <H2 id="next">Where next</H2>
       <div className="d-cards">
         <Link className="d-card" href="/docs/install"><b>Install</b><span>Every framework&apos;s command, the Vite plugin, uninstalling.</span></Link>
-        <Link className="d-card" href="/docs/features"><b>Features</b><span>Timelines, notes, Start fresh and the keyboard shortcuts.</span></Link>
+        <Link className="d-card" href="/docs/features"><b>Features</b><span>Timelines and their code, notes on animations, the keyboard shortcuts.</span></Link>
         <Link className="d-card" href="/docs/mcp"><b>MCP</b><span>Hand notes to your coding agent and let it answer them.</span></Link>
       </div>
     </DocArticle>
