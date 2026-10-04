@@ -61,7 +61,7 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     expect(init.result.protocolVersion).toBe("2025-06-18")
     m.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n")
     const names = (await m.rpc("tools/list", {})).result.tools.map((t) => t.name)
-    expect(names).toEqual(["list_notes", "get_note", "get_moment", "get_animation", "get_timeline_events", "get_active_timeline", "acknowledge", "resolve", "reply", "watch_notes"])
+    expect(names).toEqual(["list_notes", "get_note", "get_moment", "get_animation", "get_timeline_events", "get_active_timeline", "acknowledge", "resolve", "reply", "checkout_timeline", "get_code_diff", "watch_notes"])
     expect(init.result.instructions).toContain("CSS @keyframes: add stops at the range edges")
 
     const list = await m.tool("list_notes")
@@ -78,7 +78,8 @@ test("initialize, list tools, and work a note end to end", async ({ request }) =
     expect(note.text).toContain('get_moment with id "n1"')
 
     const active = await m.tool("get_active_timeline")
-    expect(active.json.active).toMatchObject({ name: "Timeline 2", parent: "Timeline 1", codeVersion: "abc1234567" })
+    // (the server says which code each timeline has: a session save's codeVersion is ignored)
+    expect(active.json.active).toMatchObject({ name: "Timeline 2", parent: "Timeline 1", codeVersion: expect.stringMatching(/^[0-9a-f]{10}$/) })
     expect(active.json.openNotes.map((n) => n.id)).toEqual(["n1"])
 
     expect((await m.tool("acknowledge", { id: "n1", message: "on it" })).isError).toBe(false)
@@ -347,6 +348,74 @@ test("element-centric note: get_note, get_moment and get_animation tell the same
     const list = await m.tool("list_notes")
     const m2 = list.json.notes.find((n) => n.id === "m2")
     expect(m2).toMatchObject({ range: "00:09.70 → 00:09.90", animation: "fade-in 200–400ms (17–33%)" })
+  } finally {
+    m.close()
+  }
+  await request.put(base + "/__retake/session", { data: { branches: [], activeId: null, markers: [], notes: [] }, headers })
+})
+
+// A group note (every animation inside a container) and an older note whose
+// flagged primary is an instant (0ms) clip: get_note, get_animation and
+// list_notes speak about the motion, not the instant ones.
+function loopAnim(id, sel, delay) {
+  const a = {
+    id, relation: "on", kind: "css-animation", name: "eq", selector: sel, defined: { file: "src/eq.css", line: 4, what: "@keyframes eq" },
+    timing: { delay, duration: 900, iterations: "infinite", direction: "normal", fill: "none", easing: "linear", playbackRate: 1, start: 1000, activeStart: 1000 + delay, end: null },
+    keyframes: [
+      { offset: 0, easing: "ease-in-out", values: { transform: "scaleY(0.2)" } },
+      { offset: 0.5, easing: "ease-in-out", values: { transform: "scaleY(1)" } },
+      { offset: 1, easing: "linear", values: { transform: "scaleY(0.4)" } },
+    ],
+  }
+  a.at = { ...pointOf(a, 2000), values: { transform: "matrix(1, 0, 0, 0.6, 0, 0)" } }
+  return a
+}
+const instant = (id, start) => ({ id, relation: "on", kind: "waapi", name: "translate", selector: "#disc", timing: { delay: 0, duration: 0, iterations: 1, direction: "normal", fill: "none", easing: "linear", playbackRate: 1, start, activeStart: start, end: start }, keyframes: [{ offset: 0, easing: "linear", values: { translate: "0px 0px" } }, { offset: 1, easing: "linear", values: { translate: "0px 1px" } }] })
+
+test("group note and instant clips: get_note, get_animation and list_notes", async ({ request }) => {
+  const token = await seedRecording(request)
+  const headers = { "x-retake-token": token }
+  const group = {
+    id: "g1", branchId: 1, t: 2000, range: null, selector: "div.eq", text: "make them bounce higher", status: "pending", replies: [],
+    el: { label: "<div.eq>", selector: "div.eq", components: [], page: "/" }, anims: [], inside: [],
+    group: { selector: "div.eq", label: "<div.eq>", members: [{ selector: "span.bar:nth-of-type(1)", label: "<span.bar>", anim: loopAnim("c11", "span.bar:nth-of-type(1)", 0) }, { selector: "span.bar:nth-of-type(2)", label: "<span.bar>", anim: loopAnim("c12", "span.bar:nth-of-type(2)", 150) }] },
+  }
+  const spin = { id: "c20", relation: "on", kind: "css-animation", name: "spin", selector: "#disc", timing: { delay: 0, duration: 4000, iterations: "infinite", direction: "normal", fill: "none", easing: "linear", playbackRate: 1, start: 500, activeStart: 500, end: null }, keyframes: [{ offset: 0, easing: "linear", values: { transform: "none" } }, { offset: 1, easing: "linear", values: { transform: "rotate(360deg)" } }] }
+  spin.at = { ...pointOf(spin, 2000), values: { transform: "matrix(0.8, 0.59, -0.59, 0.8, 0, 0)" } }
+  const old = {
+    id: "o1", branchId: 1, t: 2000, range: null, selector: "#disc", text: "make it faster", status: "pending", replies: [],
+    el: { label: "<div#disc>", selector: "#disc", components: [], page: "/" }, inside: [],
+    anims: [{ ...instant("c30", 2000), primary: true, at: pointOf(instant("c30", 2000), 2000) }, { ...instant("c31", 2000), at: pointOf(instant("c31", 2000), 2000) }, { ...instant("c32", 2000), at: pointOf(instant("c32", 2000), 2000) }, spin],
+  }
+  const session = await (await request.get(base + "/__retake/session")).json()
+  await request.put(base + "/__retake/session", { headers, data: { ...session, notes: [...session.notes, group, old] } })
+  const m = mcp(["--url", base])
+  try {
+    await m.rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {} })
+    const g = await m.tool("get_note", { id: "g1" })
+    expect(g.text).toContain("Group: 2 animated elements inside <div.eq> (one note for all of them)")
+    expect(g.text).toContain("Shared: @keyframes eq runs on 2 of them (1, 2), each with its own delay (0ms, 150ms), defined at src/eq.css:4.")
+    expect(g.text).toMatch(/### 2\. <span\.bar> \(span\.bar:nth-of-type\(2\)\)/)
+    expect((g.text.match(/^Exact edit(:| \()/gm) || []).length).toBe(2)
+    expect(g.text).not.toContain("Also inside the element")
+    const ga = await m.tool("get_animation", { id: "g1" })
+    expect(ga.text).toContain("Group note g1: 2 animations inside <div.eq>")
+    expect(ga.text).toMatch(/### 2\. span\.bar:nth-of-type\(2\) \(clip c12\)/)
+    const one = await m.tool("get_animation", { id: "g1", clip: "c12" })
+    expect(one.text).toContain("@keyframes eq on this element (clip c12)")
+    const mo = await m.tool("get_moment", { id: "g1" })
+    expect(mo.text).toContain("Group: 2 animated elements inside <div.eq>")
+
+    const o = await m.tool("get_note", { id: "o1" })
+    expect(o.text).toContain("Animation: @keyframes spin on this element (clip c20)")
+    expect(o.text).toContain("Also running: element.animate() on this element ×3 (instant: 0ms each")
+    expect(o.text).toContain('Intent: "faster" reads as a change to the whole animation\'s timing, not to this point: shorten its duration (4000ms now)')
+    const oa = await m.tool("get_animation", { id: "o1" })
+    expect(oa.text).toContain("@keyframes spin")
+
+    const list = await m.tool("list_notes")
+    expect(list.json.notes.find((n) => n.id === "g1").animation).toBe("group of 2 inside <div.eq>: eq ×2")
+    expect(list.json.notes.find((n) => n.id === "o1").animation).toMatch(/^spin @ /)
   } finally {
     m.close()
   }

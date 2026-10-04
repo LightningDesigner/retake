@@ -3,7 +3,8 @@
 // proxies to the app's dev server ("upstream"):
 //
 //   /__retake/health          200 once the upstream has answered, 503 before
-//   /__retake/*               the session API (no code-version routes here)
+//   /__retake/*               the session API, and the code timelines' routes
+//                             (code-versions.js) when there's a project folder
 //   Service-Worker: script    404 (a worker would take the dock's origin over)
 //   a top-level page load     the dock (no app code on it)
 //   the dock's frame          the app's page, with the runtime injected
@@ -18,8 +19,10 @@
 // data or clock has moved on (F56). The cookie never reaches the dev server.
 //
 // A kept copy is only served while the project's code is the one it was
-// rendered with: once a source file changes after it was kept, a build gets
-// the page rendered again (old HTML with new client code never hydrates).
+// rendered with: each copy is tagged with the code version on disk, so going
+// back to a timeline whose code is checked out again serves the HTML that code
+// rendered, and any other code gets the page rendered again (old HTML with
+// new client code never hydrates).
 //
 // The dock's frame is known by its request headers (Sec-Fetch-Dest: iframe),
 // not by its URL, so the app never sees a `__wb` marker (CONTRACT.md "Front
@@ -39,6 +42,7 @@ import tls from "node:tls"
 import { injectHtml, runtimeScript, runtimeTag, scriptHash, shellHtml } from "../core.js"
 import { createBus, createSessionHandler, writeServerInfo } from "./api.js"
 import { frontRuntime } from "./detect.js"
+import { createCodeHost } from "../code-versions.js"
 
 const HOP = new Set(["connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "te", "trailer", "proxy-authenticate", "proxy-authorization"])
 const WAIT_MS = 60_000 // how long a frame request waits for a dev server that isn't up yet
@@ -121,7 +125,7 @@ export function adaptCsp(csp, script) {
  * @param {{ upstream: string | Promise<string>, port?: number, host?: string,
  *   root: string, token?: string, rt?: object, verbose?: boolean, label?: string,
  *   quiet?: boolean, framework?: string, dir?: string, watch?: string | null,
- *   allowedHosts?: string[] | true }} options
+ *   allowedHosts?: string[] | true, code?: { root: string | null, enabled?: boolean | "ask" | null } | null }} options
  *   `upstream`: the dev server's URL, or a promise of it (a dev command that
  *   hasn't said where it listens yet). `label`: what to call it on the waiting
  *   page ("next dev on :3015"). `framework` (detect.js), and the project `dir`
@@ -129,7 +133,10 @@ export function adaptCsp(csp, script) {
  *   server is recognised by its first page. `rt` overrides any of it.
  *   `watch`: the project folder whose source changes retire kept pages (default
  *   `dir`). `allowedHosts`: more Host names to answer to (true: any).
- * @returns {Promise<{ url: string, port: number, token: string, readonly upstream: string | null, readonly healthy: boolean, close(): Promise<void> }>}
+ *   `code`: the project folder whose code each timeline keeps (code timelines;
+ *   null root: there's none, e.g. a bare URL without --root).
+ * @returns {Promise<{ url: string, port: number, token: string, readonly upstream: string | null, readonly healthy: boolean,
+ *   code: ReturnType<typeof createCodeHost> | null, close(): Promise<void> }>}
  */
 export async function startFront(options) {
   const { root, verbose = false, quiet = false } = options
@@ -144,7 +151,8 @@ export async function startFront(options) {
     rtBase = { ...frontRuntime(framework, options.dir), ...options.rt }
   }
   const bus = createBus()
-  const api = createSessionHandler({ root, token, bus })
+  const hooks = {}
+  const api = createSessionHandler({ root, token, bus, hooks })
   const hosts = options.allowedHosts === true ? true : new Set([options.host, ...(options.allowedHosts || [])].filter(Boolean).map((h) => String(h).toLowerCase()))
   /** @type {URL | null} */
   let UP = null // URL of the upstream, once known
@@ -362,6 +370,7 @@ export async function startFront(options) {
         const w = fs.watch(p, { recursive }, (_, file) => {
           if (file && NOT_SOURCE.test(String(file))) return
           codeChangedAt = Date.now()
+          if (file && code) code.onWatch(path.join(p, String(file)))
         })
         w.on("error", () => {})
         watchers.push(w)
@@ -380,7 +389,7 @@ export async function startFront(options) {
       const docId = crypto.randomBytes(8).toString("hex")
       const headers = { ...r.headers }
       for (const k of Object.keys(headers)) if (HOP.has(k) || k === "set-cookie") delete headers[k]
-      fs.writeFileSync(path.join(docsDir, `${docId}.json`), JSON.stringify({ path: pathq, status: r.statusCode, headers, kept: Date.now() }))
+      fs.writeFileSync(path.join(docsDir, `${docId}.json`), JSON.stringify({ path: pathq, status: r.statusCode, headers, kept: Date.now(), version: code ? code.tag() : null }))
       const out = fs.createWriteStream(path.join(docsDir, `${docId}.body`))
       out.on("error", () => {})
       r.on("data", (c) => out.write(c))
@@ -419,8 +428,9 @@ export async function startFront(options) {
     } catch {
       return false
     }
-    // Rendered with code that has changed since: rendered again instead.
-    if (!(meta.kept > codeChangedAt)) {
+    // Rendered with other code than what's on disk now: rendered again instead.
+    // (Tagged with its code version: served whenever that code is back.)
+    if (code && meta.version ? meta.version !== code.current : !(meta.kept > codeChangedAt)) {
       log({ kind: "doc-stale", id, docId, url: req.url })
       return false
     }
@@ -440,6 +450,7 @@ export async function startFront(options) {
     for (const k of ["content-encoding", "content-length", "etag"]) delete h[k]
     h["cache-control"] = "no-store"
     h["x-retake-doc"] = "stored"
+    if (meta.version) h["x-retake-doc-version"] = meta.version
     // One shot: the cookie goes as it's used.
     h["set-cookie"] = `__retake_doc=; Path=${new URL(pathq, "http://x").pathname}; Max-Age=0; SameSite=Strict`
     let t
@@ -493,7 +504,7 @@ export async function startFront(options) {
       res.writeHead(healthy ? 200 : 503, { "content-type": "application/json", "cache-control": "no-store" })
       return res.end(JSON.stringify({ ok: healthy, upstream: UP ? UP.href : null }))
     }
-    if (p.startsWith("/__retake/")) return api(req, res)
+    if (p.startsWith("/__retake/")) return code ? code.handler(req, res, () => api(req, res)) : api(req, res)
     if (req.headers["service-worker"] === "script") {
       warnOnce("sw", `blocked a service worker (${p}): it would take over the dock's pages. Service workers are off while Retake is in front.`)
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" })
@@ -559,7 +570,29 @@ export async function startFront(options) {
       for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
       up.write(lines.join("\r\n") + "\r\n\r\n")
       if (head && head.length) up.write(head)
-      sock.pipe(up).pipe(sock)
+      sock.pipe(up)
+      // The dev server's half goes through by hand, so a code checkout can hold
+      // it (holdSockets) and the settle can hear when it goes quiet.
+      const pipe = {
+        held: /** @type {any[] | null} */ (null),
+        dropping: false,
+        flush() {
+          const q = pipe.held || []
+          pipe.held = null
+          for (const c of q) sock.write(c)
+        },
+      }
+      pipes.add(pipe)
+      up.on("data", (c) => {
+        lastUpstreamByte = Date.now()
+        if (pipe.dropping) return
+        if (pipe.held) return void (pipe.held.length < 4096 && pipe.held.push(c))
+        if (!sock.write(c)) {
+          up.pause()
+          sock.once("drain", () => up.resume())
+        }
+      })
+      sock.on("close", () => pipes.delete(pipe))
       log({ kind: "ws-open", url: req.url })
     })
     // Either side closing (or half-closing: HTTP server sockets allow half-open) ends both.
@@ -572,6 +605,50 @@ export async function startFront(options) {
     sock.on("close", () => sockets.delete(sock))
   }
   const sockets = new Set()
+  /** @type {Set<{ held: any[] | null, dropping: boolean, flush?: () => void }>} */
+  const pipes = new Set()
+  let lastUpstreamByte = 0
+
+  // ---- code timelines: a checkout holds the dev server's push updates -------------
+  // The sockets open when it starts get nothing more (their frames are rebuilt
+  // on the new code and go); a failed checkout lets them carry on.
+  function holdSockets() {
+    const now = [...pipes]
+    for (const p of now) p.held = p.held || []
+    return {
+      resume: () => now.forEach((p) => p.flush && p.flush()),
+      done: () => now.forEach((p) => ((p.dropping = true), (p.held = null))),
+    }
+  }
+  // After a checkout: the dev server's sockets quiet for 300 ms (up to 8 s),
+  // then the frame's page fetched once, so it's compiled before the rebuild asks.
+  /** @param {{ url?: string }} [o] */
+  async function settleUpstream({ url: page } = {}) {
+    const t0 = Date.now()
+    await sleep(300)
+    while (Date.now() - lastUpstreamByte < 300 && Date.now() - t0 < 8000) await sleep(50)
+    if (!UP) return
+    await new Promise((resolve) => {
+      const r = request({ method: "GET", path: page && page.startsWith("/") ? page : "/", headers: { accept: "text/html", "x-retake-front": "1", "user-agent": "retake-settle" } }, (res) => {
+        res.resume()
+        res.on("end", resolve)
+        res.on("close", resolve)
+      })
+      r.setTimeout(15_000, () => r.destroy())
+      r.on("error", resolve)
+      r.end()
+    })
+  }
+  /** @type {ReturnType<typeof createCodeHost> | null} */
+  let code = null
+  if (options.code && options.code.root) {
+    try {
+      code = createCodeHost({ root: options.code.root, token, bus, sessions: api.store, enabled: options.code.enabled === "ask" ? null : options.code.enabled, hold: holdSockets, settle: settleUpstream, quiet })
+      Object.assign(hooks, code.hooks)
+    } catch (err) {
+      warnOnce("code", `code timelines are off (${err.message})`)
+    }
+  }
 
   // ---- listening -----------------------------------------------------------
   // On localhost only (both families, so http://localhost works however it
@@ -625,7 +702,11 @@ export async function startFront(options) {
     get healthy() {
       return healthy
     },
+    code,
+    // After the dev command has exited (bin/retake.js), so nothing recompiles
+    // while the newest code goes back on disk.
     async close() {
+      if (code) code.close()
       api.close()
       for (const w of watchers) w.close()
       for (const s of sockets) s.destroy()

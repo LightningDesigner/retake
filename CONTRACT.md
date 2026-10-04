@@ -17,12 +17,13 @@ Owners: S1 = src/runtime, src/core.js, src/plugin.js, src/code-versions.js, src/
 - Note pins (and an open note) show on the app only while paused; live or playing, only the count on the notes icon shows.
 - The dock is expanded on a first visit (nothing stored). It folds into a round "Show timeline" button (divider dragged down past half its minimum height or to the bottom edge, or ⌥T); recording carries on, and the button (click, Enter, Space) brings the dock back at its default height. Stored as `retake:collapsed` in localStorage. The button starts bottom-right and can be dragged anywhere (past 5px a press is a drag, not a click); on release it snaps to the nearer side edge, and `retake:fab` stores `{ side: "left"|"right", y: 0…1 }` (how far down the free height), so it stays on screen through resizes and reloads.
 - Default timeline names are "Timeline N" (N = the branch id); a stored "Main" (id 1) or "Take N" (id N) reads, and is saved back, as "Timeline N". The MCP tools report the same names. A new timeline shows "Timeline N started" in the hint.
+- Code timelines: each timeline keeps its own code. An edit (the user's, an agent's) belongs to the timeline checked out, which is the one the dock is in. With code timelines on, stepping into a timeline puts its code on disk first (the frame on show pauses; the readout says Building while it settles), so its moments rebuild on the code they were recorded with; an edit on the timeline you're in rebuilds the moment on show. Off, or not chosen yet ("ask", the default), every timeline shares the files and edits are still kept per timeline; the first code change with two timelines asks inline ("Separate code" / "Share code", stored in `.retake/settings.json`). The newest code goes back on disk when Retake stops.
 - The app's frame fills the window under the dock. The frame on show has `window.__retakeDockHeight` (px the dock covers at the bottom, 0 when folded) and gets a `retake:dock` event (`detail: { height }`) when it changes, so a page can leave room. ⌥T is not the dock's while typing in a dock field.
 
 ## Runtime API (window.__retake in the app frame)
 timeline() → { now, end, viewport: {w,h},
   markers:  [{ t, end?, kind: "click"|"submit"|"route"|"focus"|"type", label, selector? }],   // user actions only; "type" = one burst (<800ms gaps), label "typed 42 chars"
-  clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi"|"js", label, selector, component?, property?, path, iterations? ("infinite"|n), dur?, delay?, from?, to? (first/last keyframe values), pseudoElement?,
+  clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi"|"js", label, selector, component?, property?, path, iterations? ("infinite"|n), dur?, delay?, from?, to? (first/last keyframe values), kfs? (how many keyframes, when more than two), pseudoElement?,
               stack?: [{ url, line, col }], first?, holds?: [[from, to]] }],   // js: inline style written frame after frame (GSAP, Motion's x, react-spring), from/to = first/last inline values, first = the values its first write set, holds = still stretches (≤ 1s) inside it; stack: where element.animate() was called
   activity: [{ t, v }] }                               // 10 Hz, v 0..1 = share of the viewport that changed, baselined (rolling 5s median); t = window start
 clipsFor(elementOrSelector) → clips                   // on that element and its descendants, incl. looping ones
@@ -41,6 +42,7 @@ buildAt(t)                                            // rebuild t in a frame be
 retarget(t) → boolean                                 // a built/building frame goes on to a later t on the same page (before boot, mid-seek or landed)
 sameMoment(a, b) → boolean                            // same page, < 50ms apart, no frame boundary in (lo, hi], no input in [lo, hi)
 viewScroll() → [{ key, path, top, left }] / applyView(list)   // what the user scrolled to look, handed to the frame swapped in
+holdDev(on)                                           // the dev server's own sockets (HMR) hold their messages while the dock switches a timeline's code; off delivers them
 setBackground(on) / cancelSeek() / adopt(json, t)     // idle-slice replay, stop a seek, a checkpoint taking a newer recording
 state() → { …, previewing, previewAt, route, docStart, segEnd, from, storageOk, idb, buildId }
   // route: while previewing, the app's route at previewAt (the address bar shows it; the app's own location doesn't change), else null
@@ -57,17 +59,29 @@ window.__retakeShell (dock, called by the runtime):
 Mutating requests need header x-retake-token = window.__RETAKE_TOKEN (injected into the shell HTML).
 A PUT body may be `Content-Encoding: gzip` (the dock gzips bodies over 1 MB when the browser has CompressionStream: a Next.js middleware reads 10 MB at most).
 GET/PUT  /__retake/session           { branches:[{id,parentId,forkAt,name,codeVersion}], activeId, markers, notes }
+                                     // codeVersion is the server's (the timeline's head): what a PUT sends is ignored
 GET/PUT  /__retake/recording/:branchId
 GET      /__retake/notes
 PATCH    /__retake/notes/:id          { status?, reply? }
-GET      /__retake/events             SSE: note-updated, code-version, active-changed
+GET      /__retake/events             SSE: note-updated, code-version (the whole code state + reason: edit|checkout|follow|enabled|session|…),
+                                     active-changed ({ activeId, by?: "agent"|"cli", note? } when the server moved the dock)
+GET      /__retake/code               code timelines: { enabled: true|false|"ask", checkedOut, checkedOutName, disk, newest, suspended,
+                                     lease: { note, branchId, name, at }|null, leaseLost, offEdits, timelines: { [id]: { fork, head, changed, files } }, deleted }
+POST     /__retake/code/checkout      { branchId, reason?: "dock"|"fork"|"note"|"mcp"|"cli", force?, note?, url?, parentId? }
+                                     → { ok, version, files:[{ path, change: "write"|"delete" }], swapped, left?, deps? } or 409 { error, lease?|suspended?|gitBusy? }
+                                     (off/"ask": no files move, the timeline just becomes the one edits land on; reason note/mcp/cli also moves the dock)
+GET      /__retake/code/diff?branch=&against=fork|<id>   { files:[{ path, status }], patch (unified, ≤ 64 KB) }
+POST     /__retake/code/enabled       { on }   POST /__retake/code/resume (after a git branch switch)   POST /__retake/code/restore { version? }
+GET      /__retake/version, POST /__retake/checkout?v=   older docks' routes (one more release)
 GET      /__retake/health             front server only: 200 once the dev server behind it has answered, 503 before
-Disk: <project>/.retake/ (session.json, recordings/, versions/, server.json { url, base, token, pid }; front.log with --verbose)
+Disk: <project>/.retake/ (session.json, recordings/, server.json { url, base, token, pid }; front.log with --verbose; code timelines:
+code-timelines.json (the server's: each timeline's fork/head, checkedOut, newest, lease), settings.json { codeTimelines }, versions/ + blobs/,
+journal.json during a checkout, code.lock, ignore (more paths to leave out, .gitignore syntax))
 
 ## Front server (src/server/front.js; `retake .` on a framework, `retake -- <cmd>`, `retake http://…`)
 Retake on its own port, proxying to the app's dev server. Requests, in this order:
 - a Host that isn't localhost, `*.localhost`, an IP address, `--host` or `allowedHosts` → 403, WebSocket upgrades too (DNS rebinding, F64)
-- `/__retake/health`, `/__retake/*` (no code-version routes); `Service-Worker: script` → 404
+- `/__retake/health`, `/__retake/*` (the code routes too, with a project folder: `retake <project>`, `-- <cmd>`'s folder, a URL's `--root`); `Service-Worker: script` → 404
 - GET, `Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`, `Sec-Fetch-Site` ≠ cross-site, no `retake=0` → the dock, `shellHtml({ marker: "header" })`
   (cross-site, e.g. an OAuth callback → the plain page). No Sec-Fetch-* at all and Accept text/html → the dock with `marker: "url"`,
   unless its Referer is a page of ours with `__wb=app` (the frame navigating without the marker: its page, URL marker)
@@ -100,9 +114,12 @@ with no project to read its version from, `next: "auto"` and the runtime reads `
 Kept pages (F56, front server only): every frame document is stored as it came in `.retake/docs/<id>.{json,body}` (200 kept) and
 the runtime gets its id (`RT.docId`; the recording keeps it per segment as `doc`). Before loading a build or checkpoint frame the
 dock (`__retakeConfig.docs`) sets a one-shot cookie `__retake_doc=<id>` (path = the page's path, 10 s); the front server serves that
-copy (`x-retake-doc: stored`, `RT.docStored`), clears the cookie, and strips it from every request it forwards. A copy kept before
-the project's source last changed (the front server watches `watch`, default the project `dir`) isn't served: the page is rendered
-again, and the cookie still cleared (F67). A copy cut off mid-body isn't kept. Such a page's Next HMR
+copy (`x-retake-doc: stored`, `RT.docStored`), clears the cookie, and strips it from every request it forwards. Each copy is tagged
+with the code version on disk (`meta.version`, `x-retake-doc-version`) and served only while that code is on disk again (so stepping
+back into a timeline serves what its code rendered); a copy without a tag isn't served once the project's source changed after it
+was kept (the front server watches `watch`, default the project `dir`): the page is rendered again, and the cookie still cleared (F67).
+A code checkout holds the dev server's WebSocket messages for the sockets open when it starts (they're dropped with their frames;
+a failed checkout delivers them), waits for them to go quiet (300 ms, up to 8 s) and fetches the frame's page once before answering. A copy cut off mid-body isn't kept. Such a page's Next HMR
 socket gets an `id` of its own (`<__next_r>-retake-…`): Next keeps one socket per id (F58); its live requests carry that id in
 `x-nextjs-html-request-id`, where Next sends their debug data (F71). The runtime leaves
 `__retake*` cookies out of its cookie snapshots.
@@ -121,13 +138,15 @@ next-dev.js (imported at run time, unbundled, as `retake-dev/next-dev`). In dev,
   identity`, no conditional headers, redirects not followed), HTML run through `injectHtml` with `runtimeTag` for `frontRuntime("next", cwd)` +
   marker "header"; CSP and X-Frame-Options adapted as by the front server; `Vary: Sec-Fetch-Dest, Sec-Fetch-Mode`
 - anything else → passed on (the user's middleware, if wrapped)
-No kept pages (F56): a rebuild gets the page rendered again. Token and session handler live on `globalThis` for the server's life.
+No kept pages (F56): a rebuild gets the page rendered again. Token, session handler and code timelines (their own watcher; a
+checkout waits 250 ms and fetches the frame's page once) live on `globalThis` for the server's life. `RETAKE_CODE_TIMELINES=1|0`.
 
 ## Note
 { id, branchId, t, clip:{id,offset,duration,start,end}|null, selector, component,
   source:{file,line,mapped?,compiled?,url?,col?}|null,   // compiled: only a bundle's line, no source map (url/col kept to map it later)
   classes, rect, text, status:"pending"|"acknowledged"|"resolved"|"dismissed",
   replies:[{from:"user"|"agent", text, at}],
+  codeVersion?, resolvedVersion?,   // the server's: the timeline's code when the note was made / after the resolve (code timelines)
   // Animation notes (all optional; src/note-text.js writes them for agents):
   range:{from,to}|null, asked:{text,reading:"local"|"recording",from,to}|null,
   target:{ path, selector, matches, index?, hint, tag, text, role, ariaLabel, picked:{via,skipped}, source, geometry },
@@ -139,8 +158,11 @@ No kept pages (F56): a rebuild gets the page rendered again. Token and session h
            motionProps?:{component,props:{initial,animate,transition,...}},   // a Motion element's props, as JSON text
            motionKeyframes?:true, leadMs?,                            // js clip of Motion keyframes: keyframes/timing read off its animate + transition props
                                                                       // (values in Motion's units: x 120; one easing per segment, effect easing linear); leadMs = local time of its first write
-           at?:Point, from?:Point, to?:Point, openEnd?, keyframesInside?:[offset], samples?:[{T,local,progress,values,geometry}] }],
-  inside:[{id,selector,name}] }
+           at?:Point, from?:Point, to?:Point, openEnd?, keyframesInside?:[offset], samples?:[{T,local,progress,values,geometry}],
+           runs?:[{id,start,end}],                                    // the same animation started again on this element (≤ 60), one entry for all
+           instant?:true }],                                          // 0ms or between equal values: never primary while anything else runs
+  inside:[{id,selector,name}],
+  group?:{ selector, label, members:[{ selector, label, anim: anims[] entry (no samples) | null }] } }   // "Whole group": every animated child, at t / over range on its own clock
   // Point = { T, local, iteration, phase:"delay"|"active"|"after", progress, eased, segment:{index,fromOffset,toOffset,easing,progress}, values, frame:{before,after}, geometry }
 
 ## Fallback

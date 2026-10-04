@@ -51,14 +51,15 @@ export function createClient({ url, token } = {}) {
     try {
       res = await fetch(base() + p, {
         method,
-        headers: body !== undefined || method !== "GET" ? { "content-type": "application/json", "x-retake-token": await getToken() } : {},
+        // (x-retake-client: an agent working on a note keeps its hold on the files: code-versions.js)
+        headers: body !== undefined || method !== "GET" ? { "content-type": "application/json", "x-retake-token": await getToken(), "x-retake-client": "mcp" } : { "x-retake-client": "mcp" },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     } catch (err) {
       throw new Error(`can't reach the Retake dev server at ${base()} (${err.cause ? err.cause.code || err.cause.message : err.message}). Is it running?`)
     }
     const text = await res.text()
-    if (!res.ok) throw new Error(`${method} ${p} → ${res.status}: ${text.slice(0, 200)}`)
+    if (!res.ok) throw Object.assign(new Error(`${method} ${p} → ${res.status}: ${text.slice(0, 200)}`), { status: res.status, body: text })
     return text ? JSON.parse(text) : null
   }
   return {
@@ -73,6 +74,19 @@ export function createClient({ url, token } = {}) {
     notes: () => call("GET", "/__retake/notes"),
     note: (id) => call("GET", `/__retake/notes/${encodeURIComponent(id)}`),
     patch: (id, body) => call("PATCH", `/__retake/notes/${encodeURIComponent(id)}`, body),
+    // Code timelines (null: a server without them).
+    code: () => call("GET", "/__retake/code").catch((err) => (/→ 404/.test(err.message) ? null : Promise.reject(err))),
+    codeDiff: (branch, against) => call("GET", `/__retake/code/diff?branch=${encodeURIComponent(branch)}${against ? `&against=${encodeURIComponent(against)}` : ""}`),
+    // { ok, … } or { ok: false, error } (a refusal is an answer, not a failure).
+    codeCheckout: (body) =>
+      call("POST", "/__retake/code/checkout", body).catch((err) => {
+        if (err.status !== 409 && err.status !== 404) throw err
+        try {
+          return JSON.parse(err.body)
+        } catch {
+          return { ok: false, error: err.body }
+        }
+      }),
     // Resolves on the next matching SSE event (or null after `ms`).
     async nextEvent(types, ms) {
       const ac = new AbortController()
@@ -206,7 +220,7 @@ const TOOLS = [
   },
   {
     name: "get_note",
-    description: "Everything about one note: what the user asked, the element (selector, React component, source file:line, classes, size), the moment and timeline, and the conversation so far.",
+    description: "Everything about one note: what the user asked, the element (selector, React component, source file:line, classes, size), the animation it is about (or, for a group note, every animation inside the element) with an exact edit, the moment and timeline, and the conversation so far.",
     inputSchema: { type: "object", properties: { id: { type: ["string", "number"] } }, required: ["id"] },
   },
   {
@@ -228,7 +242,7 @@ const TOOLS = [
   {
     name: "get_animation",
     description:
-      "One animation in detail: what it is and where it is defined, what started it, its timing (delay, duration, iterations, easing) and every keyframe, and recording times mapped onto its own clock (local ms after its delay, progress, eased progress, the keyframe segment) with the conversion to CSS %, Motion `times` and GSAP seconds. Values and boxes are included where the note sampled them. Give a note id (its primary animation, or `clip` to pick another of its animations), or a timeline and a clip id.",
+      "One animation in detail: what it is and where it is defined, what started it, its timing (delay, duration, iterations, easing) and every keyframe, and recording times mapped onto its own clock (local ms after its delay, progress, eased progress, the keyframe segment) with the conversion to CSS %, Motion `times` and GSAP seconds. Values and boxes are included where the note sampled them. Give a note id (its primary animation, or `clip` to pick another of its animations; a group note gives every member's), or a timeline and a clip id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -262,7 +276,7 @@ const TOOLS = [
   },
   {
     name: "acknowledge",
-    description: "Tell the user you've seen a note and are working on it (its pin turns to 'acknowledged' in the dock). Optionally add a short message.",
+    description: "Tell the user you've seen a note and are working on it (its pin turns to 'acknowledged' in the dock). Optionally add a short message. Call it before you edit: it moves the dock to the note's timeline and, with code timelines on, puts that timeline's code on disk, so your edit lands in the note's timeline.",
     inputSchema: { type: "object", properties: { id: { type: ["string", "number"] }, message: { type: "string" } }, required: ["id"] },
   },
   {
@@ -276,6 +290,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { id: { type: ["string", "number"] }, text: { type: "string" } }, required: ["id", "text"] },
   },
   {
+    name: "checkout_timeline",
+    description: "Put a timeline's code on disk (code timelines: each timeline keeps its own code) and move the dock to it. acknowledge does this for a note's timeline; use this to look at another timeline's code. Returns the files that changed.",
+    inputSchema: { type: "object", properties: { timeline: { type: ["string", "number"], description: "A timeline's name or id" }, force: { type: "boolean", description: "Take the files even while another note's timeline is held for an agent" } }, required: ["timeline"] },
+  },
+  {
+    name: "get_code_diff",
+    description: "How a timeline's code differs from where it started (or from another timeline): the files changed and a unified diff.",
+    inputSchema: { type: "object", properties: { timeline: { type: ["string", "number"], description: "A timeline's name or id (default: the one checked out)" }, against: { type: ["string", "number"], description: "Another timeline's name or id (default: where this one started)" } } },
+  },
+  {
     name: "watch_notes",
     description: "Wait until the user adds a note or replies to one, then return what changed. Returns an empty list on timeout.",
     inputSchema: { type: "object", properties: { timeout_seconds: { type: "number", description: "How long to wait (default 60, max 600)" } } },
@@ -286,7 +310,9 @@ const TOOLS = [
 const INSTRUCTIONS = `Notes are change requests the user left on elements of their app in the Retake timeline, each pinned to a moment (or a range) of a recording of the running app. list_notes, then get_note for details; get_moment shows what happened around a note's moment (actions, animations on the element, requests), so check it before asking the user about timing. acknowledge when you start, resolve with a summary when done.
 
 Animations. A note on an animated element names the animation (its kind, where it is defined, its timing and every keyframe) and the exact point or range the user meant on that animation's own clock: local ms after its delay, progress (local / duration), eased progress (after the effect's easing; keyframe offsets apply to this), and the keyframe segment it falls in, with the computed values and the element's box there and one frame either side. Numbers the user typed ("at 100ms", "200-400 ms") are local time of that animation unless the note says otherwise. Change only what the note scopes: keep the values at every other point and the total duration.
-Most notes end with an "Exact edit": the animation's keyframes again on plain time, with the note's point or range edges as keyframes of their own and the matching part of each curve on both sides. Put it in place of the original (it moves exactly as before), then change only the marked part. If it says the @keyframes is shared, it gives this element its own copy; keep that unless the user meant every element.
+Most notes end with an "Exact edit": the animation's keyframes again on plain time, with the note's point or range edges as keyframes of their own and the matching part of each curve on both sides. It is for "change it only here" requests: put it in place of the original (it moves exactly as before), then change only the marked part. For timing, duration or shape requests ("faster", "slower", "start earlier", "hold longer") don't paste it: change the duration, delay or keyframe table instead; an "Intent:" line says which reading the note takes. If it says the @keyframes is shared, it gives this element its own copy; keep that unless the user meant every element.
+The note's animation is the one that moves: instant ones (0ms, or no change) are one "Also running" line with their count, and the same animation started again is one entry with its runs.
+A group note ("Group: N animated elements inside …") is about every animation inside a container (an equalizer's bars): each member has its own point or range on its own clock and its own exact edit. "Shared:" lists members that run one @keyframes or the same keyframes: one edit there changes all of them; use the per-member edits only to change them differently.
 - CSS @keyframes: add stops at the range edges as % (local / duration) with the edge values given, so the rest doesn't move; change only what is between them. animation-timing-function inside a keyframe applies to the segment after it (default ease). A hold = two stops with the same value. If the duration changes, recompute every %. If the selector matches several elements, scope the change unless all were meant.
 - CSS transition: one segment only. For a hold, a two-step motion or a sub-range, use linear(...) stops or a cubic-bezier, or replace it with a keyframes animation started by the same trigger (given).
 - WAAPI (element.animate): add { offset, ...values, easing } at the edges. With an effect-level easing, offsets apply after it: set the effect easing to linear and move easing onto each keyframe first.
@@ -296,20 +322,58 @@ Most notes end with an "Exact edit": the animation's keyframes again on plain ti
 - SVG stroke draw: the dash offset is linear in progress; "pause halfway" = two equal stops around 50%.
 - Scroll-driven: the axis is scroll progress, not time; edit the keyframe % or animation-range. For JS parallax, clamp to a scroll range instead of changing the factor.
 - canvas / WebGL: Retake can't see inside; edit the per-frame code, gated on the same elapsed time.
-get_animation maps any recording time onto an animation's clock and into CSS %, Motion times and GSAP seconds. After editing, check the values at the range edges and one frame either side against the note's.`
+get_animation maps any recording time onto an animation's clock and into CSS %, Motion times and GSAP seconds. After editing, check the values at the range edges and one frame either side against the note's.
+Timelines can keep their own code (code timelines). acknowledge a note before editing: it puts the note's timeline's code on disk, so your edit lands in that timeline and the others keep theirs. get_note says which timeline's code is on disk; checkout_timeline and get_code_diff work with any timeline's code.`
 
 // For get_moment on a note: which recorded clips the note says are its element's.
 function knownOf(note) {
   const rel = new Map()
-  for (const a of note.anims || []) if (a.id) rel.set(String(a.id), a.relation === "on" ? "on" : a.relation || "on")
+  for (const a of note.anims || []) {
+    if (a.id) rel.set(String(a.id), a.relation === "on" ? "on" : a.relation || "on")
+    for (const r of a.runs || []) if (r.id && !rel.has(String(r.id))) rel.set(String(r.id), a.relation === "on" ? "on" : a.relation || "on")
+  }
+  const members = groupAnims(note)
+  for (const a of members) if (a.id && !rel.has(String(a.id))) rel.set(String(a.id), "inside (in the note's group)")
   for (const c of note.inside || []) if (c.id && !rel.has(String(c.id))) rel.set(String(c.id), "inside")
-  return { rel, running: (note.anims || []).map((a) => a.name || a.kind) }
+  const running = [...new Set([...(note.anims || []), ...members].map((a) => a.name || a.kind))]
+  return { rel, running }
 }
+// A group note's member animations (each with its point or range).
+const groupAnims = (note) => ((note.group && note.group.members) || []).map((m) => m.anim && { ...m.anim, selector: m.selector || m.anim.selector }).filter(Boolean)
 
 const isOpen = (n) => !n.status || n.status === "pending" || n.status === "acknowledged"
 
+// ---- code timelines ------------------------------------------------------------------
+
+const codeMode = (c) => (!c ? null : c.suspended ? `suspended: ${c.suspended}` : c.enabled === true ? "on" : c.enabled === false ? "off" : "ask")
+const nameIn = (session, id) => {
+  const b = (session.branches || []).find((x) => String(x.id) === String(id))
+  return b ? b.name : `Timeline ${id}`
+}
+// Where a note's edit must land, and where the files on disk are now.
+function codeBlock(n, session, c) {
+  if (!c) return ""
+  const b = (session.branches || []).find((x) => String(x.id) === String(n.branchId))
+  const parent = b && (session.branches || []).find((x) => String(x.id) === String(b.parentId))
+  const t = c.timelines && c.timelines[n.branchId]
+  const name = b ? b.name : `Timeline ${n.branchId}`
+  const lines = []
+  const files = t && t.changed ? `${t.changed} file${t.changed > 1 ? "s" : ""} changed since ${parent ? "the fork" : "it started"}: ${t.files.join(", ")}${t.changed > t.files.length ? ", …" : ""}` : "no code changes since it started"
+  lines.push(`Timeline: "${name}"${parent ? ` (branched from "${parent.name}" at ${fmt(b.forkAt)})` : ""}${t ? `, code version ${t.head}, ${files}` : ""}`)
+  if (c.enabled === true && !c.suspended) {
+    const here = String(c.checkedOut) === String(n.branchId)
+    lines.push(here ? `Files on disk now: ${name}'s code. Your edit lands in ${name}.` : `Files on disk now: ${c.checkedOutName || nameIn(session, c.checkedOut)}'s code. acknowledge switches them to ${name}'s before you edit.`)
+  } else if (c.suspended) lines.push(`Code timelines are paused (${c.suspended}): an edit lands on whatever is on disk; tell the user if that's not ${name}.`)
+  else if (c.enabled === false) lines.push("Code timelines are off: an edit changes every timeline's code.")
+  else lines.push(`Code timelines aren't set up yet (every timeline shares the files). Your edit is kept as ${name}'s code; acknowledge first so it lands there.`)
+  if (n.codeVersion && t && n.codeVersion !== t.head) lines.push(`The note was made on code version ${n.codeVersion}; the timeline's code has changed since.`)
+  return lines.join("\n")
+}
+
 export function createTools(client) {
   const readSession = async () => withNames(await client.session())
+  // The code timelines' state (null: a server or client without them).
+  const codeState = () => (client.code ? client.code().catch(() => null) : Promise.resolve(null))
   const byId = async (id) => {
     const note = await client.note(id).catch((err) => {
       if (/→ 404/.test(err.message)) throw new Error(`no note with id ${id}; list_notes shows the ids`)
@@ -352,8 +416,9 @@ export function createTools(client) {
       return { count: notes.length, notes: notes.map((n) => summary(n, session)) }
     },
     async get_note({ id }) {
-      const [session, note] = await Promise.all([readSession(), byId(id)])
-      return describe(relSource(note), session, await resolveSourceOf(note))
+      const [session, note, c] = await Promise.all([readSession(), byId(id), codeState()])
+      const block = codeBlock(note, session, c)
+      return describe(relSource(note), session, await resolveSourceOf(note)) + (block ? `\n\n${block}` : "")
     },
     async get_moment(/** @type {any} */ { id, timeline, at, selector, before_seconds = 5, after_seconds = 5 } = {}) {
       const session = await readSession()
@@ -388,10 +453,21 @@ export function createTools(client) {
       const times = (rec) => [at, from, to].filter((v) => v != null && v !== "").map((v) => parseTime(v) + (rec.start || 0))
       if (id != null && id !== "") {
         const note = await byId(id)
-        const anims = note.anims || []
-        let a = clip ? anims.find((x) => String(x.id) === String(clip)) : primaryOf(note)
+        const members = groupAnims(note)
+        const anims = [...(note.anims || []), ...members]
+        let a = clip ? anims.find((x) => String(x.id) === String(clip) || (x.runs || []).some((r) => String(r.id) === String(clip))) : primaryOf(note)
         const b = timelineOf(session, note.branchId)
         const rec = await recordingOf(b).catch(() => null)
+        // A group note with no animation of its own: each member's, one after the other.
+        if (!a && !clip && members.length) {
+          const start = rec ? rec.start || 0 : 0
+          const each = members.map((m, i) => {
+            const sampled = [m.at, m.from, m.to].filter(Boolean)
+            const Ts = rec && times(rec).length ? times(rec) : [...new Set(sampled.map((p) => p.T))]
+            return `### ${i + 1}. ${m.selector || "element"}${m.id ? ` (clip ${m.id})` : ""}\n${animationReport(m, Ts, { start, sampled })}`
+          })
+          return `Group note ${note.id}: ${members.length} animations inside ${note.group.label || note.group.selector || "its element"} (get_animation with clip for one):\n\n${each.join("\n\n")}`
+        }
         if (!a && rec) {
           const c = (rec.clips || []).find((x) => String(x.id) === String(clip || (note.clip && note.clip.id)))
           if (c) a = animFromClip(c)
@@ -420,7 +496,7 @@ export function createTools(client) {
       return report(rec, { from: lo, to: hi, selector: selector || null, limit: n, title: `Timeline "${b.name}":` })
     },
     async get_active_timeline() {
-      const session = await readSession()
+      const [session, c] = await Promise.all([readSession(), codeState()])
       const branches = session.branches || []
       const active = branches.find((b) => String(b.id) === String(session.activeId)) || null
       const parent = active && branches.find((b) => String(b.id) === String(active.parentId))
@@ -428,18 +504,68 @@ export function createTools(client) {
         active: active && { id: active.id, name: active.name, forkAt: fmt(active.forkAt), parent: parent ? parent.name : null, codeVersion: active.codeVersion || null },
         timelines: branches.map((b) => ({ id: b.id, name: b.name, parent: b.parentId, forkAt: fmt(b.forkAt), codeVersion: b.codeVersion || null })),
         openNotes: (session.notes || []).filter((n) => isOpen(n) && active && String(n.branchId) === String(active.id)).map((n) => summary(n, session)),
+        ...(c
+          ? {
+              codeTimelines: codeMode(c),
+              checkedOut: c.checkedOut != null ? { id: c.checkedOut, name: c.checkedOutName || nameIn(session, c.checkedOut), version: c.disk } : null,
+              code: Object.fromEntries(Object.entries(c.timelines || {}).map(([tid, t]) => [nameIn(session, tid), { fork: t.fork, head: t.head, changed: t.changed }])),
+            }
+          : {}),
       }
     },
     async acknowledge({ id, message }) {
-      await byId(id)
+      const note = await byId(id)
+      // The note's timeline becomes the one edits land on (its code on disk,
+      // with code timelines on); the dock follows.
+      let line = ""
+      const c = await codeState()
+      if (c) {
+        const r = await client.codeCheckout({ branchId: note.branchId, reason: "note", note: note.id })
+        if (!r || r.ok === false) throw new Error(`Not acknowledged: ${(r && r.error) || "couldn't switch to the note's timeline"}.${r && r.lease ? " Resolve that note first, or call checkout_timeline with force." : ""}`)
+        const session = await readSession()
+        const name = nameIn(session, note.branchId)
+        line = r.enabled === true ? ` Files on disk are now ${name}'s code (version ${r.version}). Edit as usual: your changes land in ${name}.` : ` The dock is on ${name}; your edit is kept as its code${r.enabled === false ? " (code timelines are off: every timeline shares the files)" : ""}.`
+      }
       const n = await client.patch(id, { status: "acknowledged", ...(message ? { reply: message } : {}) })
-      return `Acknowledged note ${n.id}.`
+      return `Acknowledged note ${n.id}.${line}`
     },
     async resolve({ id, summary: text }) {
       if (!text) throw new Error("resolve needs a summary of what you changed")
-      await byId(id)
+      const note = await byId(id)
+      // Did the edit land on the note's timeline?
+      let warn = ""
+      const c = await codeState()
+      if (c && c.enabled === true) {
+        const session = await readSession()
+        const name = nameIn(session, note.branchId)
+        if (c.leaseLost && String(c.leaseLost.note) === String(id)) warn = ` Note ${id} is on ${name}, but the user switched the files away while you worked (to ${nameIn(session, c.leaseLost.to)}). Call checkout_timeline "${name}" and check your edit is there, or tell the user.`
+        else if (String(c.checkedOut) !== String(note.branchId)) warn = ` Note ${id} is on ${name} but your edit landed on ${c.checkedOutName || nameIn(session, c.checkedOut)} (files were its code). Call checkout_timeline "${name}" and apply it again, or tell the user.`
+      }
       const n = await client.patch(id, { status: "resolved", reply: text })
-      return `Resolved note ${n.id}.`
+      return `Resolved note ${n.id}${n.resolvedVersion ? ` (code version ${n.resolvedVersion})` : ""}.${warn}`
+    },
+    async checkout_timeline({ timeline, force }) {
+      const session = await readSession()
+      const b = timelineOf(session, timeline)
+      const c = await codeState()
+      if (!c) throw new Error("this dev server doesn't keep code per timeline (update retake-dev)")
+      const r = await client.codeCheckout({ branchId: b.id, reason: "mcp", force: !!force })
+      if (!r || r.ok === false) throw new Error(`${(r && r.error) || "couldn't switch"}${r && r.lease ? ". Pass force to take the files anyway." : ""}`)
+      if (r.enabled !== true) return `The dock is on "${b.name}". Code timelines are ${r.enabled === false ? "off" : "not set up"}: every timeline shares the files, so nothing on disk changed.`
+      const files = (r.files || []).map((f) => `${f.change === "delete" ? "deleted" : "wrote"} ${f.path}`)
+      return `Files on disk are now ${b.name}'s code (version ${r.version}).${files.length ? `\n${files.join("\n")}` : " No files changed."}`
+    },
+    async get_code_diff(/** @type {any} */ { timeline, against } = {}) {
+      const session = await readSession()
+      const c = await codeState()
+      if (!c) throw new Error("this dev server doesn't keep code per timeline (update retake-dev)")
+      const b = timeline == null || timeline === "" ? timelineOf(session, c.checkedOut) : timelineOf(session, timeline)
+      const other = against == null || against === "" ? null : timelineOf(session, against)
+      const d = await client.codeDiff(b.id, other ? other.id : null)
+      const vs = other ? `"${other.name}"` : "where it started"
+      if (!d.files.length) return `"${b.name}"'s code is the same as ${vs}.`
+      const list = d.files.map((f) => `${f.status} ${f.path}`).join("\n")
+      return `"${b.name}"'s code (version ${d.to}) against ${vs} (version ${d.from}): ${d.files.length} file${d.files.length > 1 ? "s" : ""}\n${list}${d.patch ? `\n\n${d.patch}` : "\n\n(the diff is too large to show; read the files)"}`
     },
     async reply({ id, text }) {
       if (!text) throw new Error("reply needs text")

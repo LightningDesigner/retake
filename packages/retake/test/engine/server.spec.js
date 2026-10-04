@@ -41,7 +41,10 @@ test("session, recordings and notes persist to .retake and PATCH updates notes",
     notes: [{ id: 7, branchId: 2, t: 900, clip: null, selector: "#go", component: null, source: null, classes: [], rect: { x: 0, y: 0, w: 10, h: 10 }, text: "make it blue", status: "pending", replies: [] }],
   }
   expect((await request.put(base + "/__retake/session", { data: session, headers: h })).ok()).toBe(true)
-  expect(await (await request.get(base + "/__retake/session")).json()).toEqual(session)
+  // The server says which code each timeline has, and the code a note was made on (code timelines).
+  const got = await (await request.get(base + "/__retake/session")).json()
+  const version = expect.stringMatching(/^[0-9a-f]{10}$/)
+  expect(got).toEqual({ ...session, branches: session.branches.map((b) => ({ ...b, codeVersion: version })), notes: session.notes.map((n) => ({ ...n, codeVersion: version })) })
   expect(fs.existsSync(path.join(FIXTURES, "probe", ".retake", "session.json"))).toBe(true)
 
   expect((await request.put(base + "/__retake/recording/2", { data: { v: 1, events: [1, 2] }, headers: h })).ok()).toBe(true)

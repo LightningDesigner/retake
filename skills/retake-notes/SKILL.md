@@ -37,7 +37,10 @@ A note on an animated element is pinned to a point or a range **on that animatio
   - GSAP: split the tween into two `.to()` calls at the edge values, or retime with the position parameter.
   - Script-driven, canvas/WebGL: edit the per-frame code at the given location, gated on the same elapsed time.
   - Scroll-driven: the axis is scroll progress; edit the keyframe % or `animation-range`.
-- Most animation notes end with an `Exact edit`: the same motion rewritten with the note's point or range edges as keyframes (or `linear()` stops, for a transition) of their own, each piece keeping its part of the curve. Put it in place of the original (it moves exactly as before), then change only the marked part.
+- Most animation notes end with an `Exact edit`: the same motion rewritten with the note's point or range edges as keyframes (or `linear()` stops, for a transition) of their own, each piece keeping its part of the curve. It is for "change it only here" requests: put it in place of the original (it moves exactly as before), then change only the marked part. On a loop it applies to every iteration.
+- Timing, duration or shape requests ("faster", "slower", "start earlier", "hold longer") are not point edits: don't paste the exact edit. Change the duration, the delay or the keyframe table; the note's `Intent:` line says which reading it takes.
+- The note is about the animation that moves. `×40 (instant: 0ms each…)` under `Also running` is a library setting values through animations: ignore it unless the note is about that. `ran 3 times on this element` is one animation started again: one edit covers every run.
+- A group note (`Group: N animated elements inside …`) is about every animation inside a container (an equalizer's bars). Each member (`### 1. …`) has its own point or range on its own clock and its own exact edit. `Shared:` lists members running one `@keyframes` or the same keyframes: for the same change on all of them, edit that once; use the per-member edits only to change them differently.
 - `get_animation` with the note id (or a clip id and recording times) maps any moment onto the animation's clock and gives CSS %, Motion `times` and GSAP seconds.
 - `Nothing animates on this element` means the element itself doesn't move then; `Also inside the element` lists children that do. Don't change those unless the note asks.
 - After the edit, check the values at the range edges and one frame either side against the note's.
@@ -51,7 +54,7 @@ A note on an animated element is pinned to a point or a range **on that animatio
 
 ## Work it
 
-1. `acknowledge` the note when you start (optionally with a one-line plan).
+1. `acknowledge` the note before you edit (optionally with a one-line plan): it puts the note's timeline's code on disk, so your edit lands in that timeline. `get_note` says whose code is on disk.
 2. Make the change in the source. Keep it to what the note asks.
 3. `resolve` with a one or two sentence summary of what changed (it shows on the note in the dock). If you can't do it, `reply` with why, and leave it open.
 4. `watch_notes` waits for the next note or reply if the user is working through several.

@@ -17,7 +17,12 @@ const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta
 test("a bare path means dev", () => {
   expect(parseArgs(["."])).toMatchObject({ cmd: "dev", project: "." })
   expect(parseArgs(["dev", "app", "--port", "4000"])).toMatchObject({ cmd: "dev", project: "app", port: 4000 })
-  expect(parseArgs(["./x", "--code-branches", "--", "--host"])).toMatchObject({ cmd: "dev", codeBranches: true, passthrough: ["--host"] })
+  expect(parseArgs(["./x", "--code-branches", "--", "--host"])).toMatchObject({ cmd: "dev", codeTimelines: true, passthrough: ["--host"] })
+  expect(parseArgs(["./x", "--code-timelines"])).toMatchObject({ codeTimelines: true })
+  expect(parseArgs(["./x", "--no-code-timelines"])).toMatchObject({ codeTimelines: false })
+  expect(parseArgs(["./x"]).codeTimelines).toBe(undefined)
+  expect(parseArgs(["code", "checkout", "2"])).toMatchObject({ cmd: "code", codeArgs: ["checkout", "2"], project: null })
+  expect(parseArgs(["code", "export", "Timeline 2", "--branch", "retake/t2"])).toMatchObject({ cmd: "code", codeArgs: ["export", "Timeline 2"], branch: "retake/t2" })
 })
 
 test("bad arguments give a clear message and exit 1", () => {
@@ -176,9 +181,6 @@ test("a folder with no framework and no Vite app: a clear error naming both ways
   expect(r.status).toBe(1)
   expect(r.stderr).toContain("retake -- <your dev command>")
   expect(r.stderr).toContain("retake http://localhost:<port>")
-  const cb = run(tmpProject({ dependencies: { next: "15" }, scripts: { dev: "next dev" } }), "--code-branches")
-  expect(cb.status).toBe(1)
-  expect(cb.stderr).toMatch(/--code-branches only works on Vite apps/)
 })
 
 test("the dev server's printed URL is found through colour codes", () => {

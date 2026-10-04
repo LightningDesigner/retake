@@ -266,6 +266,7 @@ window.__retakeShell = {
     b.version = old.version // a new timeline starts on its parent's code
     D.activeId = b.id
     D.frameBranch = b.id // the visible frame carries on as the new timeline
+    codeFork(b, old) // (and edits land on it from now on: 40-code.js)
     flash(`${b.name} started`, { warn: false })
   },
 }
@@ -489,8 +490,9 @@ function checkBuilding() {
   swapIn(b)
 }
 
-// Returns true only if the switch happened.
-async function switchTo(id, t) {
+// Returns true only if the switch happened. `force`: take the files from an
+// agent working on another timeline (code timelines, 40-code.js).
+async function switchTo(id, t, { force = false } = {}) {
   const target = branchById(id)
   if (!D.PT || !target || D.switching || id === D.activeId) return false
   D.switching = true
@@ -498,12 +500,15 @@ async function switchTo(id, t) {
     const json = await recordingOf(target)
     if (!json || !D.PT) return false
     const cur = activeBranch()
-    // A timeline made on other code runs on its own version of the code.
-    if (target.version && cur && cur.version && target.version !== cur.version) {
-      const r = await checkoutCode(target.version)
-      if (!r.ok) return false
-      await settleLeftVersion(cur, r)
+    // Each timeline runs on its own code: its code goes on disk first. The
+    // frame on show stops (paused) while files change.
+    if (codeOn()) {
+      try {
+        D.PT.pause()
+      } catch {}
     }
+    const r = await checkoutTimeline(target, { force })
+    if (!r.ok || !D.PT) return false
     if (cur) {
       cur.json = JSON.stringify(D.PT.history())
       cur.end = D.PT.state().end
@@ -698,7 +703,7 @@ document.addEventListener("click", (e) => {
   const held = D.focusHold
   D.focusHold = false
   if (!b) {
-    if (!target.closest(".card") && !(held && target.closest(".track"))) closeCard()
+    if (!target.closest(".card, #wb-layers") && !(held && target.closest(".track"))) closeCard()
     return
   }
   const a = b.dataset.a

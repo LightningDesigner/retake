@@ -8,6 +8,7 @@
 //   GET      /__retake/notes/:id
 //   PATCH    /__retake/notes/:id          { status?, reply? }
 //   GET      /__retake/events             SSE: note-updated, code-version, active-changed, session
+//   (/__retake/code/* are the code timelines' routes: code-versions.js)
 //   GET      /__retake/map?url=&line=&col= a compiled chunk on disk (a server component's) → { file, line }
 //
 // Mutating requests need `x-retake-token`. The token is injected into the
@@ -227,9 +228,12 @@ export function mapChunk(root, q) {
  * server (Vite's middleware stack, the front server, a bare http.Server).
  * Requests outside it (and /__retake/ routes it doesn't know, like the code
  * versions' ones) go to `next`, or get a 404 without one.
- * @param {{ root: string, token: string, bus: ReturnType<typeof createBus> }} options
+ * `hooks` (the code timelines, code-versions.js): `onSession(next, before)` sees
+ * a session before it's saved, `decorate(s)` one before it's sent, and
+ * `onNotePatch(note, body)` a note an agent changes.
+ * @param {{ root: string, token: string, bus: ReturnType<typeof createBus>, hooks?: { onSession?: (next: any, before: any) => void, decorate?: (s: any) => any, onNotePatch?: (note: any, body: any) => any } }} options
  */
-export function createSessionHandler({ root, token, bus }) {
+export function createSessionHandler({ root, token, bus, hooks = {} }) {
   const store = sessionStore(root)
   const heartbeat = setInterval(() => {
     for (const res of bus.clients) res.write(": ping\n\n")
@@ -282,10 +286,11 @@ export function createSessionHandler({ root, token, bus }) {
         return
       }
       if (route[0] === "session" && route.length === 1) {
-        if (req.method === "GET") return send(res, 200, store.getSession())
+        if (req.method === "GET") return send(res, 200, hooks.decorate ? hooks.decorate(store.getSession()) : store.getSession())
         if (req.method === "PUT") {
           const before = store.getSession()
           const next = JSON.parse(await readBody(req))
+          if (hooks.onSession) hooks.onSession(next, before)
           store.putSession(next)
           store.prune(next)
           if (next.activeId !== before.activeId) bus.emit("active-changed", { activeId: next.activeId })
@@ -311,15 +316,23 @@ export function createSessionHandler({ root, token, bus }) {
         }
       }
       if (route[0] === "notes") {
-        const session = store.getSession()
-        const notes = session.notes || []
+        let session = store.getSession()
+        let notes = session.notes || []
         if (route.length === 1 && req.method === "GET") return send(res, 200, notes)
         const id = route[1] && decodeURIComponent(route[1])
-        const note = notes.find((n) => String(n.id) === String(id))
+        let note = notes.find((n) => String(n.id) === String(id))
         if (route.length === 2 && req.method === "GET") return note ? send(res, 200, note) : send(res, 404, { error: "no such note" })
         if (route.length === 2 && req.method === "PATCH") {
           if (!note) return send(res, 404, { error: "no such note" })
-          patchNote(note, JSON.parse((await readBody(req)) || "{}"), req.headers["x-retake-from"] === "user" ? "user" : "agent")
+          const body = JSON.parse((await readBody(req)) || "{}")
+          // (What the hook adds, e.g. the code a resolve landed on; it may take a moment.)
+          const extra = hooks.onNotePatch ? await hooks.onNotePatch(note, body) : null
+          session = store.getSession()
+          notes = session.notes || []
+          note = notes.find((n) => String(n.id) === String(id))
+          if (!note) return send(res, 404, { error: "no such note" })
+          patchNote(note, body, req.headers["x-retake-from"] === "user" ? "user" : "agent")
+          if (extra) Object.assign(note, extra)
           store.putSession(session)
           bus.emit("note-updated", note)
           return send(res, 200, note)
@@ -342,8 +355,8 @@ export function createSessionHandler({ root, token, bus }) {
 
 // The Vite adapter: the handler on Vite's middleware stack, and server.json
 // written once Vite is listening.
-export function sessionApi(server, { token, bus, root = server.config.root }) {
-  const handler = createSessionHandler({ root, token, bus })
+export function sessionApi(server, { token, bus, root = server.config.root, hooks = {} }) {
+  const handler = createSessionHandler({ root, token, bus, hooks })
   const address = () => {
     const a = server.httpServer && server.httpServer.address()
     const port = a && typeof a === "object" ? a.port : server.config.server.port

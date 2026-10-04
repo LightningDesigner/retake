@@ -292,3 +292,133 @@ test("picks under the pointer after scrolling: a text span, a heading, a nav lin
   expect(nav.el.components[0]).toBe("Header")
   expect(h.dockErrors).toEqual([])
 })
+
+// ---- what's stacked under the pointer (a real marketing site's story section) ----
+// ?story: a drawn underline (svg, pointer-events: none) under a word with a map
+// image laid over it; a floating quote with an emphasised word and an underlined
+// word; a word that pops in later (opacity 0 until then). See the fixture.
+
+// A point on an element, as fractions of its box.
+async function pointIn(h, sel, fx, fy) {
+  await h.rt((s) => document.querySelector(s).scrollIntoView({ block: "center" }), sel)
+  await h.page.waitForTimeout(200)
+  const b = await h.box(sel)
+  return { x: b.x + b.w * fx, y: b.y + b.h * fy }
+}
+// ⌘ held over a point: the layer list there.
+async function hoverMeta(h, { x, y }) {
+  await h.page.mouse.move(x - 3, y - 3)
+  await h.page.keyboard.down("Meta")
+  await h.page.mouse.move(x, y)
+}
+const noteClip = (page) => dock(page, (D) => D.notes[D.notes.length - 1].clip)
+
+// F124: the stroke is under the image (the image is on top, and the svg has
+// pointer-events: none): the image was picked, and the stroke wasn't in the list.
+test("F124: ⌘-click on a drawn underline under an overlay image picks the animated stroke; the image stays in the list", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const p = await pointIn(h, ".rough-svg", 0.21, 0.47)
+  await hoverMeta(h, p)
+  await expect(page.locator("#wb-layers .layer.on")).toContainText("path")
+  await expect(page.locator("#wb-layers .layer.on.anim")).toContainText("rough-draw")
+  await expect(page.locator("#wb-layers")).toContainText("img.world-map")
+  await page.keyboard.up("Meta")
+  const n = await noteAt(h, p, "Draw it slower")
+  expect(n.el.label).toMatch(/path/)
+  expect((await noteClip(page)).label).toBe("rough-draw")
+  expect(h.dockErrors).toEqual([])
+})
+
+// F125: an underline drawn under an inline word, inside a quote that floats:
+// the point is below the word's line box and the svg takes no pointer events,
+// so the quote was picked, with the quote's animation.
+test("F125: ⌘-click on the underline of an inline word in a floating quote picks its stroke, not the quote", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const n = await noteAt(h, await pointIn(h, ".ru-svg", 0.23, 0.49), "Thicker")
+  expect(n.el.label).toMatch(/path/)
+  expect((await noteClip(page)).label).toBe("rough-underline-draw")
+})
+
+// An inline <strong> with its own animation inside the floating quote: the
+// strong, with its animation (not the quote's).
+test("a ⌘-click on an emphasised word in a floating quote picks the word and its own animation", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const n = await noteAt(h, await center(h, ".quote .em"), "Warmer")
+  expect(n.el.label).toBe("<strong.em>")
+  expect((await noteClip(page)).label).toBe("em-glow")
+})
+
+// F126: a word that pops in later is at opacity 0 at this moment (in its
+// delay): the paragraph around it (which has no animation) was picked.
+test("F126: ⌘-click where a word will pop in picks that animated word, not its still paragraph", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const n = await noteAt(h, await center(h, ".pop"), "Pop sooner")
+  expect(n.el.label).toBe("<em.pop>")
+  expect((await noteClip(page)).label).toBe("pop-in")
+})
+
+// F127: the list only moved with the wheel or Tab, and showed four layers:
+// after Tab the list stays put, and a click on any of its rows picks that layer.
+test("F127: after Tab the layer list stays put and a click on a row notes that layer", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const p = await pointIn(h, ".rough-svg", 0.21, 0.47)
+  await hoverMeta(h, p)
+  await page.keyboard.press("Tab")
+  const row = page.locator("#wb-layers .layer", { hasText: "img.world-map" })
+  await expect(row).toBeVisible()
+  const r = await row.boundingBox()
+  // On the way there the pointer crosses the page: the list doesn't follow it.
+  await page.mouse.move(p.x + 8, p.y + 8)
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 8 })
+  await expect(row).toBeVisible()
+  await row.click()
+  await page.keyboard.up("Meta")
+  await expect(page.locator("#wb-note .note-meta .el")).toHaveText("<img.world-map>")
+})
+
+// F135: a press on a row opens the card, often right under the pointer; the
+// press then ends on the card and the click goes to the page, which closed the
+// card at once (a quick click, as people click; a slow press kept it).
+test("F135: a quick click on a row of the layer list opens the note on that layer and keeps it open", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const p = await pointIn(h, ".rough-underline", 0.5, 0.4)
+  await hoverMeta(h, p)
+  const row = page.locator("#wb-layers .layer", { hasText: "blockquote.quote" })
+  await expect(row).toBeVisible()
+  const r = await row.boundingBox()
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 8 })
+  await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2)
+  await page.keyboard.up("Meta")
+  await page.waitForTimeout(200)
+  await expect(page.locator("#wb-note")).toBeVisible()
+  await expect(page.locator("#wb-note .note-meta .el")).toHaveText("<blockquote.quote>")
+  // It's a note like any other: typed into and saved on that layer.
+  const ta = page.locator("#wb-note textarea")
+  await ta.fill("Float less")
+  await ta.press("Enter")
+  await expect(page.locator("#wb-note")).toBeHidden()
+  expect(await dock(page, (D) => D.notes[D.notes.length - 1].el.label)).toBe("<blockquote.quote>")
+  expect(h.dockErrors).toEqual([])
+})
+
+// F128: on Next 15 with Turbopack a motion library's code is bundled into the
+// same chunk as the app's: every frame of the element's own stack maps into the
+// library, and the source stayed the chunk's line ("maps into library code").
+// The component that rendered it (app/hero.jsx) is where it's written.
+test("F128: an element a library rendered, from a Turbopack chunk shared with the app, gets the app's line", async ({ page }) => {
+  const h = await setup(page, "?turbo")
+  await noteAt(h, await center(h, ".turbo-underline"), "Thinner")
+  await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.source)).toMatchObject({ file: "app/hero.jsx", line: 11, mapped: true })
+  const src = await dock(page, (D) => D.notes[D.notes.length - 1].el.source)
+  expect(src.compiled).toBeFalsy()
+})
+
+// F136: on a real Next 15.5 app the library has a chunk of its own
+// (node_modules_….js) and every element stack ends in a frame from a script
+// inline in the page (Retake's runtime): that frame was taken as the source
+// (file "", the page's line 269) instead of the app's line.
+test("F136: an element a library rendered from its own chunk gets the app's line, not a frame below React's", async ({ page }) => {
+  const h = await setup(page, "?turbo")
+  await noteAt(h, await center(h, ".turbo-split"), "Thinner")
+  await expect.poll(() => dock(page, (D) => D.notes[D.notes.length - 1].el.source)).toMatchObject({ file: "app/hero.jsx", line: 11, mapped: true })
+})

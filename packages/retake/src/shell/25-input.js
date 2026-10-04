@@ -437,6 +437,7 @@ function openLaneMenu(e, b) {
   menuEl.innerHTML = b.parentId
     ? `<button data-rename-timeline="${b.id}">Rename</button><button class="danger" data-delete-timeline="${b.id}">Delete ${esc(b.name)}</button>`
     : `<button data-rename-timeline="${b.id}">Rename</button><div class="menu-note">The first timeline can't be deleted</div>`
+  menuEl.innerHTML += codeMenuItems()
   menuEl.hidden = false
   menuEl.style.left = Math.min(e.clientX, innerWidth - 200) + "px"
   menuEl.style.top = e.clientY - menuEl.offsetHeight - 6 + "px"
@@ -538,8 +539,8 @@ function dockKey(e, fromApp) {
     return true
   }
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-    // An open clip of the focused element: its own frames and keyframes.
-    if (focusStep(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)) return true
+    // An open clip of the focused element: its own frames, keyframes (⌥), a range (Shift).
+    if (focusStep(e.key === "ArrowRight" ? 1 : -1, { tick: e.altKey, extend: e.shiftKey })) return true
     stepBy(e.key === "ArrowRight" ? 1 : -1, e.shiftKey)
     return true
   }

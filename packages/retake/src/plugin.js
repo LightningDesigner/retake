@@ -6,7 +6,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { codeVersions } from "./code-versions.js"
+import { viteCodeHost } from "./code-versions.js"
 import { injectResponse, runtimeSource, runtimeTag, shellHtml } from "./core.js"
 import { createBus, sessionApi } from "./server/api.js"
 import { frontRuntime } from "./server/detect.js"
@@ -19,8 +19,11 @@ const pageKind = new AsyncLocalStorage()
 
 /**
  * @param {import("../types/index.js").RetakeOptions} [options]
- *   `codeBranches`: each timeline keeps its own version of the code; stepping
- *   into a timeline checks its code out on disk (see code-versions.js).
+ *   `codeTimelines`: each timeline keeps its own code; stepping into a timeline
+ *   puts its code on disk (true), every timeline shares the files (false), or
+ *   the dock asks the first time it matters ("ask", the default; the answer is
+ *   kept in .retake/settings.json). `codeBranches: true` is the old name.
+ *   See code-versions.js.
  *   `root`: where .retake/ goes (default: Vite's root).
  *   Public types: types/index.d.ts (keep them in step).
  * @returns {import("vite").Plugin[]}
@@ -30,6 +33,9 @@ export function retake(options = {}) {
   options = { ...options, token: options.token || crypto.randomBytes(16).toString("hex") }
   const bus = createBus()
   let ssr = false
+  /** @type {ReturnType<typeof viteCodeHost> | null} */
+  let code = null
+  const codeOption = options.codeTimelines !== undefined ? options.codeTimelines : options.codeBranches ? true : undefined
   /** @type {string | undefined} */
   let viteRoot
   // The dock for a top-level page load, the runtime injected into the dock's
@@ -85,8 +91,16 @@ export function retake(options = {}) {
         }
         next()
       })
-      sessionApi(server, { token: options.token, bus, root: options.root })
-      if (options.codeBranches) codeVersions(server, { token: options.token, bus })
+      // The code timelines see each session before it's saved (hooks filled in below).
+      const hooks = {}
+      const { store } = sessionApi(server, { token: options.token, bus, root: options.root, hooks })
+      try {
+        code = viteCodeHost(server, { token: options.token, bus, sessions: store, enabled: codeOption === "ask" ? null : codeOption })
+        Object.assign(hooks, code.hooks)
+        server.middlewares.use(code.handler)
+      } catch (err) {
+        server.config.logger.warn(`  retake: code timelines are off (${err.message})`)
+      }
       const httpServer = server.httpServer
       if (httpServer) {
         httpServer.once("listening", () => {
@@ -94,14 +108,15 @@ export function retake(options = {}) {
           const port = a && typeof a === "object" ? a.port : server.config.server.port
           const proto = server.config.server.https ? "https" : "http"
           const base = server.config.base || "/"
-          if (options.banner !== false) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${options.codeBranches ? "  (code branches on)" : ""}${ssr ? "  (server-rendered pages)" : ""}\n`)
+          const codeLabel = code ? `  (code timelines: ${code.enabled === true ? "on" : code.enabled === false ? "off" : "ask"})` : ""
+          if (options.banner !== false) console.log(`\n  \x1b[1mRetake\x1b[0m  timeline docked at ${proto}://localhost:${port}${base}${codeLabel}${ssr ? "  (server-rendered pages)" : ""}\n`)
         })
       }
     },
-    // With code branches the dock decides when the frame reloads (it replays
-    // up to the current moment on the new code), so Vite's HMR stands down.
+    // With code timelines on, the dock decides when the frame reloads (it
+    // replays up to the current moment on the new code), so Vite's HMR stands down.
     handleHotUpdate() {
-      if (options.codeBranches) return []
+      if (code && code.enabled === true) return []
     },
     transformIndexHtml: {
       order: "pre",

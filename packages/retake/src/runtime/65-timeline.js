@@ -195,6 +195,8 @@ function recordClip(e) {
   if (kf.length >= 2) {
     c.from = keyframeValues(kf[0])
     c.to = keyframeValues(kf[kf.length - 1])
+    // Stops in between: a loop that ends where it starts still moves (F137).
+    if (kf.length > 2) c.kfs = kf.length
   }
   if (c.property === undefined) delete c.property
   if (c.component === undefined) delete c.component

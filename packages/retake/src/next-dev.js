@@ -15,11 +15,14 @@
 //   anything else                        passed on
 //
 // What a middleware module holds is lost when Next compiles it again, so the
-// token and the session API live on globalThis for the life of the server.
+// token, the session API and the code timelines (code-versions.js, with a
+// watcher of their own) live on globalThis for the life of the server.
+// RETAKE_CODE_TIMELINES=1 turns code timelines on (0 off; unset: the dock asks).
 import crypto from "node:crypto"
 import { Readable } from "node:stream"
 import { injectHtml, runtimeScript, runtimeTag, shellHtml } from "./core.js"
 import { createBus, createSessionHandler, writeServerInfo } from "./server/api.js"
+import { createCodeHost, watchTree } from "./code-versions.js"
 import { frontRuntime } from "./server/detect.js"
 import { adaptCsp, hostAllowed } from "./server/front.js"
 
@@ -31,7 +34,8 @@ const VARY = "Sec-Fetch-Dest, Sec-Fetch-Mode"
 const KEY = Symbol.for("retake-dev/next")
 
 /**
- * @typedef {{ root: string, token: string, api: ReturnType<typeof createSessionHandler>, rt: import("../types/index.js").RuntimeConfig, url: string | null }} State
+ * @typedef {{ root: string, token: string, api: ReturnType<typeof createSessionHandler>, rt: import("../types/index.js").RuntimeConfig, url: string | null,
+ *   code: ReturnType<typeof createCodeHost> | null }} State
  */
 /** @returns {State} */
 function state() {
@@ -40,7 +44,32 @@ function state() {
   const root = process.env.RETAKE_ROOT || process.cwd()
   const token = crypto.randomBytes(16).toString("hex")
   const bus = createBus()
-  return (g[KEY] = { root, token, api: createSessionHandler({ root, token, bus }), rt: { ...frontRuntime("next", root), marker: /** @type {"header"} */ ("header") }, url: null })
+  const hooks = {}
+  /** @type {State} */
+  const s = (g[KEY] = { root, token, api: createSessionHandler({ root, token, bus, hooks }), rt: { ...frontRuntime("next", root), marker: /** @type {"header"} */ ("header") }, url: null, code: null })
+  const env = process.env.RETAKE_CODE_TIMELINES
+  try {
+    s.code = createCodeHost({ root, token, bus, sessions: s.api.store, enabled: env === "1" ? true : env === "0" ? false : null, settle: (o) => settle(s, o) })
+    Object.assign(hooks, s.code.hooks)
+    const host = s.code
+    watchTree(root, (f) => host.onWatch(f))
+  } catch (err) {
+    console.warn(`[retake] code timelines are off (${err.message})`)
+  }
+  return s
+}
+
+// After a checkout: Next's watcher has fired (its aggregate timeout is about
+// 200 ms), then the frame's page is fetched once from this server, which
+// waits until Next has compiled it, so the rebuild doesn't race a compile.
+/** @param {State} s @param {{ url?: string }} [o] */
+async function settle(s, { url } = {}) {
+  await new Promise((r) => setTimeout(r, 250))
+  if (!s.url) return
+  try {
+    const r = await fetch(new URL(url && url.startsWith("/") ? url : "/", s.url), { headers: { [INTERNAL]: "1", accept: "text/html" }, signal: AbortSignal.timeout(15_000) })
+    await r.arrayBuffer()
+  } catch {}
 }
 
 // .retake/server.json, for `retake mcp`: the dev server's URL as the browser uses it.
@@ -176,7 +205,8 @@ function api(s, req, url) {
       sent = true
       resolve(new Response(stream, { status: res.statusCode, headers: head }))
     }
-    Promise.resolve(s.api(nodeReq, res)).catch((err) => {
+    const handler = s.code ? (q, r) => /** @type {any} */ (s.code).handler(q, r, () => s.api(q, r)) : s.api
+    Promise.resolve(handler(nodeReq, res)).catch((err) => {
       if (!sent) resolve(new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "content-type": "application/json" } }))
     })
   })

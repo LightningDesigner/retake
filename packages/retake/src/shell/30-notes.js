@@ -40,8 +40,27 @@ const innerTarget = (e) => {
 shell.inspect = (e) => {
   const el = innerTarget(e)
   if (e.type === "pointermove" || e.type === "pointerover") {
+    // On its way to the layer list, the pointer leaves the list as it is (F127).
+    const prev = prevMove
+    prevMove = { x: e.clientX, y: e.clientY }
+    // Only then does the list take the pointer (its rows can be clicked).
+    const toward = towardLayers(prev, prevMove)
+    layersEl.classList.toggle("reach", toward)
+    if (toward) return
     lastPointer = { x: e.clientX, y: e.clientY }
-    buildLayers(e.clientX, e.clientY, usable(el))
+    // While it moves, what takes pointer events; once it rests, everything (F124).
+    buildLayers(e.clientX, e.clientY, usable(el), false)
+    layersAt.moved = true
+    clearTimeout(fullTimer)
+    const x = e.clientX
+    const y = e.clientY
+    fullTimer = setTimeout(() => {
+      if (!mode() || !layersAt || layersAt.x !== x || layersAt.y !== y || layersAt.full) return
+      // On its way to the list: rebuilding it now would move the rows away (F135).
+      if (layersEl.classList.contains("reach")) return
+      buildLayers(x, y, usable(el))
+      layersAt.moved = true
+    }, 60)
   } else if (e.type === "wheel") {
     if (Math.abs(e.deltaY) >= 4) cycleLayer(e.deltaY > 0 ? 1 : -1)
   } else if (e.type === "keydown" && e.key === "Tab") {
@@ -49,7 +68,7 @@ shell.inspect = (e) => {
   } else if ((e.type === "click" || (e.type === "pointerup" && noClick(el))) && usable(el)) {
     // The list the highlight showed, unless it was built somewhere else (F90):
     // then the one at the click.
-    if (!layersAt || layersAt.x !== e.clientX || layersAt.y !== e.clientY) buildLayers(e.clientX, e.clientY, usable(el))
+    if (!layersAt || layersAt.x !== e.clientX || layersAt.y !== e.clientY || !layersAt.full) buildLayers(e.clientX, e.clientY, usable(el))
     const p = pick()
     if (p) p.picked = pickedInfo(p)
     if (mode() === "select") setScope(p ? p.el : usable(el))
@@ -92,7 +111,10 @@ function setMeta(down) {
 // media or a control, or that paints something; then the rest in z-order;
 // then decorative layers (an empty overlay: a glow, a stretched link, a
 // scrim) and invisible ones (opacity 0, a closed menu sheet). Wheel or Tab
-// moves through them; a click picks the highlighted one.
+// moves through them; a click picks the highlighted one, a click on a row of
+// the list picks that one. Layers with an animation running are marked, and
+// the pick prefers one (F124-F126): the element under the pointer if it moves,
+// else something moving inside it, else what an image without one covers.
 
 let layers = [] // [{ el, pseudo, anim, name, label, rank, why, z }]
 let layerIdx = 0
@@ -151,11 +173,14 @@ function seen(el) {
 // Everything at the point, topmost first: inside open shadow roots (before
 // their host), and embedded iframes (out of hit testing while the app is
 // view-only: no click reaches them) on top.
-function hitList(doc, x, y) {
+function hitList(doc, x, y, full = true) {
   let els = []
-  try {
-    els = doc.elementsFromPoint(x, y)
-  } catch {}
+  if (full) els = everythingAt(doc, x, y)
+  else {
+    try {
+      els = doc.elementsFromPoint(x, y)
+    } catch {}
+  }
   const out = []
   const walk = (list, depth) => {
     for (const el of list) {
@@ -179,6 +204,77 @@ function hitList(doc, x, y) {
   } catch {}
   return out
 }
+
+// elementsFromPoint leaves out what takes no pointer events, though it's
+// painted there (a drawn underline, an icon, an overlay's children: F124,
+// F125). The point is read with every element taking them: a sheet adopted
+// for the read and dropped right after (no DOM change, nothing recorded).
+const hitSheets = new WeakMap()
+function everythingAt(doc, x, y) {
+  let sheet = null
+  try {
+    sheet = hitSheets.get(doc)
+    if (!sheet) {
+      sheet = new doc.defaultView.CSSStyleSheet()
+      sheet.replaceSync("* { pointer-events: auto !important; }")
+      hitSheets.set(doc, sheet)
+    }
+    doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
+  } catch {
+    sheet = null
+  }
+  try {
+    return doc.elementsFromPoint(x, y)
+  } catch {
+    return []
+  } finally {
+    if (sheet) {
+      try {
+        doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((x) => x !== sheet)
+      } catch {}
+    }
+  }
+}
+
+// The element's own animation running at the moment on show, for marking and
+// preferring layers (a 0ms transition doesn't count). Clips are matched to
+// elements once per moment, by their selector (else by recorded path).
+let runningMemo = { key: "", byEl: new Map(), loose: [] }
+function runningClips(doc) {
+  const s = D.last
+  const t = s ? shownTime(s) : 0
+  const clips = timeline().clips
+  const key = `${D.activeId}:${Math.round(t)}:${clips.length}`
+  if (runningMemo.key === key && runningMemo.doc === doc) return runningMemo
+  const byEl = new Map()
+  const loose = []
+  for (const c of clips) {
+    if (c.pseudoElement || c.start > t + 0.5 || (c.end != null && (c.end < t - 0.5 || c.end - c.start < 1))) continue
+    const found = c.selector ? findAll(c.selector, doc) : []
+    if (found.length === 1) byEl.set(found[0], [...(byEl.get(found[0]) || []), c])
+    else loose.push(c)
+  }
+  runningMemo = { key, doc, byEl, loose, t, own: new WeakMap() }
+  return runningMemo
+}
+function animOf(el) {
+  if (!el || el.tagName === "HTML" || el.tagName === "BODY") return null
+  let r = null
+  try {
+    r = runningClips(el.ownerDocument)
+  } catch {
+    return null
+  }
+  if (r.own.has(el)) return r.own.get(el)
+  let c = (r.byEl.get(el) || [])[0] || null
+  if (!c && r.loose.length) {
+    const mine = new Set(clipsOn(el))
+    c = r.loose.find((x) => mine.has(x)) || null
+  }
+  r.own.set(el, c)
+  return c
+}
+const animLabel = (c) => (c.kind === "transition" ? `${c.property || ""} transition`.trim() : c.label || c.property || "animation")
 
 // The elements an element at the point stands for: itself; for a shape inside
 // an svg, the shape (stroke animations live there), the whole <svg>, and the
@@ -219,16 +315,19 @@ function rankOf(el, below) {
   return { rank: 1 }
 }
 
-function buildLayers(x, y, fallback) {
+let fullTimer = 0
+function buildLayers(x, y, fallback, full = true) {
   let doc = null
   try {
     doc = D.frame.contentDocument
   } catch {}
   const els = []
   const seenEls = new Set()
-  for (const raw of doc ? hitList(doc, x, y) : []) {
+  for (const raw of doc ? hitList(doc, x, y, full) : []) {
     for (const el of candidates(raw)) {
       if (seenEls.has(el)) continue
+      // An svg's <g> is only a layer when it moves.
+      if (/^(g|defs|symbol|mask|clipPath)$/.test(el.tagName) && isSvg(el) && !animOf(el)) continue
       seenEls.add(el)
       els.push(el)
     }
@@ -240,7 +339,8 @@ function buildLayers(x, y, fallback) {
   const groups = els.map((el, z) => {
     const below = els.slice(z + 1).filter((b) => b.tagName !== "IFRAME" && (ownText(b) || b.matches(MEDIA)) && !b.contains(el))
     const { rank, why } = rankOf(el, below)
-    const host = { el, pseudo: null, anim: null, name: null, label: layerLabel(el), rank, why: why || null, z }
+    const moving = animOf(el)
+    const host = { el, pseudo: null, anim: null, name: null, label: layerLabel(el), rank, why: why || null, z, moving: moving ? animLabel(moving) : null }
     const pseudos = []
     let anims = []
     try {
@@ -253,31 +353,40 @@ function buildLayers(x, y, fallback) {
       const name = animName(a)
       if (names.has(pe + name)) continue
       names.add(pe + name)
-      pseudos.push({ el, pseudo: pe, anim: a, name, label: `${pe} · ${name} · ${animTiming(a)}`, rank, why: null, z })
+      pseudos.push({ el, pseudo: pe, anim: a, name, label: `${pe} · ${name} · ${animTiming(a)}`, rank, why: null, z, moving: null })
     }
     return [host, ...pseudos]
   })
   const order = groups.map((g, i) => ({ g, i })).sort((a, b) => a.g[0].rank - b.g[0].rank || a.i - b.i)
   const out = order.flatMap((o) => o.g)
-  if (!out.length && fallback) out.push({ el: fallback, pseudo: null, anim: null, name: null, label: layerLabel(fallback), rank: 0, why: null, z: 0 })
+  if (!out.length && fallback) out.push({ el: fallback, pseudo: null, anim: null, name: null, label: layerLabel(fallback), rank: 0, why: null, z: 0, moving: null })
   const key = out.map((l) => l.label).join("|")
   if (key !== layersKey) {
     layersKey = key
     layerIdx = defaultLayer(out)
   }
   layers = out
-  layersAt = { x, y }
+  layersAt = { x, y, full }
+  layersEl.classList.remove("reach")
   hovered = pick() ? pick().el : null
 }
 
 // The first content layer; for a shape in an svg, the svg itself, or the
-// control it's the icon of.
+// control it's the icon of. When that one has no animation running: one
+// moving inside it under the pointer (a word popping in, at opacity 0 until
+// then: F126), or, for an image or box with no text of its own, a moving
+// shape, image or text it covers (a drawn underline under a map: F124).
 function defaultLayer(list) {
   let i = list.findIndex((l) => l.rank === 0)
   if (i < 0) i = list.findIndex((l) => l.rank < 2)
   if (i < 0) return 0
-  const l = list[i]
-  if (isSvg(l.el)) {
+  let l = list[i]
+  if (!l.moving && !l.pseudo) {
+    let j = list.findIndex((x) => x.moving && !x.pseudo && x.el !== l.el && l.el.contains(x.el))
+    if (j < 0 && !ownText(l.el) && !l.el.matches(CONTROL)) j = list.findIndex((x) => x.moving && !x.pseudo && x.z > l.z && x.rank < 2 && !x.el.contains(l.el) && (isSvg(x.el) || x.el.matches(MEDIA) || ownText(x.el)))
+    if (j >= 0) (i = j), (l = list[j])
+  }
+  if (isSvg(l.el) && !l.moving) {
     const svg = svgRootOf(l.el)
     const control = svgControl(svg)
     const want = control || svg
@@ -300,20 +409,31 @@ function cycleLayer(dir) {
   hovered = pick().el
 }
 
-// The chip beside the pointer: the top layers, the pick highlighted, a
-// layer that's skipped dimmed with why (so it's clear the wheel reaches it).
+// The list beside the pointer: the layers there, the pick highlighted, a
+// moving one marked with its animation, one that's skipped dimmed with why.
+// It never sits under the pointer, and its rows can be clicked: the pointer
+// on its way there leaves it as it is (towardLayers).
+const MAX_ROWS = 8
 let layersHtml = ""
 function renderLayers() {
-  const show = mode() === "comment" && layers.length > 0 && lastPointer
+  const at = layersAt || lastPointer
+  const show = mode() === "comment" && layers.length > 0 && !!at
   layersEl.hidden = !show
-  if (!show) return
-  const shown = layers.map((l, i) => ({ l, i })).filter((x) => x.l.rank < 2 || x.i === layerIdx)
-  const skipped = layers.map((l, i) => ({ l, i })).filter((x) => x.l.rank >= 2 && x.i !== layerIdx)
-  const top = shown.slice(0, skipped.length ? 3 : 4).concat(skipped.slice(0, 1))
+  if (!show) return layersEl.classList.remove("reach")
+  const rows = layers.map((l, i) => ({ l, i }))
+  const shown = rows.filter((x) => x.l.rank < 2 || x.l.moving || x.i === layerIdx)
+  const skipped = rows.filter((x) => !shown.includes(x))
+  const top = shown.slice(0, skipped.length ? MAX_ROWS - 1 : MAX_ROWS).concat(skipped.slice(0, 1))
+  if (!top.some((x) => x.i === layerIdx) && pick()) top[top.length - 1] = { l: pick(), i: layerIdx }
   const rest = layers.length - top.length
   const html =
-    top.map(({ l, i }) => `<div class="layer${i === layerIdx ? " on" : ""}${l.pseudo ? " pseudo" : ""}${l.rank >= 2 ? " skipped" : ""}">${esc(l.label)}${l.rank >= 2 && l.why ? ` · ${esc(l.why)}` : ""}</div>`).join("") +
-    (rest > 0 ? `<div class="more">+${rest}</div>` : "")
+    top
+      .map(({ l, i }) => {
+        const cls = `layer${i === layerIdx ? " on" : ""}${l.pseudo ? " pseudo" : ""}${l.rank >= 2 ? " skipped" : ""}${l.moving ? " anim" : ""}`
+        const tail = l.moving ? `<span class="what">${esc(l.moving)}</span>` : l.rank >= 2 && l.why ? `<span class="what">${esc(l.why)}</span>` : ""
+        return `<div class="${cls}" data-layer="${i}">${esc(l.label)}${tail ? " · " + tail : ""}</div>`
+      })
+      .join("") + (rest > 0 ? `<div class="more">+${rest}</div>` : "")
   if (html !== layersHtml) {
     layersHtml = html
     layersEl.innerHTML = html
@@ -321,9 +441,76 @@ function renderLayers() {
   const f = D.frame.getBoundingClientRect()
   const w = layersEl.offsetWidth
   const h = layersEl.offsetHeight
-  layersEl.style.left = clamp(f.left + lastPointer.x + 16, 8, innerWidth - w - 8) + "px"
-  layersEl.style.top = clamp(f.top + lastPointer.y + 16, 8, dock.getBoundingClientRect().top - h - 8) + "px"
+  const px = f.left + at.x
+  const py = f.top + at.y
+  const bottom = dock.getBoundingClientRect().top - 8
+  // Right of and below the point; flipped to the other side where it won't fit.
+  const left = px + 16 + w <= innerWidth - 8 ? px + 16 : px - 16 - w
+  const top0 = py + 16 + h <= bottom ? py + 16 : py - 16 - h
+  layersEl.style.left = clamp(left, 8, innerWidth - w - 8) + "px"
+  layersEl.style.top = clamp(top0, 8, bottom - h) + "px"
 }
+
+// Is the pointer (frame coordinates) on its way from where the list was built
+// (by a pointer move there) to the list? A short step from there, or from a
+// point already on the way, inside the convex hull of that point and the
+// list's corners.
+let prevMove = null
+function towardLayers(from, to) {
+  if (layersEl.hidden || !layersAt || !layersAt.moved || !layers.length || !from) return false
+  if (Math.hypot(to.x - from.x, to.y - from.y) > 40 || Math.hypot(to.x - layersAt.x, to.y - layersAt.y) < 2) return false
+  const f = D.frame.getBoundingClientRect()
+  const r = layersEl.getBoundingClientRect()
+  if (!r.width) return false
+  const P = { x: layersAt.x, y: layersAt.y }
+  const h = hull([P, { x: r.left - f.left, y: r.top - f.top }, { x: r.right - f.left, y: r.top - f.top }, { x: r.right - f.left, y: r.bottom - f.top }, { x: r.left - f.left, y: r.bottom - f.top }])
+  const atP = Math.hypot(from.x - P.x, from.y - P.y) < 2
+  return (atP || inHull(h, from)) && inHull(h, to)
+}
+// Monotone chain, counter-clockwise.
+function hull(pts) {
+  const p = [...pts].sort((a, b) => a.x - b.x || a.y - b.y)
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+  const lower = []
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop()
+    lower.push(q)
+  }
+  const upper = []
+  for (const q of p.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop()
+    upper.push(q)
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1))
+}
+function inHull(h, q) {
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i]
+    const b = h[(i + 1) % h.length]
+    if ((b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x) < 0) return false
+  }
+  return h.length > 2
+}
+
+// A press on a row picks that layer, as a click on the app would have.
+layersEl.addEventListener("pointerdown", (e) => {
+  const row = /** @type {HTMLElement | null} */ (/** @type {Element} */ (e.target).closest("[data-layer]"))
+  if (!row || !layersAt) return
+  e.preventDefault()
+  e.stopPropagation()
+  layerIdx = Number(row.dataset.layer)
+  const p = pick()
+  if (!p) return
+  // The card can open under the pointer: the press then ends on it and the
+  // click goes to what holds both (the page), which isn't a click away (F135).
+  const swallow = (ev) => ev.stopPropagation()
+  window.addEventListener("click", swallow, { capture: true, once: true })
+  setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 1000)
+  hovered = p.el
+  p.picked = pickedInfo(p)
+  if (mode() === "select") setScope(p.el)
+  else openComposer(p.el, { x: layersAt.x, y: layersAt.y }, p)
+})
 
 // How the pick was made, for the note: on top, or a layer down, and what was
 // skipped above it.
@@ -605,56 +792,82 @@ function reactComponents(el) {
 // (types stripped, JSX compiled; or a whole bundle, as Next's Turbopack and
 // webpack chunks are), which mapSource() turns back into source lines with
 // the served file's source map. Frames that map into library code (the JSX
-// runtime bundled into the same chunk) are skipped. With no map at all the
-// source stays unmapped (mapped: false) and says it's a compiled bundle.
+// runtime bundled into the same chunk) are skipped; an element a library
+// rendered (Motion's <motion.span>: every frame of its own stack is the
+// library's, bundled into the app's chunk on Next 15's Turbopack, F128) is
+// where the app wrote that component. With no map at all the source stays
+// unmapped (mapped: false) and says it's a compiled bundle.
 // (Vite's pre-bundled deps carry a ?v= hash wherever its cacheDir is.)
 const LIB_URL = /node_modules|\/\.vite\/deps\/|\/deps\/[^/?]+\.js\?v=[0-9a-f]+|react-dom|react\.development|jsx-dev-runtime/
 const LIB_FN = /\bat (?:exports\.|Object\.)?(?:jsxDEV|jsxs?|createElement|jsxWithValidation\w*)\b/
+// A script inline in the page (its URL is the page's: no file name).
+const INLINE_URL = /^https?:\/\/[^/]+(\/[^?#]*\/)?(\/?[^/.?#]*)?([?#].*)?$/
+// A fiber's stack: { frames } (served frames, or a webpack module's path),
+// { server } (a server component's chunk line) or null.
+function stackOf(f) {
+  const stack = f._debugStack && (f._debugStack.stack || String(f._debugStack))
+  if (!stack) return null
+  const frames = []
+  let server = null
+  for (const line of stack.split("\n").slice(1)) {
+    // Below React's call into the component: React, the scheduler and
+    // whatever called them (the page's own inline scripts), never where the
+    // element was written (F136).
+    if (/react[-_]stack[-_]bottom[-_]frame/.test(line)) break
+    const m = line.match(/(\S+?):(\d+):(\d+)\)?\s*$/)
+    if (!m || LIB_FN.test(line)) continue
+    const url = m[1].replace(/^.*?\(/, "")
+    if (LIB_URL.test(url) || INLINE_URL.test(url)) continue
+    // webpack's eval'd modules (Next on webpack): the module's own path, its line is the compiled one.
+    if (/^webpack-internal:/.test(url)) {
+      frames.push({ file: cleanSource(url.replace(/^webpack-internal:\/\/\/(\([^)]*\)\/)?/, "")), line: null })
+      continue
+    }
+    // A server component's frame (React 19 dev: about://React/Server/file:///…/.next/…chunk.js)
+    // is a compiled chunk on the server: the dev server maps it (F95, /__retake/map).
+    if (!/^https?:\/\//.test(url)) {
+      if (!server) server = { chunk: url.replace(/^about:\/\/React\/Server\//, ""), line: Number(m[2]), col: Number(m[3]) }
+      continue
+    }
+    frames.push({ url, line: Number(m[2]), col: Number(m[3]) })
+    if (frames.length >= 8) break
+  }
+  return frames.length ? { frames } : server ? { server } : null
+}
 function sourceOf(el) {
   for (let f = fiberOf(el), i = 0; f && i < 12; f = f.return, i++) {
     // The element's own JSX (exact), or a parent's, where it was passed in (owner).
     const confidence = i === 0 ? "exact" : "owner"
     const src = f._debugSource
     if (src && src.fileName) return { file: shortPath(src.fileName), line: src.lineNumber || null, mapped: true, confidence }
-    const stack = f._debugStack && (f._debugStack.stack || String(f._debugStack))
-    if (stack) {
-      const frames = []
-      let server = null
-      for (const line of stack.split("\n").slice(1)) {
-        const m = line.match(/(\S+?):(\d+):(\d+)\)?\s*$/)
-        if (!m || LIB_FN.test(line)) continue
-        const url = m[1].replace(/^.*?\(/, "")
-        if (LIB_URL.test(url)) continue
-        // webpack's eval'd modules (Next on webpack): the module's own path, its line is the compiled one.
-        if (/^webpack-internal:/.test(url)) {
-          frames.push({ file: cleanSource(url.replace(/^webpack-internal:\/\/\/(\([^)]*\)\/)?/, "")), line: null })
-          continue
-        }
-        // A server component's frame (React 19 dev: about://React/Server/file:///…/.next/…chunk.js)
-        // is a compiled chunk on the server: the dev server maps it (F95, /__retake/map).
-        if (!/^https?:\/\//.test(url)) {
-          if (!server) server = { chunk: url.replace(/^about:\/\/React\/Server\//, ""), line: Number(m[2]), col: Number(m[3]) }
-          continue
-        }
-        frames.push({ url, line: Number(m[2]), col: Number(m[3]) })
-        if (frames.length >= 8) break
-      }
-      const first = frames[0]
-      if (first && !first.url) return { file: first.file, line: null, mapped: true, confidence }
-      if (first) {
-        const src = { file: shortPath(first.url), line: first.line, col: first.col, url: first.url, mapped: false, confidence }
-        mapSource(src, frames)
-        return src
-      }
-      // Written by a server component: its line, never the client parent's.
-      if (server && i === 0) {
-        const src = { file: null, line: null, server: true, chunk: server.chunk, col: server.col, chunkLine: server.line, confidence: "unknown" }
-        mapServerSource(src)
-        return src
-      }
+    const st = stackOf(f)
+    if (!st) continue
+    const first = st.frames && st.frames[0]
+    if (first && !first.url) return { file: first.file, line: null, mapped: true, confidence }
+    if (first) {
+      const out = { file: shortPath(first.url), line: first.line, col: first.col, url: first.url, mapped: false, confidence }
+      mapSource(out, st.frames, () => libraryParents(f.return, i + 1))
+      return out
+    }
+    // Written by a server component: its line, never the client parent's.
+    if (st.server && i === 0) {
+      const out = { file: null, line: null, server: true, chunk: st.server.chunk, col: st.server.col, chunkLine: st.server.line, confidence: "unknown" }
+      mapServerSource(out)
+      return out
     }
   }
   return null
+}
+// The fibers above one whose stack was all library code: each one's served
+// frames, nearest first (the component the app wrote, e.g. <motion.span>).
+function libraryParents(f, i) {
+  const out = []
+  for (; f && i < 12 && out.length < 4; f = f.return, i++) {
+    const st = stackOf(f)
+    if (st && st.frames && st.frames[0] && st.frames[0].url) out.push(st.frames)
+    else if (st) break
+  }
+  return out
 }
 
 // The dev server reads the chunk's source map from disk: fills in the file
@@ -816,23 +1029,42 @@ function loadMap(url) {
 
 // Rewrites src (file, line) in place from the first frame that maps into the
 // app's own code, so the note that holds it is saved with the source line.
-async function mapSource(src, frames = [src]) {
+// When every frame maps into library code, the parents' frames (`more()`)
+// are tried in turn: where the app used the library's component.
+async function mapSource(src, frames = [src], more = null) {
+  let r = await mapFrames(src, frames)
+  for (const fr of r === "library" && more ? more() : []) {
+    r = await mapFrames(src, fr)
+    if (r !== "library") break
+  }
+  if (r === "mapped") return
+  // No map: a compiled bundle's line is no use to anyone; say so (the component and selector still are).
+  if (/\/_next\/static\/|\.vite\/deps|\._\.js$|[-_.](?=[0-9a-z]*\d)[0-9a-z]{6,}\.m?js$/i.test(src.file)) src.compiled = true
+}
+// "mapped" (src rewritten), "library" (every frame read maps into library
+// code) or "none".
+async function mapFrames(src, frames) {
+  let sawLibrary = false
   for (const fr of frames) {
     if (!fr.url) {
       Object.assign(src, { file: fr.file, line: null, mapped: true })
       delete src.col
       delete src.url
-      return
+      return "mapped"
     }
     const map = await loadMap(fr.url)
     if (!map) {
-      if (fr === frames[0]) break // nothing to read this one with: unmapped
+      if (fr === frames[0]) return "none" // nothing to read this one with: unmapped
       continue
     }
     const pos = originalPosition(map, fr.line, fr.col)
     if (!pos) continue
     const file = cleanSource(pos.source, map)
-    if (libraryFile(file)) continue
+    if (!file) continue
+    if (libraryFile(file)) {
+      sawLibrary = true
+      continue
+    }
     // A module served as itself (Vite) keeps its served path; a bundle names the source.
     const served = shortPath(fr.url)
     src.file = file.split("/").pop() === served.split("/").pop() ? served : file
@@ -841,10 +1073,9 @@ async function mapSource(src, frames = [src]) {
     delete src.col
     delete src.url
     delete src.compiled
-    return
+    return "mapped"
   }
-  // No map: a compiled bundle's line is no use to anyone; say so (the component and selector still are).
-  if (/\/_next\/static\/|\.vite\/deps|\._\.js$|[-_.](?=[0-9a-z]*\d)[0-9a-z]{6,}\.m?js$/i.test(src.file)) src.compiled = true
+  return sawLibrary ? "library" : "none"
 }
 
 // The computed styles an agent would ask about first. Defaults are left out.
@@ -1027,6 +1258,7 @@ function noteForServer(n) {
     anims: n.anims || null,
     inside: n.inside || [],
     asked: n.asked || null,
+    group: n.group || null,
   }
 }
 
@@ -1041,7 +1273,7 @@ function noteFromServer(n) {
     classes: n.classes || [],
     source: n.source || null,
   }
-  return { id: n.id, branchId: n.branchId, t: n.t, text: n.text || "", el, clip: n.clip || null, status: n.status || "pending", replies: n.replies || [], range: n.range || null, target: n.target || null, anims: n.anims || null, inside: n.inside || [], asked: n.asked || null }
+  return { id: n.id, branchId: n.branchId, t: n.t, text: n.text || "", el, clip: n.clip || null, status: n.status || "pending", replies: n.replies || [], range: n.range || null, target: n.target || null, anims: n.anims || null, inside: n.inside || [], asked: n.asked || null, group: n.group || null }
 }
 
 // A change from outside (an agent replied, or marked it resolved).
@@ -1250,7 +1482,7 @@ function saveDraft() {
     const clip = extra.t !== draft.t && !draft.el.pseudo ? clipFor(extra.t, draft.el.selector, D.focus && D.focus.el) : draft.clip
     // A dragged range wins over numbers typed in the note.
     const asked = extra.range && D.focus && D.focus.open ? null : extra.asked
-    D.notes.push({ id: newNoteId(), t: extra.t, branchId: D.activeId, text, el: draft.el, clip, status: "pending", replies: [], range: extra.range, target: extra.target, anims: extra.anims, inside: extra.inside, asked })
+    D.notes.push({ id: newNoteId(), t: extra.t, branchId: D.activeId, text, el: draft.el, clip, status: "pending", replies: [], range: extra.range, target: extra.target, anims: extra.anims, inside: extra.inside, asked, group: extra.group || null })
   }
   closeCard()
   // Back to the Hand so the next click is on the prototype, not another note.
@@ -1280,7 +1512,7 @@ function showNote(n) {
   card.hidden = false
   placeCard(anchorOf(n.el))
   // Its element row, opened clip and range come back with it.
-  if (n.anims && n.anims.length && (!D.focus || D.focus.note !== n)) {
+  if (((n.anims && n.anims.length) || n.group) && (!D.focus || D.focus.note !== n)) {
     focusFromNote(n)
     if (D.focus) D.focus.note = n
   }

@@ -1,0 +1,6 @@
+/* A group of bars that grow one after the other (the code timelines' end-to-end spec edits the duration). */
+.bars { display: flex; gap: 8px; align-items: flex-end; height: 140px; padding: 24px; }
+.bar { width: 18px; height: 120px; border-radius: 4px; background: #5b8def; transform-origin: bottom;
+  animation: grow 600ms ease-out both; animation-delay: calc(var(--i) * 80ms); }
+.bar.waapi { background: #e8a33d; animation: none; }
+@keyframes grow { from { transform: scaleY(0.1); } to { transform: scaleY(1); } }

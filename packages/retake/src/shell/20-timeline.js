@@ -658,7 +658,7 @@ const invalidateGutter = () => (gutterKey = "")
 function renderGutter(lanes) {
   if (gutter.querySelector("input")) return // renaming
   const fr = D.focus && D.focusRow ? `${D.focus.label}@${D.focusRow.y0}:${D.focusRow.h}` : ""
-  const key = D.compact + ":" + D.rowPitch + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|") + fr
+  const key = D.compact + ":" + D.rowPitch + D.branches.map((b) => `${b.id}:${b.name}:${lanes.get(b.id).y}:${b.id === D.activeId}`).join("|") + fr + codeKey()
   if (key === gutterKey) return
   gutterKey = key
   // Short dock: just the colour dots (the name shows on hover).
@@ -669,7 +669,7 @@ function renderGutter(lanes) {
       const on = b.id === D.activeId
       const cls = `lane-name${on ? " active" : ""}`
       const title = D.compact ? ` title="${esc(b.name)}"` : ""
-      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;height:${D.rowPitch}px;margin-top:${-D.rowPitch / 2}px;--c:${colorOf(b)}"${title}><i></i><span>${esc(b.name)}</span></div>`
+      return `<div class="${cls}" data-lane="${b.id}" style="top:${L.y}px;height:${D.rowPitch}px;margin-top:${-D.rowPitch / 2}px;--c:${colorOf(b)}"${title}><i></i><span>${esc(b.name)}</span>${codeChip(b)}</div>`
     })
     .join("") + (fr ? `<div class="focus-name" style="top:${D.focusRow.y0}px;height:${Math.min(D.focusRow.h, 26)}px" title="${esc(D.focus.label)}">${esc(D.focus.label)}</div>` : "")
 }

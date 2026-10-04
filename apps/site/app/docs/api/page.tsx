@@ -19,7 +19,7 @@ import { retake } from "retake-dev"
 export default defineConfig({
   plugins: [
     retake({
-      codeBranches: false, // each take keeps its own code (rewrites files)
+      codeTimelines: "ask", // each take keeps its own code (true rewrites files when you switch)
       banner: true,        // the "Retake  timeline docked at …" line
     }),
   ],
@@ -70,7 +70,7 @@ export default function Api() {
         rows={[
           [<C key="c">--port &lt;n&gt;</C>, <>Port to serve on. Default <C>3014</C>. For <C>mcp</C>: the server at <C>http://localhost:&lt;n&gt;</C></>],
           [<C key="c">--root &lt;dir&gt;</C>, <>Where <C>.retake/</C> goes. Default: the project, or the current folder</>],
-          [<C key="c">--code-branches</C>, "Each take keeps its own version of the code. Vite apps only; rewrites files on disk (snapshots in .retake/, the newest code put back when the server stops)"],
+          [<C key="c">--code-timelines</C>, "Each take keeps its own code: switching to a take puts its code on disk (snapshots in .retake/, the newest code put back when Retake stops). --no-code-timelines: takes share the files. Default: the dock asks. --code-branches is the old name"],
           [<C key="c">--verbose</C>, <>Logs every request the front server handles to <C>.retake/front.log</C></>],
           [<C key="c">--url &lt;url&gt;</C>, <>For <C>mcp</C>: the Retake server to talk to</>],
           [<C key="c">-- …</C>, <>After a project: arguments for its dev server (<C>retake . -- --host</C>). Without one: the dev command</>],
@@ -91,7 +91,7 @@ export default function Api() {
         head={["Option", "Type", "Default", "Does"]}
         rows={[
           [<C key="c">enabled</C>, <C key="t">boolean</C>, <C key="d">true</C>, "false turns the plugin off; pages are served as they are"],
-          [<C key="c">codeBranches</C>, <C key="t">boolean</C>, <C key="d">false</C>, "Each take keeps its own version of the code; stepping into a take checks its code out on disk"],
+          [<C key="c">codeTimelines</C>, <C key="t">{"boolean | \"ask\""}</C>, <C key="d">&quot;ask&quot;</C>, "Each take keeps its own code; switching to a take puts its code on disk. \"ask\": the dock asks the first time it matters (codeBranches: true is the old name)"],
           [<C key="c">token</C>, <C key="t">string</C>, "random per start", <>The token mutating <C>/__retake/</C> requests must carry</>],
           [<C key="c">root</C>, <C key="t">string</C>, "Vite's root", <>Where <C>.retake/</C> goes</>],
           [<C key="c">banner</C>, <C key="t">boolean</C>, <C key="d">true</C>, "false hides the startup line"],
@@ -132,8 +132,10 @@ export default function Api() {
           [<C key="c">PATCH /__retake/notes/:id</C>, <><C>{"{ status?, reply? }"}</C>: <C>status</C> is pending, acknowledged, resolved or dismissed; <C>reply</C> a string (from the agent, or the user with header <C>x-retake-from: user</C>). Returns the note</>],
           [<C key="c">GET /__retake/events</C>, <>Server-sent events: <C>session</C>, <C>note-updated</C>, <C>active-changed</C>, <C>code-version</C></>],
           [<C key="c">GET /__retake/health</C>, "Front server only: 200 once the dev server behind it has answered, 503 before"],
-          [<C key="c">GET /__retake/version</C>, <>With <C>--code-branches</C>: the code version on disk</>],
-          [<C key="c">POST /__retake/checkout?v=</C>, <>With <C>--code-branches</C>: checks a version out on disk</>],
+          [<C key="c">GET /__retake/code</C>, <>Each take&apos;s code: <C>{"{ enabled, checkedOut, disk, newest, timelines: { [id]: { fork, head, changed, files } } }"}</C></>],
+          [<C key="c">POST /__retake/code/checkout</C>, <><C>{"{ branchId, force? }"}</C>: puts a take&apos;s code on disk (with code timelines on). Returns the files that changed</>],
+          [<C key="c">GET /__retake/code/diff?branch=</C>, "The files a take changed since it started, and a unified diff"],
+          [<C key="c">POST /__retake/code/enabled</C>, <><C>{"{ on }"}</C>: separate code per take, or shared</>],
         ]}
       />
       <H3 id="token">The token</H3>

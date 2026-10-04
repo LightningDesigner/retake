@@ -158,6 +158,30 @@ function deferFetch(input, init, key, hash, signal, headers) {
 // The dev server's own sockets (HMR), live and unrecorded: 37-next.js talks to them.
 const devSockets = new Set()
 
+// While the dock switches a timeline's code on disk (code timelines), what the
+// dev server pushes (hot updates, full reloads) waits: a half-written tree must
+// not hot-update or reload the frame on show. That frame is replaced by a
+// rebuild once the files are in place, and the held messages go with it; if
+// the switch fails they're delivered (PT.holdDev(false)).
+const devHold = { on: false, queue: [] }
+function holdable(target) {
+  target.addEventListener("message", (e) => {
+    if (!devHold.on || e.__retakeFlush) return
+    e.stopImmediatePropagation()
+    devHold.queue.push([target, e])
+  })
+  return target
+}
+PT.holdDev = (on) => {
+  devHold.on = !!on
+  if (devHold.on) return
+  for (const [target, e] of devHold.queue.splice(0)) {
+    const copy = new W.MessageEvent("message", { data: e.data, origin: e.origin, lastEventId: e.lastEventId })
+    copy.__retakeFlush = true
+    target.dispatchEvent(copy)
+  }
+}
+
 // Recorded net events during replay.
 function deliverNet(ev) {
   const key = `${ev.list}:${ev.i}`
@@ -587,7 +611,7 @@ const RealES = W.EventSource
 if (RealES) {
   class RetakeEventSource extends EventTarget {
     constructor(url, opts) {
-      if (isExempt() || isExemptUrl(url)) return new RealES(url, opts)
+      if (isExempt() || isExemptUrl(url)) return holdable(new RealES(url, opts))
       super()
       this.url = new URL(String(url), location.href).href
       this.withCredentials = !!(opts && opts.withCredentials)
@@ -686,7 +710,7 @@ if (RealWS) {
     constructor(url, protocols) {
       // The dev server's own socket (Vite's or Next's HMR client) stays real and unheld.
       if (isExempt() || isExemptUrl(url) || [].concat(protocols || []).some((p) => p === "vite-hmr" || p === "vite-ping")) {
-        const ws = new RealWS(nextSocketUrl(url), protocols)
+        const ws = holdable(new RealWS(nextSocketUrl(url), protocols))
         devSockets.add(ws)
         ws.addEventListener("open", () => (nextDocReplay(), flushNext()))
         ws.addEventListener("message", nextDevMessage)

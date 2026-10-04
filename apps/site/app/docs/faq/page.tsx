@@ -24,7 +24,7 @@ export default function Faq() {
         <H2 id="production">Does it ship to production?</H2>
         <p>
           No. The Vite plugin only runs in <C>vite dev</C>; <C>vite build</C> output has no Retake code in it. The CLI and the front server are dev tools you start by hand,
-          and they don&apos;t change your project&apos;s files (except <C>--code-branches</C>, which does, on purpose). Uninstall it and nothing is left but the <C>.retake/</C> folder.
+          and they don&apos;t change your project&apos;s files (except separate code per take, which does when you switch takes, on purpose). Uninstall it and nothing is left but the <C>.retake/</C> folder.
         </p>
       </div>
       <div className="d-faq">
@@ -52,7 +52,6 @@ export default function Faq() {
             ["Cross-origin iframes", "Retake can't run its clock inside another origin's page"],
             [<>Native <C>import()</C> timing</>, "Vite's lazy routes and Astro islands load when the browser fetches them; they can't be held to their recorded moment"],
             ["Canvas and WebGL pixels in the preview", "Dragging shows the DOM; canvas pixels are right once the rebuilt moment swaps in"],
-            [<><C>--code-branches</C> on frameworks</>, "Code per take is for Vite apps only"],
           ]}
         />
       </div>
@@ -65,7 +64,7 @@ export default function Faq() {
             [<C key="c">session.json</C>, "Takes, bookmarks and notes"],
             [<C key="c">recordings/</C>, "One gzipped recording per take: your inputs and what your API answered"],
             [<C key="c">docs/</C>, "Front server: the frame's pages as they came, so a rebuild gets the HTML it was recorded with (the last 200)"],
-            [<C key="c">versions/</C>, <>With <C>--code-branches</C>: code snapshots</>],
+            [<C key="c">versions/</C>, "Code snapshots: each take's code (code-timelines.json says which is whose)"],
             [<C key="c">server.json</C>, "The running server's URL and token, for the MCP server. Removed when it stops"],
             [<C key="c">front.log</C>, <>With <C>--verbose</C>: every request the front server handled</>],
           ]}

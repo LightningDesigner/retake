@@ -72,7 +72,7 @@ export default retake
 export const config = { runtime: "nodejs" }
 ```
 
-Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.1.tgz`): a
+Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.2.tgz`): a
 `file:` or linked install is a symlink, which Turbopack doesn't follow out of the
 project, and `retake-dev/next` isn't found.
 
@@ -130,7 +130,7 @@ Any other MCP client (Cursor, Codex, Windsurf...) takes the same command,
 
 With the dev server running, the agent can `list_notes`, `get_note`,
 `get_moment`, `get_animation`, `get_timeline_events`, `get_active_timeline`,
-`acknowledge`, `resolve`, `reply` and `watch_notes`.
+`acknowledge`, `resolve`, `reply`, `checkout_timeline`, `get_code_diff` and `watch_notes`.
 It finds the server through `.retake/server.json` (or pass `--url http://localhost:3014`).
 Acknowledging and resolving show up on the note in the dock right away.
 
@@ -164,12 +164,14 @@ Copy for agent describe the element and its animation with the same words.
    agent pick it up over MCP.
 
 ### Picking an element
-Hold ⌘ over the paused app: a chip by the pointer lists what's under it, and the
-pick is what you can see there: text, an image or icon, a control, a painted box.
-Empty overlays (a glow, a stretched card link, a scrim) and invisible layers
-(opacity 0, a closed menu) stay in the list, dimmed with why, one wheel step or
-Tab away. On an icon you get the `<svg>` (or the button it's the icon of), with
-the shape inside it a step away; inside an open shadow root, the element itself;
+Hold ⌘ over the paused app: a list by the pointer shows everything stacked
+there, also what takes no pointer events (a drawn underline under an image, an
+icon). A dot marks what's animating. The pick is what you can see there (text,
+an image or icon, a control, a painted box), and one that moves wins: a word
+popping in, a stroke under an overlay. Empty overlays and invisible layers stay
+in the list, dimmed. Pick another with the wheel or Tab, or move onto the list
+and click a row. On an icon you get the `<svg>` (or the button it's the icon
+of), unless the shape inside it is the one animating; inside an open shadow root, the element itself;
 an embedded iframe is one element (and gets no clicks while paused). A second
 ⌘-click on a pinned spot makes another note there.
 
@@ -178,7 +180,9 @@ The note's selector finds the element again on a fresh load: no generated ids
 `is-open`, `opacity-100`), test ids, labels and hrefs where they're unique. Its
 source is where the element itself was written, a server component's line too
 (the dev server reads the chunk's source map), never just the parent it was
-passed into; Next's own layout components aren't listed as yours.
+passed into, or the line where you used a library's component (Motion's
+`<motion.span>`, also from a Turbopack chunk); Next's own layout components
+aren't listed as yours.
 
 ### Notes on animations
 Web animations aren't edited on a global timeline: each one belongs to an
@@ -197,16 +201,23 @@ element between keyframes. Notes work the same way.
   x 248 y 568 · 320×64`. On the app, dashed boxes show where the element starts and
   ends, and a dotted line the path it takes.
 - **A point**: click on the open animation (or step with ←/→ a frame at a time,
-  Shift+←/→ keyframe to keyframe). The note is pinned there: "at 100ms (20%) of
+  ⌥←/→ keyframe to keyframe). The note is pinned there: "at 100ms (20%) of
   fadeUp on `<h1.title>`".
 - **A range**: drag across the open animation ("200–400ms · 40–80% of fadeUp").
   It snaps to keyframes and 10ms steps (hold ⌥ to drag freely); drag past the
-  end for "from here to the end". Shift+drag on the timeline selects a range of
+  end for "from here to the end". Or from the point, Shift+←/→: 10ms a press,
+  stopping on keyframes (⌥ jumps to the next one); the hint reads the range.
+  Shift+drag on the timeline selects a range of
   the recording first, then ⌘-click any element.
 - **Typed numbers** ("at 100ms", "between 200 and 400 ms", "after 40%") are read
   on the open animation's own clock; a chip under the note says how, and a click
   switches it to recording time.
-- Esc closes the open animation, then the note.
+- **Whole group**: ⌘-click a container whose children each animate (an
+  equalizer's bars) and its row offers **Whole group · N**. Click it: a lane per
+  child, then click a moment or drag a range. One note covers every child, each
+  on its own clock, with its own exact edit; children that share one
+  `@keyframes` (or the same keyframes) say so, for a single edit.
+- Esc closes the open animation (or the group), then the note.
 
 The note carries, for that animation: its kind and where it's defined, timing,
 every keyframe, the point or both range edges on its own clock (local ms,
@@ -223,9 +234,15 @@ values and the library named; Motion keyframes come with every keyframe, their
 `times` and each segment's ease, read off the component's props. A CSS
 transition's exact edit is its timing as `linear()` stops.
 
+The exact edit is for "change it only here" requests. For timing, duration or
+shape ("faster", "start earlier", "hold longer"), the note adds an `Intent:`
+line with what to change instead. The note is about the animation that moves:
+instant ones (0ms, or between equal values) fold into one line with their
+count, and an animation started again (on scroll) is one entry with its runs.
+
 ### The dock
 - **Keys**: space or ⌥P plays and pauses, ←/→ step (on an open animation: its
-  frames; Shift: its keyframes), F fits everything, + starts a new timeline at
+  frames; ⌥: its keyframes; Shift: a range from the point), F fits everything, + starts a new timeline at
   the playhead, M drops a bookmark, ⌥T folds the dock away, Esc closes an open
   animation, a selected range, then the note.
 - **Resize** by dragging the divider at its top. Drag it all the way down and
@@ -235,6 +252,44 @@ transition's exact edit is its timing as `linear()` stops.
   Folded or not, and where the button sits, are remembered across reloads.
 - **Notes show when paused.** While the app is live or playing, note pins stay
   off it (the count on the notes icon stays). Pause and the notes come back.
+
+### Timelines keep their own code
+Make Timeline 2 from a moment of Timeline 1, leave a note on an animation there,
+and hand it to your agent: the change lands in Timeline 2, and Timeline 1 still
+shows the old animation.
+
+```
+Timeline 1  ──rec────────●──────────►   code A
+                         │ Control-click
+Timeline 2               └──rec──[note]──►   code A → B (the agent's edit)
+
+step into Timeline 1 → files become A → its moments rebuild on A (old animation)
+step into Timeline 2 → files become B → its moments rebuild on B (new animation)
+Retake stops         → the newest code (B) stays on disk; A is kept in .retake/
+```
+
+- Every edit (yours or your agent's) belongs to the timeline you're in. Each
+  version of the code is a snapshot in `.retake/`.
+- With **separate code** on, stepping into a timeline puts its code on disk
+  first. A lane whose code changed gets a `±` (hover: the files), and the top row
+  says whose code is on disk. When Retake stops, the newest code goes back on
+  disk (also after a crash, at the next start).
+- Off by default until it matters: the first time the code changes while you
+  have two timelines, the dock asks **Separate code** or **Share code**. The
+  answer is kept for the project; change it from a lane's right-click menu,
+  `--code-timelines` / `--no-code-timelines`, `retake({ codeTimelines })` or
+  `RETAKE_CODE_TIMELINES=1` for Next's `proxy.ts`.
+- Agents: `acknowledge` on a note puts its timeline's code on disk and moves the
+  dock there, so the edit lands in the right timeline. While the agent works,
+  switching to another timeline asks first. `get_note` says whose code is on
+  disk; `checkout_timeline` and `get_code_diff` work with any timeline.
+- Git: HEAD, the index and refs are never touched; a checkout waits while git is
+  busy, and a branch switch pauses swapping until you resume. Ignored files and
+  `.retake/ignore` paths are never swapped. `retake code export 2` makes a git
+  branch of Timeline 2's code without touching your working tree.
+- Your editor reloads files that change under it; an unsaved buffer gets a
+  conflict. Dependencies aren't swapped (`node_modules`): when `package.json`
+  differs, the dock says to run install.
 
 ### Uninstall
 ```sh
@@ -248,12 +303,14 @@ Remove `retake()` from `vite.config`, or Retake's `proxy.ts` / `middleware.ts` (
 ```sh
 retake <project>                     # run the project's dev server with the timeline
 retake <project> --port 4000
-retake <project> --code-branches     # each timeline keeps its own version of the code (Vite apps; rewrites files!)
+retake <project> --code-timelines    # each timeline keeps its own code (stepping into one rewrites your files)
 retake <project> -- --host           # anything after -- goes to the dev server
 retake -- <dev command>              # run that command with the timeline in front (retake -- next dev)
 retake http://localhost:3000         # put the timeline in front of a dev server that's already running
 retake init                          # print the vite.config / proxy.ts lines
 retake mcp                           # the MCP server your coding agent runs
+retake code status                   # each timeline's code; also list, checkout <timeline>,
+                                     #   restore [version], export <timeline> [--branch <name>]
 ```
 `--root <dir>` puts `.retake/` somewhere else; `--verbose` logs every request the
 front server handles to `.retake/front.log`. Opt out for one page load with `?retake=0`.
@@ -323,13 +380,9 @@ through the same front server and should work; open an issue if one doesn't.
   open the app with `?retake=0`.
 - **Not rewound.** Retake rewinds the browser, not your server: database writes,
   server sessions and server-action side effects stay as they are (replays answer
-  from the recording). Service workers are off while Retake is in front, and
-  `--code-branches` is Vite-only.
-
-**Code per timeline** (`--code-branches`): when the source changes, the timeline
-you're on takes the new code; the others keep theirs. Stepping into a timeline
-checks its code out on disk (snapshots are kept in `.retake/`, and the newest
-code is put back when the server stops), but use it on prototypes, not shared repos.
+  from the recording). Service workers are off while Retake is in front.
+  Code timelines version the project folder only (not a package elsewhere in a
+  monorepo), and `retake http://…` needs `--root` for them.
 
 ## The dock without a Retake server
 

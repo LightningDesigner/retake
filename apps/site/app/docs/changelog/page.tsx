@@ -6,6 +6,7 @@ import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
 export const metadata: Metadata = docMetadata("changelog")
 
 const toc = [
+  { id: "v0-5-2", label: "0.5.2" },
   { id: "v0-5-1", label: "0.5.1" },
   { id: "v0-5-0", label: "0.5.0" },
   { id: "v0-4-0", label: "0.4.0" },
@@ -23,6 +24,17 @@ function Release({ id, version, tag }: { id: string; version: string; tag: strin
 export default function Changelog() {
   return (
     <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-2" version="0.5.2" tag="Groups and code" />
+      <ul>
+        <li><b>One note for a group.</b> Pick a container whose children each animate (an equalizer&apos;s bars) and choose <b>Whole group</b>: one note carries every child&apos;s animation, its point or range on its own clock and its own exact edit.</li>
+        <li><b>The animation that moves.</b> 0ms clips no longer become a note&apos;s subject, and an animation started again on scroll is one entry with its run times.</li>
+        <li><b>Clearer exact edits.</b> They say they change only the note&apos;s point or range; &ldquo;faster&rdquo;, &ldquo;hold longer&rdquo; and the like get an <C>Intent:</C> line instead. Loops get exact edits too.</li>
+        <li><b>Picking under overlays.</b> The ⌘ list shows everything stacked at the pointer (strokes under an image, inline words) and marks what animates; click any row.</li>
+        <li><b>Ranges from the keyboard.</b> On an open animation, <K>Shift</K>+<K>←</K>/<K>→</K> grows a range from the point; <K>⌥</K>+<K>←</K>/<K>→</K> moves between keyframes.</li>
+        <li><b>Timelines keep their own code.</b> Each timeline rebuilds with the code it had, in every mode; <C>retake code</C> from a terminal, and agents get <C>checkout_timeline</C> and <C>get_code_diff</C>.</li>
+        <li>Source lines on Next 15 with Turbopack for elements a bundled library rendered.</li>
+      </ul>
+
       <Release id="v0-5-1" version="0.5.1" tag="Animations" />
       <ul>
         <li><b>Next.js on its own dev URL.</b> One line in <C>proxy.ts</C> (<C>middleware.ts</C> on Next 15) and the timeline shows on <C>next dev</C>&apos;s own address. <Link href="/docs/install#nextjs">Install</Link></li>

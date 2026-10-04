@@ -11,6 +11,7 @@ const toc = [
   { id: "scrub", label: "Scrub and preview" },
   { id: "release", label: "Let go: the rebuilt moment" },
   { id: "takes", label: "Takes" },
+  { id: "code", label: "Takes keep their own code" },
   { id: "notes", label: "Notes" },
   { id: "fresh", label: "Start fresh" },
   { id: "collapse", label: "Collapse to an icon" },
@@ -68,7 +69,28 @@ export default function Features() {
         <li>A new take starts <b>paused</b>. Recording into it starts when you press play.</li>
         <li>Click another lane to switch to it. It opens at the current moment, paused. It never plays by itself.</li>
         <li>Double-click a lane&apos;s name to rename it. Right-click a lane to rename or delete it (with the takes branched from it, and their notes). The first timeline can&apos;t be deleted.</li>
-        <li>With <C>--code-branches</C> (Vite apps), each take also keeps its own version of the code. It rewrites files on disk, so use it on prototypes. See the <Link href="/docs/api#cli">CLI flags</Link>.</li>
+      </ul>
+
+      <H2 id="code">Takes keep their own code</H2>
+      <p>
+        Make Timeline 2 from a moment of Timeline 1, leave a note on an animation there, and hand it to your agent. The change lands in Timeline 2, and Timeline 1 still
+        shows the old animation.
+      </p>
+      <ul>
+        <li>Every edit, yours or your agent&apos;s, belongs to the take you&apos;re in. Each version of the code is a snapshot in <C>.retake/</C>.</li>
+        <li>
+          With <b>separate code</b> on, switching to a take puts its code on disk first, so its moments rebuild on the code they were recorded with. A lane whose code
+          changed shows <C>±</C> (hover it for the files), and the top row says whose code is on disk.
+        </li>
+        <li>
+          The first time the code changes while you have two takes, the dock asks <b>Separate code</b> or <b>Share code</b>. The answer is kept for the project. Change it
+          from a lane&apos;s right-click menu, or with <C>--code-timelines</C> / <C>--no-code-timelines</C> (see the <Link href="/docs/api#cli">CLI flags</Link>).
+        </li>
+        <li>When Retake stops, the newest code stays on disk; the others are kept in <C>.retake/</C>. <C>retake code checkout 1</C> brings a take&apos;s code back from a terminal.</li>
+        <li>
+          Your agent&apos;s <C>acknowledge</C> puts the note&apos;s take&apos;s code on disk and moves the dock there. While it works, switching to another take asks first.
+        </li>
+        <li>Git&apos;s HEAD, index and branches are never touched, and a branch switch pauses swapping. <C>retake code export 2</C> makes a branch of Timeline 2&apos;s code.</li>
       </ul>
 
       <H2 id="notes">Notes</H2>

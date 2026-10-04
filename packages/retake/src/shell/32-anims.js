@@ -85,17 +85,35 @@ const clipEndOf = (c) => (c.end == null ? (D.last ? Math.max(D.last.end, D.last.
 const runningAt = (c, t) => c.start <= t + 0.5 && t <= clipEndOf(c) + 0.5
 const overlapsRange = (c, r) => c.start <= r.to && clipEndOf(c) >= r.from
 
+// An instant clip: 0ms (a library setting a value through an animation), or
+// one that animates between equal values. It says nothing about the motion.
+function instantClip(c) {
+  if (c.end != null && c.end - c.start - (Number(c.delay) || 0) < 1) return true
+  if (!(c.from && c.to && Object.keys(c.from).length && JSON.stringify(c.from) === JSON.stringify(c.to))) return false
+  // First and last stops alike, but stops in between (a loop that comes back
+  // to where it started: an equalizer bar, a pulse) is motion (F137).
+  if (c.kfs > 2) return false
+  const m = animModels.get(`${D.activeId}:${c.id}`)
+  const kf = ((m && m.keyframes) || []).filter((k) => k && k.values)
+  return !(kf.length > 2 && kf.some((k) => JSON.stringify(k.values) !== JSON.stringify(kf[0].values)))
+}
+// One animation's runs share this (the same @keyframes started again).
+const clipKey = (c) => [c.kind, c.label, c.property || "", c.selector || "", c.pseudoElement || ""].join("|")
+
 // The primary animation at t (or over a range): the element's own running one
-// (latest start wins), else the nearest ancestor's that moves it.
+// (latest start wins), else the nearest ancestor's that moves it. Instant
+// clips only when nothing else is there.
 function primaryEntry(groups, t, range) {
   const hits = (list) => list.filter((x) => (range ? overlapsRange(x.clip, range) : runningAt(x.clip, t)))
-  const on = hits(groups.on).sort((a, b) => b.clip.start - a.clip.start)
+  const real = (list) => list.filter((x) => !instantClip(x.clip))
+  const on = real(hits(groups.on)).sort((a, b) => b.clip.start - a.clip.start)
   if (on.length) return on[0]
-  const up = hits(groups.ancestors).sort((a, b) => a.depth - b.depth || b.clip.start - a.clip.start)
+  const up = real(hits(groups.ancestors)).sort((a, b) => a.depth - b.depth || b.clip.start - a.clip.start)
   if (up.length) return up[0]
   // Nothing running: the element's own animation that ran last before the moment ("at the end it should...").
-  const before = groups.on.filter((x) => clipEndOf(x.clip) <= (range ? range.from : t) + 0.5).sort((a, b) => clipEndOf(b.clip) - clipEndOf(a.clip))
-  return before[0] || null
+  const before = real(groups.on).filter((x) => clipEndOf(x.clip) <= (range ? range.from : t) + 0.5).sort((a, b) => clipEndOf(b.clip) - clipEndOf(a.clip))
+  if (before.length) return before[0]
+  return hits(groups.on).sort((a, b) => b.clip.start - a.clip.start)[0] || null
 }
 
 // ---- an animation's model: keyframes and timing ------------------------------------------
@@ -518,7 +536,8 @@ function focusOn(el, layer, t) {
   try {
     selector = selectorInfo(el).selector
   } catch {}
-  D.focus = { el, pseudo, label, selector, groups, entries, open: null, range: null, pin: null, touched: false, spark: null, hoverT: null, edges: null }
+  D.focus = { el, pseudo, label, selector, groups, entries, open: null, range: null, pin: null, touched: false, spark: null, hoverT: null, edges: null, group: null, groupN: 0 }
+  D.focus.groupN = groupMembers(D.focus).length
   // A range dragged on the track before the element was picked comes with it.
   if (D.range) {
     D.focus.range = { ...D.range }
@@ -555,6 +574,8 @@ function syncFocusEl() {
   f.entries = entries
   f.spark = null
   f.edges = null
+  f.groupN = groupMembers(f).length
+  if (f.group) f.group = { members: groupMembers(f) }
   if (f.open) {
     const x = entries.find((e) => e.clip.id === f.open.clip.id)
     if (x) f.open = { ...f.open, clip: x.clip, target: x.target, relation: x.relation }
@@ -592,6 +613,10 @@ function openFocusClip(clip) {
 }
 function closeFocusClip() {
   const f = D.focus
+  if (f && f.group) {
+    toggleGroup()
+    return true
+  }
   if (!f || !f.open) return false
   f.open = null
   f.range = null
@@ -629,6 +654,11 @@ function openModel() {
 function focusHeight(g) {
   const f = D.focus
   if (!f) return 0
+  if (f.group) {
+    const want = FOCUS_RULER_H + f.group.members.length * GROUP_LANE_H + 6
+    const room = g ? g.h - RULER - 4 - MIN_PITCH * Math.max(1, D.branches.length) : want
+    return Math.max(FOCUS_CLOSED_H, Math.min(want, room))
+  }
   if (!f.open) return FOCUS_CLOSED_H
   const want = FOCUS_RULER_H + FOCUS_CAPSULE_H + sparkProps().length * SPARK_H + 6
   const room = g ? g.h - RULER - 4 - MIN_PITCH * Math.max(1, D.branches.length) : want
@@ -638,7 +668,7 @@ const focusKey = () => {
   const f = D.focus
   if (!f) return ""
   const m = f.open && f.open.model
-  return [f.label, f.entries.length, f.open ? f.open.clip.id : "", m && m.approx ? 1 : 0, f.range ? `${f.range.from.toFixed(1)}-${f.range.to.toFixed(1)}` : "", f.pin, f.spark ? f.spark.n : 0, f.hoverT != null ? f.hoverT.toFixed(0) : "", f.hoverClip ? f.hoverClip.id : ""].join(",")
+  return [f.label, f.entries.length, f.group ? `g${f.group.members.length}` : f.groupN, f.open ? f.open.clip.id : "", m && m.approx ? 1 : 0, f.range ? `${f.range.from.toFixed(1)}-${f.range.to.toFixed(1)}` : "", f.pin, f.spark ? f.spark.n : 0, f.hoverT != null ? f.hoverT.toFixed(0) : "", f.hoverClip ? f.hoverClip.id : ""].join(",")
 }
 
 // Up to three properties that change most, for sparklines.
@@ -713,8 +743,15 @@ function drawFocusRow(g, s) {
   ctx.fillRect(0, R.y0, g.w, 1)
   ctx.font = '500 10px Geist, ui-sans-serif, system-ui, sans-serif'
   ctx.textBaseline = "middle"
+  if (f.group) {
+    drawGroupRow(g, R, out)
+    ctx.restore()
+    return out
+  }
   if (!f.open) {
     const y = R.y0 + R.h / 2
+    // "Whole group" sits at the row's right end when two or more children animate.
+    const chipRoom = f.groupN >= 2 ? ctx.measureText(`Whole group · ${f.groupN}`).width + 30 : 0
     if (!f.entries.length) {
       out.empty = true
       let x = PAD_L + 2
@@ -736,6 +773,7 @@ function drawFocusRow(g, s) {
         for (const gk of [...groups.values()].slice(0, 4)) {
           const text = `${gk.k}${gk.clips.length > 1 ? ` ×${gk.clips.length}` : ""}`
           const w = ctx.measureText(text).width
+          if (x + w > g.w - chipRoom) break
           ctx.fillStyle = INK.lens
           ctx.fillText(text, x, y)
           out.insides.push({ x0: x, x1: x + w, y, clip: gk.clips[0] })
@@ -770,6 +808,7 @@ function drawFocusRow(g, s) {
         out.capsules.push({ clip: c, x0: k.x0, x1: k.x1, y: cy, h: ch })
       }
     }
+    if (f.groupN >= 2) drawGroupChip(g, R, out, false)
     ctx.restore()
     return out
   }
@@ -914,6 +953,68 @@ function drawFocusRow(g, s) {
   ctx.restore()
   return out
 }
+// The "Whole group" toggle at the right end of the row (filled while on).
+function drawGroupChip(g, R, out, on) {
+  const f = D.focus
+  const n = on ? f.group.members.length : f.groupN
+  const text = `${on ? "✓ " : ""}Whole group · ${n}`
+  ctx.font = '500 10px Geist, ui-sans-serif, system-ui, sans-serif'
+  ctx.textBaseline = "middle"
+  const w = ctx.measureText(text).width + 14
+  const x0 = g.w - w - 8
+  const y = on ? R.y0 + 8 : R.y0 + Math.min(R.h, FOCUS_CLOSED_H) / 2
+  ctx.fillStyle = on ? INK.lens : INK.page
+  roundRect(x0, y - 7, w, 14, 7)
+  ctx.fill()
+  ctx.strokeStyle = INK.lens
+  ctx.lineWidth = 1
+  roundRect(x0 + 0.5, y - 6.5, w - 1, 13, 6.5)
+  ctx.stroke()
+  ctx.fillStyle = on ? INK.page : INK.lens
+  ctx.fillText(text, x0 + 7, y + 0.5)
+  out.groupChip = { x0, x1: x0 + w, y, count: n, on }
+}
+// The group's row: a lane per member with its clips, the range or the pin across all of them.
+function drawGroupRow(g, R, out) {
+  const f = D.focus
+  const members = f.group.members
+  drawGroupChip(g, R, out, true)
+  out.group = { lanes: members.length }
+  ctx.font = '500 9px "Geist Mono", ui-monospace, Menlo, monospace'
+  ctx.textBaseline = "middle"
+  ctx.fillStyle = INK.dim
+  const head = f.range ? `${Math.round(f.range.to - f.range.from)}ms range · on each one's own clock` : "click a moment or drag a range"
+  ctx.fillText(head, PAD_L + 2, R.y0 + 8, Math.max(40, out.groupChip.x0 - PAD_L - 12))
+  members.forEach((m, i) => {
+    const y = R.y0 + FOCUS_RULER_H + i * GROUP_LANE_H + GROUP_LANE_H / 2
+    if (y > R.y0 + R.h) return
+    for (const x of m.entries) {
+      if (instantClip(x.clip)) continue
+      const a = xOf(x.clip.start, g)
+      const b = Math.max(a + 3, xOf(clipEndOf(x.clip), g))
+      if (b < 0 || a > g.w) continue
+      ctx.fillStyle = INK.lens
+      roundRect(a, y - 2, b - a, 4, 2)
+      ctx.fill()
+    }
+  })
+  const top = R.y0 + FOCUS_RULER_H - 2
+  if (f.range) {
+    const a = xOf(f.range.from, g)
+    const b = Math.max(a + 1, xOf(f.range.to, g))
+    ctx.fillStyle = hexAlpha(colorOf(activeBranch()), 0.18)
+    ctx.fillRect(a, top, b - a, R.y0 + R.h - top)
+    ctx.fillStyle = colorOf(activeBranch())
+    ctx.fillRect(a - 1, top, 2, R.y0 + R.h - top)
+    ctx.fillRect(b - 1, top, 2, R.y0 + R.h - top)
+    out.band = { x0: a, x1: b, label: head }
+  } else if (f.pin != null) {
+    const x = Math.round(xOf(f.pin, g)) + 0.5
+    ctx.fillStyle = NOTE_FILL.pending
+    ctx.fillRect(x - 0.5, top, 1, R.y0 + R.h - top)
+    out.pin = x
+  }
+}
 function hexAlpha(hex, a) {
   const n = parseInt(hex.slice(1), 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
@@ -930,6 +1031,13 @@ function rangeLabel(r, m) {
 function focusHit(x, y) {
   const sc = D.scene && D.scene.focus
   if (!sc || y < sc.y0 || y > sc.y0 + sc.h) return null
+  const chip = sc.groupChip
+  if (chip && x >= chip.x0 - 2 && x <= chip.x1 + 2 && Math.abs(y - chip.y) <= 9) return { kind: "focus-group" }
+  if (sc.group) {
+    if (sc.band && Math.abs(x - sc.band.x0) <= 4) return { kind: "range-edge", side: "from" }
+    if (sc.band && Math.abs(x - sc.band.x1) <= 4) return { kind: "range-edge", side: "to" }
+    return { kind: "focus-row", t: timeAt(x + geom().left) }
+  }
   if (!sc.open) {
     const hits = sc.capsules.filter((c) => x >= c.x0 - 2 && x <= c.x1 + 2)
     if (hits.length) {
@@ -954,6 +1062,10 @@ function focusPointerDown(e, hit) {
   if (!f || !hit) return false
   D.focusHold = true
   if (hit.kind === "focus-none") return true
+  if (hit.kind === "focus-group") {
+    toggleGroup()
+    return true
+  }
   if (hit.kind === "focus-clip") {
     openFocusClip(hit.clip)
     return true
@@ -971,8 +1083,8 @@ function focusPointerDown(e, hit) {
     }
     return true
   }
-  const m = openModel()
-  if (!m) return false
+  const m = f.group ? null : openModel()
+  if (!m && !f.group) return false
   track.setPointerCapture(e.pointerId)
   const s = D.last
   if (s && s.playing) D.PT.pause()
@@ -980,18 +1092,17 @@ function focusPointerDown(e, hit) {
     D.focusDrag = { x0: e.clientX, moved: true, edge: hit.side, anchor: hit.side === "from" ? f.range.to : f.range.from }
     return true
   }
-  const t0 = snapFocus(hit.t, m, e.altKey)
+  const t0 = f.group ? snapGroup(hit.t, e.altKey) : snapFocus(hit.t, m, e.altKey)
   D.focusDrag = { x0: e.clientX, moved: false, edge: null, anchor: t0 }
   return true
 }
 function focusPointerMove(e) {
   const d = D.focusDrag
   const f = D.focus
-  if (!d || !f || !f.open) return false
+  if (!d || !f || (!f.open && !f.group)) return false
   if (!d.moved && Math.abs(e.clientX - d.x0) < DEAD_PX) return true
   d.moved = true
-  const m = openModel()
-  const t = snapFocus(timeAt(e.clientX), m, e.altKey)
+  const t = f.group ? snapGroup(timeAt(e.clientX), e.altKey) : snapFocus(timeAt(e.clientX), openModel(), e.altKey)
   const a = d.anchor
   f.range = { from: Math.min(a, t), to: Math.max(a, t) }
   f.pin = null
@@ -1004,7 +1115,7 @@ function focusPointerUp() {
   const f = D.focus
   if (!d) return false
   D.focusDrag = null
-  if (!f || !f.open) return true
+  if (!f || (!f.open && !f.group)) return true
   if (!d.moved) {
     f.range = null
     f.pin = d.anchor
@@ -1018,13 +1129,16 @@ function focusPointerUp() {
   return true
 }
 
-// ← → on an open clip: a frame of its local time; with Shift, keyframe to keyframe.
-function focusStep(dir, toTick) {
+// ← → on an open clip: a frame of its local time; with ⌥, keyframe to
+// keyframe. With Shift, a range grows from the point (F129).
+function focusStep(dir, { tick = false, extend = false } = {}) {
   const f = D.focus
   if (!f || !f.open || !D.last) return false
   const m = openModel()
   const s = D.last
   if (s.playing) D.PT.pause()
+  if (extend) return extendRange(dir, tick, m, s)
+  const toTick = tick
   const cur = f.pin != null ? f.pin : shownTime(s)
   let t
   if (toTick) {
@@ -1047,6 +1161,63 @@ function focusStep(dir, toTick) {
   refreshComposer()
   return true
 }
+
+// Shift+← → on an open clip: the range's moving edge steps 10ms of local time
+// (stopping on a keyframe on the way), or with ⌥ to the next keyframe; the
+// other edge stays where the point was. Back past it, the range turns round.
+function extendRange(dir, tick, m, s) {
+  const f = D.focus
+  const rate = Number(m.timing.playbackRate) || 1
+  const lo = m.timing.activeStart
+  if (!f.range) {
+    f.rangeAnchor = f.pin != null ? f.pin : shownTime(s)
+    f.rangeEdge = f.rangeAnchor
+  } else if (!sameRange(f.range, f.rangeAnchor, f.rangeEdge)) {
+    // A dragged range: its far edge in the direction moves.
+    f.rangeAnchor = dir > 0 ? f.range.from : f.range.to
+    f.rangeEdge = dir > 0 ? f.range.to : f.range.from
+  }
+  const cur = f.rangeEdge
+  const ticks = focusTicks(m).map((k) => k.t)
+  const ahead = (x) => (dir > 0 ? x > cur + 0.5 : x < cur - 0.5)
+  let t
+  if (tick) {
+    const next = (dir > 0 ? ticks : [...ticks].reverse()).find(ahead)
+    if (next == null) return true
+    t = next
+  } else {
+    const local = (cur - lo) * rate
+    const step = dir > 0 ? Math.floor(local / 10 + 1e-6) * 10 + 10 : Math.ceil(local / 10 - 1e-6) * 10 - 10
+    t = lo + step / rate
+    const stop = (dir > 0 ? ticks : [...ticks].reverse()).find((x) => ahead(x) && (dir > 0 ? x < t - 0.5 : x > t + 0.5))
+    if (stop != null) t = stop
+  }
+  const [blo, bhi] = bounds(s)
+  t = snapFocus(clamp(t, blo, bhi), m, true)
+  f.rangeEdge = t
+  f.hoverT = null // the keys' range is read out, not the point under the pointer
+  const a = f.rangeAnchor
+  if (Math.abs(t - a) < 0.5) {
+    f.range = null
+    f.pin = a
+  } else {
+    f.range = { from: Math.min(a, t), to: Math.max(a, t) }
+    f.pin = null
+  }
+  f.touched = true
+  D.keyT = t
+  scrubTo(t)
+  keepInView(t)
+  clearTimeout(keyTimer)
+  keyTimer = setTimeout(() => {
+    D.keyT = null
+    goTo(t)
+  }, 350)
+  refreshComposer()
+  return true
+}
+
+const sameRange = (r, a, b) => a != null && b != null && Math.abs(Math.min(a, b) - r.from) < 0.5 && Math.abs(Math.max(a, b) - r.to) < 0.5
 
 // Shift+drag on the track: a range of recording time, before an element is picked.
 function rangePointerDown(e, s) {
@@ -1099,9 +1270,17 @@ function drawRecordingRange(g) {
 let readoutMemo = { key: "", text: "" }
 function focusReadout(s, shownT) {
   const f = D.focus
+  if (f && f.group && !s.playing) {
+    const n = f.group.members.length
+    if (f.range) return `Whole group · ${n} animations · ${fmt(f.range.from - s.start)} → ${fmt(f.range.to - s.start)} (${Math.round(f.range.to - f.range.from)}ms), each on its own clock`
+    const T = f.hoverT != null ? f.hoverT : f.pin != null ? f.pin : shownT
+    return `Whole group · ${n} animations · ${fmt(T - s.start)} · click a moment or drag a range`
+  }
   if (f && !f.open && f.hoverClip && !s.playing) return `${clipName(f.hoverClip)}${f.hoverClip.kind === "transition" ? " transition" : ""} · ${msWord(clipEndOf(f.hoverClip) - f.hoverClip.start)} · click to open it on its own clock`
   if (!f || !f.open || s.playing) return ""
   const m = openModel()
+  // A range (dragged, or grown with Shift+←/→): its edges on the animation's own clock.
+  if (f.range && f.hoverT == null) return `Range ${rangeLabel(f.range, m)}`
   const T = f.hoverT != null ? f.hoverT : f.pin != null ? f.pin : shownT
   const end = clipEndOf(f.open.clip)
   if (T < m.timing.start - 0.5 || T > end + 0.5) return ""
@@ -1218,7 +1397,8 @@ function updateAsked() {
 
 /**
  * The note's animation fields (CONTRACT.md "Note"): t, range, target, anims,
- * inside, asked. `brief` skips the samples (for the composer's own lines).
+ * inside, asked, and group (a container's "Whole group"). `brief` skips the
+ * samples (for the composer's own lines).
  */
 function notePayload(d, { brief = false } = {}) {
   const f = syncFocusEl()
@@ -1229,61 +1409,28 @@ function notePayload(d, { brief = false } = {}) {
   else if (f && f.pin != null) t = f.pin
   else if (f && f.touched && s) t = shownTime(s)
   const range = f && f.range ? { from: f.range.from, to: f.range.to } : null
-  const out = { t, range, target: null, anims: [], inside: [], asked: d.asked || null }
+  const out = { t, range, target: null, anims: [], inside: [], asked: d.asked || null, group: null }
   if (!el || !el.isConnected) return out
   const groups = f.groups
   const chosen = f.open ? f.entries.find((x) => x.clip === f.open.clip) || { clip: f.open.clip, target: f.open.target, relation: f.open.relation } : null
   const primary = chosen || primaryEntry(groups, t, range)
+  const all = [...groups.on, ...groups.ancestors]
+  // One entry per animation: its repeats (the same @keyframes started again) are its runs; instant ones go last.
   const list = primary ? [primary] : []
-  for (const x of [...groups.on, ...groups.ancestors]) {
+  const keys = new Set(primary ? [clipKey(primary.clip)] : [])
+  const live = all.filter((x) => (range ? overlapsRange(x.clip, range) : runningAt(x.clip, t))).sort((a, b) => (instantClip(a.clip) ? 1 : 0) - (instantClip(b.clip) ? 1 : 0))
+  for (const x of live) {
     if (list.length >= MAX_ANIMS) break
-    if (list.includes(x) || (primary && x.clip === primary.clip)) continue
-    if (range ? overlapsRange(x.clip, range) : runningAt(x.clip, t)) list.push(x)
+    if (keys.has(clipKey(x.clip))) continue
+    keys.add(clipKey(x.clip))
+    list.push(x)
   }
+  const ctx = { t, range, brief, d }
   out.anims = list.map((x, i) => {
-    const m = modelOf(x.clip, x.target)
-    const pseudo = x.clip.pseudoElement || null
-    const a = { ...m, relation: x.relation, primary: i === 0, selector: x.clip.selector || null }
-    delete a.madeBy
-    delete a.libChecked
-    if (x.relation === "on") definedByElement(a, d.el)
-    // One @keyframes on several elements: editing it changes them all.
-    if (a.kind === "css-animation") {
-      const seen = new Set([x.clip.selector])
-      const shared = []
-      for (const c of timeline().clips) {
-        if (c.kind !== "css-animation" || c.label !== x.clip.label || seen.has(c.selector) || shared.length >= 8) continue
-        seen.add(c.selector)
-        // The element's own short selector, if it's on the page (the clip's is the full path).
-        let sel = c.selector || null
-        try {
-          const other = D.frame.contentDocument.querySelector(String(c.selector || "").replace(/::?[\w-]+$/, ""))
-          if (other) sel = selectorInfo(other).selector
-        } catch {}
-        shared.push({ id: c.id, selector: sel })
-      }
-      if (shared.length) a.shared = shared
-    }
-    if (brief) {
-      if (range) {
-        a.from = NT.pointOf(m, range.from)
-        a.to = NT.pointOf(m, range.to)
-      } else a.at = NT.pointOf(m, t)
-      return a
-    }
-    if (range) {
-      const lo = Math.max(range.from, m.timing.start)
-      const hi = Math.min(range.to, clipEndOf(x.clip))
-      a.from = fullPoint(m, el, x.target, pseudo, lo)
-      a.to = fullPoint(m, el, x.target, pseudo, hi)
-      a.openEnd = Math.abs(hi - clipEndOf(x.clip)) < 1
-      a.keyframesInside = (m.keyframes || []).map((k) => k.offset).filter((o) => o > a.from.eased + 1e-4 && o < a.to.eased - 1e-4)
-      const Ts = []
-      for (let k = 0; k < RANGE_SAMPLES; k++) Ts.push(lo + ((hi - lo) * k) / (RANGE_SAMPLES - 1))
-      a.samples = sampleModel(m, el, x.target, pseudo, Ts)
-    } else a.at = fullPoint(m, el, x.target, pseudo, t)
-    delete a.approx
-    if (m.approx) a.approx = true
+    const a = animEntry(x, el, ctx, i === 0)
+    const runs = all.filter((y) => clipKey(y.clip) === clipKey(x.clip)).map((y) => y.clip).sort((p, q) => p.start - q.start)
+    if (runs.length > 1) a.runs = runs.slice(0, 60).map((c) => ({ id: c.id, start: r1(c.start), end: c.end == null ? null : r1(c.end) }))
+    if (instantClip(x.clip)) a.instant = true
     return a
   })
   const insideSeen = new Set()
@@ -1293,8 +1440,156 @@ function notePayload(d, { brief = false } = {}) {
     insideSeen.add(k)
     out.inside.push({ id: c.id, selector: c.selector || null, name: clipName(c) })
   }
+  if (f.group) out.group = groupPayload(f, ctx)
   if (!brief) out.target = targetOf(el, d, out.anims)
   return out
+}
+
+// One anims[] entry: the animation's model, and the note's point (or range) on its clock.
+function animEntry(x, el, { t, range, brief, d }, primary, { samples = true } = {}) {
+  const m = modelOf(x.clip, x.target)
+  const pseudo = x.clip.pseudoElement || null
+  const a = { ...m, relation: x.relation, primary, selector: x.clip.selector || null }
+  delete a.madeBy
+  delete a.libChecked
+  if (x.relation === "on" && el === x.target) definedByElement(a, d.el)
+  // One @keyframes on several elements: editing it changes them all.
+  if (a.kind === "css-animation") {
+    const seen = new Set([x.clip.selector])
+    const shared = []
+    for (const c of timeline().clips) {
+      if (c.kind !== "css-animation" || c.label !== x.clip.label || seen.has(c.selector) || shared.length >= 8) continue
+      seen.add(c.selector)
+      // The element's own short selector, if it's on the page (the clip's is the full path).
+      let sel = c.selector || null
+      try {
+        const other = D.frame.contentDocument.querySelector(String(c.selector || "").replace(/::?[\w-]+$/, ""))
+        if (other) sel = selectorInfo(other).selector
+      } catch {}
+      shared.push({ id: c.id, selector: sel })
+    }
+    if (shared.length) a.shared = shared
+  }
+  if (brief) {
+    if (range) {
+      a.from = NT.pointOf(m, range.from)
+      a.to = NT.pointOf(m, range.to)
+    } else a.at = NT.pointOf(m, t)
+    return a
+  }
+  if (range) {
+    const lo = Math.max(range.from, m.timing.start)
+    const hi = Math.min(range.to, clipEndOf(x.clip))
+    a.from = fullPoint(m, el, x.target, pseudo, lo)
+    a.to = fullPoint(m, el, x.target, pseudo, hi)
+    a.openEnd = Math.abs(hi - clipEndOf(x.clip)) < 1
+    a.keyframesInside = keyframesPassed(m, a.from, a.to)
+    if (samples) {
+      const Ts = []
+      for (let k = 0; k < RANGE_SAMPLES; k++) Ts.push(lo + ((hi - lo) * k) / (RANGE_SAMPLES - 1))
+      a.samples = sampleModel(m, el, x.target, pseudo, Ts)
+    }
+  } else a.at = fullPoint(m, el, x.target, pseudo, t)
+  delete a.approx
+  if (m.approx) a.approx = true
+  return a
+}
+
+// ---- the whole group: every animation inside the focused element -------------------------------
+// A container whose children run their own animations (an equalizer's bars):
+// "Whole group" on its row makes one note about all of them. The row then
+// shows each child's clips on a lane of its own; a click pins a moment and a
+// drag a range of recording time, which the note gives on each child's own clock.
+
+const GROUP_LANE_H = 7
+const GROUP_MAX = 8
+
+// The animated elements inside the focus, in document order: [{ el, entries }].
+// The keyframe offsets a range passes. On a loop the range can cross the end
+// of an iteration (or a turn, alternating), and in a reversed iteration its
+// start is the higher offset (F138).
+function keyframesPassed(m, f, to) {
+  const offs = (m.keyframes || []).map((k) => k.offset)
+  const e = 1e-4
+  const i0 = f.iteration || 0
+  const i1 = to.iteration || 0
+  if (i1 === i0) {
+    const lo = Math.min(f.eased, to.eased)
+    const hi = Math.max(f.eased, to.eased)
+    return offs.filter((o) => o > lo + e && o < hi - e)
+  }
+  if (i1 > i0 + 1) return offs
+  const dir = (m.timing && m.timing.direction) || "normal"
+  const rev = (i) => dir === "reverse" || (dir === "alternate" && i % 2 === 1) || (dir === "alternate-reverse" && i % 2 === 0)
+  const [r0, r1] = [rev(i0), rev(i1)]
+  return offs.filter((o) => (r0 ? o < f.eased - e : o > f.eased + e) || (r1 ? o > to.eased + e : o < to.eased - e))
+}
+function groupMembers(f) {
+  if (!f || !f.el) return []
+  const doc = f.el.ownerDocument
+  const bySel = new Map()
+  for (const c of f.groups.inside) {
+    if (c.pseudoElement || !c.selector) continue
+    if (!bySel.has(c.selector)) bySel.set(c.selector, [])
+    bySel.get(c.selector).push(c)
+  }
+  const out = []
+  for (const [sel, clips] of bySel) {
+    let el = null
+    try {
+      el = findEl(sel, doc)
+    } catch {}
+    if (!el || el === f.el || !f.el.contains(el) || out.some((m) => m.el === el)) continue
+    if (clips.every(instantClip)) continue
+    out.push({ el, entries: clips.map((c) => ({ clip: c, target: el, relation: "on", depth: 0 })) })
+  }
+  out.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+  return out.slice(0, GROUP_MAX)
+}
+function toggleGroup() {
+  const f = D.focus
+  if (!f) return
+  if (f.group) {
+    f.group = null
+    f.range = null
+    f.pin = null
+  } else {
+    const members = groupMembers(f)
+    if (members.length < 2) return
+    if (f.open) closeFocusClip()
+    f.group = { members }
+    f.pin = null
+  }
+  refreshComposer()
+}
+// Snap points on the group's row: its members' starts and ends, else 10ms of recording time.
+function snapGroup(t, free) {
+  const s = D.last
+  const [lo, hi] = bounds(s)
+  t = clamp(t, lo, hi)
+  if (free) return t
+  const ppm = pxPerMs(geom())
+  for (const m of D.focus.group.members)
+    for (const x of m.entries) for (const k of [x.clip.start, clipEndOf(x.clip)]) if (Math.abs(k - t) * ppm <= SNAP_PX) return k
+  return s.start + Math.round((t - s.start) / 10) * 10
+}
+// The note's group: each member's main animation at the note's moment, on its own clock.
+function groupPayload(f, ctx) {
+  const members = []
+  for (const m of f.group.members) {
+    if (!m.el.isConnected) continue
+    const p = primaryEntry({ on: m.entries, ancestors: [] }, ctx.t, ctx.range)
+    let label = null
+    let selector = null
+    try {
+      label = `<${shortLabel(m.el)}>`
+      selector = selectorInfo(m.el).selector
+    } catch {}
+    const anim = p ? animEntry(p, m.el, { ...ctx, d: { el: null } }, true, { samples: false }) : null
+    if (anim) delete anim.primary
+    members.push({ selector, label, anim })
+  }
+  return { selector: f.selector, label: f.label, members }
 }
 
 function targetOf(el, d, anims) {
@@ -1337,12 +1632,15 @@ function focusFromNote(n) {
   focusOn(el, n.el.pseudo ? { pseudo: n.el.pseudo.pseudoElement } : null, n.t)
   const f = D.focus
   if (!f) return
-  if (a) {
+  if (n.group && n.group.members && n.group.members.length) {
+    const members = groupMembers(f)
+    if (members.length) f.group = { members }
+  } else if (a) {
     const x = f.entries.find((e) => e.clip.id === a.id)
     if (x) f.open = openEntry(x)
   }
   if (n.range) f.range = { ...n.range }
-  else if (f.open) f.pin = n.t
+  else if (f.open || f.group) f.pin = n.t
 }
 
 // A double-click on an open clip's row closes it.

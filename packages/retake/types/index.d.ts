@@ -8,10 +8,14 @@ export interface RetakeOptions {
   /** `false` turns the plugin off (the pages are served as they are). Default `true`. */
   enabled?: boolean
   /**
-   * Each timeline keeps its own version of the code: stepping into a
-   * timeline checks its code out on disk. It rewrites your source files.
-   * Default `false`.
+   * Code timelines: each timeline keeps its own code. `true`: stepping into a
+   * timeline puts its code on disk (your files are rewritten; the newest code
+   * goes back when the dev server stops). `false`: every timeline shares the
+   * files. `"ask"` (the default): the dock asks the first time it matters, and
+   * the answer is kept in `.retake/settings.json`.
    */
+  codeTimelines?: boolean | "ask"
+  /** The old name of `codeTimelines: true`. */
   codeBranches?: boolean
   /**
    * The token mutating `/__retake/` requests must carry (header

@@ -257,11 +257,13 @@ function listen() {
   es.addEventListener("active-changed", (e) => {
     const d = read(e)
     const id = d && Number(d.activeId)
-    if (id && id !== D.activeId && branchById(id)) switchTo(id, D.last ? D.last.now : 0)
+    if (id && id !== D.activeId && branchById(id)) switchTo(id, D.last ? D.last.now : 0).then((ok) => ok && onActiveChanged(d))
   })
+  // Which code each timeline has (40-code.js).
   es.addEventListener("code-version", (e) => {
     const d = read(e)
     if (d && d.version) D.codeVersionSeen = d.version
+    if (d && d.timelines) applyCode(d, d.reason || null)
   })
   // A server without events answers 404 and the stream closes for good.
   es.onerror = () => es.readyState === EventSource.CLOSED && es.close()

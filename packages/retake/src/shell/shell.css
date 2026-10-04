@@ -278,6 +278,12 @@ body.branching .track, body.branching .track * { cursor: crosshair !important; }
 #wb-layers .layer.on { color: var(--ink); background: var(--amber); }
 #wb-layers .more { padding: 2px 6px; color: var(--dim); }
 #wb-layers .layer.skipped:not(.on) { color: var(--dim); }
+#wb-layers.reach { pointer-events: auto; }
+#wb-layers .layer { cursor: pointer; }
+@media (hover: hover) { #wb-layers .layer:not(.on):hover { color: var(--fg); background: var(--hair-2); } }
+#wb-layers .layer.anim::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 999px; background: var(--amber); vertical-align: 1px; }
+#wb-layers .layer.anim.on::before { background: var(--ink); }
+#wb-layers .layer .what { opacity: .8; }
 #wb-hl.select::after { background: var(--white); }
 #wb-scope { position: fixed; pointer-events: none; border: 1px dashed var(--muted); border-radius: 8px; z-index: 14; display: none; }
 #wb-pins { position: fixed; inset: 0; pointer-events: none; z-index: 15; }
@@ -364,3 +370,14 @@ body.picking-notes .canvas-pin { pointer-events: none; }
 #wb-path .path.on { stroke-opacity: 1; stroke-dasharray: none; stroke-width: 2; }
 #wb-path .tick { fill: #fff; }
 #wb-path text { font: 600 10px var(--mono); fill: #fde68a; }
+
+/* ---- code timelines (40-code.js) ---- */
+.lane-name .code-chip { flex: none; margin-left: -4px; font: 600 11px/1 var(--mono); font-style: normal; color: var(--muted); padding: 2px 4px; border-radius: 4px; background: var(--fill); }
+.btn.code-item { padding: 0 12px; font-size: 12px; color: var(--dim); }
+.btn.code-item[hidden] { display: none; }
+.btn.code-item.warn { color: #f5b14c; }
+.hint.prompt { height: 28px; padding: 0 3px 0 12px; gap: 6px; z-index: 5; color: var(--fg); max-width: max(320px, calc(100% - 440px)); }
+.hint.prompt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hint.prompt button { flex: none; height: 22px; padding: 0 10px; border-radius: 999px; background: var(--fill-2); color: var(--white); font: 600 12px/1 var(--sans); }
+@media (hover: hover) { .hint.prompt button:hover { background: rgba(255, 255, 255, 0.18); } }
+@media (max-width: 520px) { .btn.code-item { display: none; } }

@@ -85,6 +85,26 @@ class FancyCard extends HTMLElement {
 }
 customElements.get("fancy-card") || customElements.define("fancy-card", FancyCard)
 
+// ?story: a marketing story section, as a real one was built: a drawn
+// underline (an svg with pointer-events: none) under a word, with a faint map
+// image laid over it; a quote that floats, with an emphasised word and an
+// underlined word of their own; a word that pops in later (opacity 0 until then).
+const MAP = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#3a4a6a"/></svg>')
+function Story() {
+  return (
+    <section className="story">
+      <div className="world">
+        <span className="rough">everywhere<svg className="rough-svg" viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><g><path className="rough-path" d="M2 12 C 50 4, 120 18, 198 8" /></g></svg></span>
+        <img className="world-map" src={MAP} alt="" />
+      </div>
+      <blockquote className="quote">
+        <p>Notes that <strong className="em">land</strong> on the <span className="rough-underline">right<svg className="ru-svg" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><path className="ru-path" d="M1 8 C 30 2, 60 11, 99 5" /></svg></span> element.</p>
+      </blockquote>
+      <p className="lead-in">Plain words, then <em className="pop">pop</em></p>
+    </section>
+  )
+}
+
 function App() {
   const [shown, setShown] = useState(false)
   const [go, setGo] = useState(false)
@@ -92,6 +112,7 @@ function App() {
   return (
     <>
       <Header />
+      {location.search.includes("story") && <Story />}
       <main>
         <div className="relative">
           <Hero shown={shown} />
@@ -151,4 +172,35 @@ if (location.search.includes("next")) {
   let owner = null
   for (const name of chain.slice().reverse()) owner = { type: fn(name), _debugOwner: owner, return: owner }
   card.__reactFiber$fixture = { type: "div", _debugOwner: owner, return: owner }
+}
+
+// ?turbo: a Next 15 (Turbopack) client page, as React's fibers show it: the
+// <span> a motion library rendered (its stack is the library's code, bundled
+// into the same chunk as the app's, /_next/static/chunks/_7506e531._.js, with
+// an index source map), inside the component the app wrote (<motion.span> in
+// app/hero.jsx).
+if (location.search.includes("turbo")) {
+  const span = document.createElement("span")
+  span.className = "turbo-underline"
+  span.textContent = "Drawn by a library"
+  document.body.prepend(span)
+  const chunk = `${location.origin}/_next/static/chunks/_7506e531._.js`
+  const lib = `${location.origin}/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js`
+  const stack = (...frames) => ({ stack: ["Error: react-stack-top-frame", ...frames].join("\n") })
+  const fn = (name) => Object.defineProperty(function () {}, "name", { value: name })
+  const hero = { type: fn("Hero"), _debugOwner: null, return: null, _debugStack: stack(`    at Page (${chunk}:20:5)`) }
+  const motion = { type: { render: fn("MotionComponent") }, _debugOwner: hero, return: hero, _debugStack: stack(`    at exports.jsxDEV (${chunk}:3:9)`, `    at Hero (${chunk}:15:12)`, `    at Object.react_stack_bottom_frame (${lib}:13072:24)`) }
+  span.__reactFiber$fixture = { type: "span", _debugOwner: motion, return: motion, _debugStack: stack(`    at exports.createElement (${lib}:1576:67)`, `    at useRender (${chunk}:6:12)`, `    at MotionComponent (${chunk}:9:12)`, `    at Object.react_stack_bottom_frame (${lib}:13072:24)`) }
+  // The same, as a real Next 15.5 app has it: the library in a chunk of its
+  // own (node_modules_….js), and below React's frames one from a script inline
+  // in the page (Retake's runtime): F136.
+  const split = document.createElement("span")
+  split.className = "turbo-split"
+  split.textContent = "Drawn by a library, own chunk"
+  document.body.prepend(split)
+  const libChunk = `${location.origin}/_next/static/chunks/node_modules_17760e31._.js`
+  const below = [`    at Object.react_stack_bottom_frame (${lib}:13072:24)`, `    at renderWithHooks (${lib}:4097:28)`, `    at MessagePort.<anonymous> (${location.origin}/:269:17)`]
+  const motion2 = { type: { render: fn("MotionComponent") }, _debugOwner: hero, return: hero, _debugStack: stack(`    at exports.jsxDEV (${libChunk}:203:88)`, `    at Hero (${chunk}:15:12)`, ...below) }
+  const dom = { type: { render: fn("MotionDOMComponent") }, _debugOwner: motion2, return: motion2, _debugStack: stack(`    at exports.jsxs (${lib}:1953:74)`, `    at MotionDOMComponent (${libChunk}:6230:199)`, ...below) }
+  split.__reactFiber$fixture = { type: "span", _debugOwner: dom, return: dom, _debugStack: stack(`    at exports.createElement (${lib}:1576:67)`, `    at useRender (${libChunk}:5518:191)`, `    at MotionDOMComponent (${libChunk}:6237:215)`, ...below) }
 }

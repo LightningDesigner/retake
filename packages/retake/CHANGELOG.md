@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.5.2
+
+- Group notes: a container whose children each run their own animation (an
+  equalizer's bars) offers **Whole group** on its row. One note then covers
+  every child: each one's animation, where it is defined, its point or range on
+  its own clock and its own exact edit. Children that share one `@keyframes`
+  (or the same keyframes) get a one-edit shortcut. `get_note`, `get_moment`,
+  `get_animation` and `list_notes` show the group.
+- A note is about the animation that moves. Instant animations (0ms, or between
+  equal values, like a library setting a value) are never its subject; they
+  fold into one "Also running" line with their count. The same animation
+  started again (on scroll) is one entry with its run times, not one per run.
+  A loop that ends where it starts (most equalizers and pulses) is motion, not
+  an instant animation.
+- The exact edit says what it is for: changing only the note's point or range.
+  For broad requests ("faster", "slower", "start earlier", "hold longer") the
+  note adds an `Intent:` line with what to change instead. Loops get an exact
+  edit too (it applies to every iteration), also for a range across the end of
+  an iteration. A range's exact edit says to keep the marked stops as they are
+  (they hold today's values at the edges), so the motion outside the range
+  stays put; a range across the end of an iteration lists the keyframes it
+  passes there.
+- Picking: the list under ⌘ shows everything stacked at the pointer, also what
+  takes no pointer events (a drawn underline under an overlay image, the stroke
+  under an inline word), and marks what's animating. The pick prefers what
+  moves: the stroke, not the image over it or the quote around it; a word that
+  pops in later, not its paragraph. Move onto the list and click any row (a
+  quick click too, also when the note opens right under it).
+- On an open animation, Shift+←/→ grows a range from the point (10ms a press,
+  stopping on keyframes; ⌥ to the next keyframe) and the hint reads it; ⌥+←/→
+  moves the point keyframe to keyframe (was Shift).
+- Source lines on Next 15 with Turbopack: an element a library rendered (Motion,
+  bundled into the app's chunk) gets the line where the app used it, not
+  "maps into library code", also when the library has a chunk of its own.
+- Timelines keep their own code, in every mode (Vite, frameworks behind
+  `retake <project>` / `retake -- <cmd>`, Next's `proxy.ts` / `middleware.ts`).
+  Every edit, yours or your agent's, belongs to the timeline you're in; with
+  separate code on, stepping into a timeline puts its code on disk first, so
+  Timeline 1 still rebuilds the old animation after the agent changed it in
+  Timeline 2. The newest code goes back on disk when Retake stops (and after a
+  crash, at the next start). The first code change with two timelines asks
+  **Separate code** or **Share code** (kept per project; also a lane's
+  right-click menu, `--code-timelines` / `--no-code-timelines`,
+  `retake({ codeTimelines })`, `RETAKE_CODE_TIMELINES` for Next's proxy).
+  `--code-branches` still works and turns it on.
+- The server owns which code each timeline has (`.retake/code-timelines.json`;
+  `GET /__retake/code`, `POST /__retake/code/checkout`, `GET /__retake/code/diff`).
+  A lane whose code changed shows `±` (hover: the files); the top row says whose
+  code is on disk; a switch says which files changed.
+- Agents: `acknowledge` puts the note's timeline's code on disk and moves the
+  dock there, and holds it while the agent works (switching away asks first).
+  `get_note` says whose code is on disk; `resolve` says when an edit landed on
+  another timeline. New tools: `checkout_timeline`, `get_code_diff`. Notes
+  carry `codeVersion` and `resolvedVersion`.
+- Safe with git: HEAD, the index and refs are never touched; a checkout waits
+  while git is busy; a branch switch pauses swapping until you resume. Framework
+  output (`next-env.d.ts`, `.svelte-kit`, `.nuxt`, `*.gen.ts`...) and
+  `.retake/ignore` paths are never swapped. While files switch, the dev server's
+  hot updates are held so a half-written tree never reloads the app.
+- `retake code status | list | checkout <timeline> | restore [version] |
+  export <timeline>` works from a terminal, with or without a dev server;
+  `export` makes a git branch of a timeline's code without touching your working
+  tree.
+- Front server: a kept page is served again whenever the code it was rendered
+  with is back on disk.
+
 ## 0.5.1
 
 - Notes on animations work the way web animation does: per element, on the
