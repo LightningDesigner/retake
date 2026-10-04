@@ -401,6 +401,31 @@ test("F135: a quick click on a row of the layer list opens the note on that laye
   expect(h.dockErrors).toEqual([])
 })
 
+// F148: a real click straight on a row (the pointer jumps there, no moves on
+// the way) went through the list, which takes the pointer only once it's
+// heading there: the app got the press, the list was rebuilt under the click
+// and the pick was whatever the page had there. The row must pick its layer,
+// and the press must never reach the app.
+test("F148: a click that jumps straight onto a row of the layer list picks that layer; the app gets nothing", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const p = await pointIn(h, ".rough-underline", 0.5, 0.4)
+  await hoverMeta(h, p)
+  const row = page.locator("#wb-layers .layer", { hasText: "blockquote.quote" })
+  await expect(row).toBeVisible()
+  const r = await row.boundingBox()
+  await h.rt(() => {
+    window.__got = []
+    for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) document.addEventListener(t, (e) => window.__got.push(e.type), true)
+  })
+  await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2)
+  await page.keyboard.up("Meta")
+  await page.waitForTimeout(200)
+  await expect(page.locator("#wb-note")).toBeVisible()
+  await expect(page.locator("#wb-note .note-meta .el")).toHaveText("<blockquote.quote>")
+  expect(await h.rt(() => window.__got)).toEqual([])
+  expect(h.dockErrors).toEqual([])
+})
+
 // F142: a heading over a map image, one word underlined by a thin stroke that
 // draws in (span > svg > g > path, fill none, the svg out of hit testing and
 // below the word). ⌘ on the word listed the span (no animation of its own) and

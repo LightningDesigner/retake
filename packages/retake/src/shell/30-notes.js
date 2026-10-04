@@ -39,6 +39,20 @@ const innerTarget = (e) => {
 }
 shell.inspect = (e) => {
   const el = innerTarget(e)
+  // The pointer jumped from where the list was built onto it, before the list
+  // took the pointer: the list is what it's on, not the page under it (F148).
+  // A press there picks the row; the rest of that click is the list's too.
+  // (Coming from anywhere else, a list left over from before is no target.)
+  const fromList = layersAt && layersAt.moved && prevMove && Math.hypot(prevMove.x - layersAt.x, prevMove.y - layersAt.y) < 2
+  const over = (fromList || layersEl.classList.contains("reach")) && overLayers(e.clientX, e.clientY)
+  if (over && e.type !== "wheel" && e.type !== "keydown") {
+    layersEl.classList.add("reach")
+    if (e.type === "pointerdown") {
+      const row = over.closest("[data-layer]")
+      if (row) pressRow(row)
+    }
+    return
+  }
   if (e.type === "pointermove" || e.type === "pointerover") {
     // On its way to the layer list, the pointer leaves the list as it is (F127).
     const prev = prevMove
@@ -530,12 +544,35 @@ function inHull(h, q) {
   return h.length > 2
 }
 
+// The list's row (or the list) at a point of the frame, while it's shown:
+// the list doesn't take the pointer until it heads there, so the app's frame
+// gets what lands on it (F148).
+function overLayers(x, y) {
+  if (layersEl.hidden || !layers.length || !D.frame) return null
+  const f = D.frame.getBoundingClientRect()
+  const px = f.left + x
+  const py = f.top + y
+  const inside = (r) => px >= r.left && px < r.right && py >= r.top && py < r.bottom
+  if (!inside(layersEl.getBoundingClientRect())) return null
+  for (const row of layersEl.querySelectorAll("[data-layer]")) if (inside(row.getBoundingClientRect())) return /** @type {HTMLElement} */ (row)
+  return layersEl
+}
+
 // A press on a row picks that layer, as a click on the app would have.
 layersEl.addEventListener("pointerdown", (e) => {
   const row = /** @type {HTMLElement | null} */ (/** @type {Element} */ (e.target).closest("[data-layer]"))
   if (!row || !layersAt) return
   e.preventDefault()
   e.stopPropagation()
+  pressRow(row)
+})
+// Nothing of a press on the list is the dock's or the app's.
+for (const t of ["mousedown", "pointerup", "mouseup", "click"]) layersEl.addEventListener(t, (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+})
+function pressRow(row) {
+  if (!layersAt) return
   layerIdx = Number(row.dataset.layer)
   const p = pick()
   if (!p) return
@@ -548,7 +585,7 @@ layersEl.addEventListener("pointerdown", (e) => {
   p.picked = pickedInfo(p)
   if (mode() === "select") setScope(p.el)
   else openComposer(p.el, { x: layersAt.x, y: layersAt.y }, p)
-})
+}
 
 // How the pick was made, for the note: on top, or a layer down, and what was
 // skipped above it.

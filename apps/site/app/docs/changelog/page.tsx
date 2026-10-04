@@ -6,6 +6,7 @@ import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
 export const metadata: Metadata = docMetadata("changelog")
 
 const toc = [
+  { id: "v0-5-4", label: "0.5.4" },
   { id: "v0-5-3", label: "0.5.3" },
   { id: "v0-5-2", label: "0.5.2" },
   { id: "v0-5-1", label: "0.5.1" },
@@ -25,6 +26,13 @@ function Release({ id, version, tag }: { id: string; version: string; tag: strin
 export default function Changelog() {
   return (
     <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-4" version="0.5.4" tag="Fixes" />
+      <ul>
+        <li><K>Enter</K> opens an animation at its start even when the playhead is in its delay, so the arrows and <K>Shift</K>+arrows work straight away.</li>
+        <li>A click on a row of the <K>⌘</K> layer list picks that layer and never reaches the page.</li>
+        <li>The note keeps focus when a rebuild replays a click.</li>
+      </ul>
+
       <Release id="v0-5-3" version="0.5.3" tag="Keyboard" />
       <ul>
         <li><b>Everything by keyboard.</b> After ⌘-click, <K>Enter</K> or <K>↓</K> opens the element&apos;s animation, <K>↑</K>/<K>↓</K> moves between its animations, <K>Shift</K>+<K>←</K>/<K>→</K> makes a range, <K>G</K> turns on Whole group. Every item on the animation row is also a real button for screen readers.</li>

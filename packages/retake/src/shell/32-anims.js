@@ -591,8 +591,9 @@ function clearFocus() {
   D.focusDrag = null
 }
 
-// Opening a clip fits the view to it and, if the playhead is outside it, goes
-// to its start, where its Animation can be read.
+// Opening a clip fits the view to it and, if the playhead is outside it or in
+// its delay (where every frame is its first, F147), goes to its start, where
+// its Animation can be read.
 function openFocusClip(clip) {
   const f = D.focus
   if (!f) return
@@ -605,8 +606,8 @@ function openFocusClip(clip) {
   const pad = Math.max((end - clip.start) * 0.15, 10)
   setView(clip.start - pad, end + pad)
   const s = D.last
-  if (s && !runningAt(clip, shownTime(s))) {
-    const at = Math.min(f.open.model.timing.activeStart + 1, end)
+  const at = Math.min(f.open.model.timing.activeStart + 1, end)
+  if (s && (!runningAt(clip, shownTime(s)) || shownTime(s) < at - 1.5)) {
     f.pin = null
     goTo(at)
   }

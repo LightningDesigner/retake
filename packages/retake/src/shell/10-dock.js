@@ -596,7 +596,8 @@ function tellDock(height) {
 
 // A frame built behind can take the window's focus (its replay focused a
 // field). If the user was typing in the dock (a note, a timeline's name),
-// they get it back.
+// they get it back, also when that frame was swapped in before this ran (the
+// app on show is view-only: its focus isn't the user's, F147).
 let dockField = null
 document.addEventListener("focusin", (e) => {
   const el = /** @type {HTMLElement | null} */ (e.target)
@@ -606,7 +607,7 @@ function guardFocus() {
   if (!dockField) return
   const a = document.activeElement
   if (a === dockField) return
-  if (dockField.isConnected && a && a.tagName === "IFRAME" && (a.classList.contains("building") || a.classList.contains("checkpoint"))) {
+  if (dockField.isConnected && a && a.tagName === "IFRAME" && (a.classList.contains("building") || a.classList.contains("checkpoint") || (a === D.frame && !isInteractive()))) {
     try {
       dockField.focus({ preventScroll: true })
       return

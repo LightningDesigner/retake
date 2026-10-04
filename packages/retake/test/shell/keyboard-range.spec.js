@@ -189,3 +189,39 @@ test("F141: the row's clips are buttons, named and reachable without a pointer; 
   await expect.poll(() => openName(page)).toBe("opacity")
   expect(h.dockErrors).toEqual([])
 })
+
+// Enter with the playhead in the main clip's delay (F147): the clip opened
+// there, the point stayed in the delay, where every frame reads "in the delay",
+// so → looked frozen and Shift+→ gave a range of negative local times. It opens
+// at its local 0 (as from outside it), then → and Shift+→ step its own clock.
+const localPin = (page) => dock(page, (D) => (D.focus.pin != null ? Math.round(D.focus.pin - D.focus.open.model.timing.activeStart) : null))
+for (const where of ["note", "page"]) {
+  test(`F147: Enter in the clip's delay opens it at its start; → steps the point, Shift+→ ×2 a range (focus in the ${where === "note" ? "empty note" : "page"})`, async ({ page }) => {
+    const { h, ticker } = await recordAnims(page, URL)
+    // The ticker waits 200ms before it moves.
+    await h.seek(ticker.start + 100)
+    await metaClick(h, ".ticker")
+    const ta = page.locator("#wb-note textarea")
+    await expect(ta).toBeFocused()
+    if (where === "page") {
+      await ta.evaluate((el) => el.blur())
+      expect(await page.evaluate(() => document.activeElement.tagName)).toBe("BODY")
+    }
+    await page.keyboard.press("Enter")
+    await expect.poll(() => dock(page, (D) => !!D.focus.open)).toBe(true)
+    await expect(page.locator(".hint")).toContainText("Open: transform")
+    await h.settle()
+    // The build behind replays a click (focus goes into its frame): a note being written keeps it.
+    if (where === "note") await expect(ta).toBeFocused()
+    const local = () => dock(page, (D) => Math.round((D.last.previewing ? D.last.previewAt : D.last.now) - D.focus.open.model.timing.activeStart))
+    expect(await local()).toBe(1)
+    await page.keyboard.press("ArrowRight")
+    await expect.poll(() => localPin(page)).toBe(18)
+    await expect(page.locator("#wb-note .note-at")).toContainText("at 18ms")
+    await page.keyboard.press("Shift+ArrowRight")
+    await page.keyboard.press("Shift+ArrowRight")
+    await expect.poll(() => localRange(page)).toEqual([18, 30])
+    await expect(page.locator(".hint")).toContainText("Range 18–30ms")
+    expect(h.dockErrors).toEqual([])
+  })
+}

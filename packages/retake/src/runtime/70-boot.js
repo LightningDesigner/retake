@@ -112,7 +112,7 @@ function record() {
 }
 
 Object.assign(PT, {
-  version: "0.5.3",
+  version: "0.5.4",
   now: () => clock.now,
   record,
   // Play from here: replays the recorded future, then carries on live.

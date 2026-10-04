@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4
+
+- Enter on a picked element whose animation was still in its delay opened it
+  there, so ←/→ seemed to do nothing and Shift+←/→ gave a range in negative
+  milliseconds. It now opens at the animation's start, as clicking its capsule
+  does, and the arrows step its own clock.
+- A note being written keeps the keyboard focus when going to another moment
+  replays a click in the app.
+- A click on a row of the ⌘ layer list picks that layer even when the pointer
+  jumps straight onto it, and the click never reaches the page under the list.
+
 ## 0.5.3
 
 - Ranges without a mouse: after a ⌘-click, Enter or ↓ opens the element's
