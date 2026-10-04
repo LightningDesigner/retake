@@ -210,6 +210,9 @@ button:active { transform: scale(0.96); }
 
 .track { position: relative; flex: 1; min-width: 80px; overflow: hidden; cursor: default; touch-action: none; }
 .lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; user-select: none; }
+/* The element row's canvas items as buttons (32-anims.js syncRowKeys): seen only when focused. */
+.row-keys { position: absolute; inset: 0; pointer-events: none; }
+.row-keys button { position: absolute; margin: 0; padding: 0; border: 0; border-radius: 7px; background: none; color: transparent; font-size: 0; cursor: inherit; pointer-events: auto; }
 body.scrubbing, body.scrubbing .track { cursor: ew-resize; }
 body.branching .track, body.branching .track * { cursor: crosshair !important; }
 

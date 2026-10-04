@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.5.3
+
+- Ranges without a mouse: after a ⌘-click, Enter or ↓ opens the element's
+  animation on its own clock (in the note while it's still empty, or with the
+  focus out of it), ↑/↓ go through its other animations, and the hint names the
+  one open ("Open: fadeUp · 600ms (1 of 2)"). Then ←/→ steps it and Shift+←/→
+  grows a range, as before. Esc closes it.
+- G (⌥G while in the note) turns **Whole group** on or off on a picked
+  container, and the hint says so.
+- The element row's animations and the Whole group chip are buttons over the
+  canvas: named for screen readers ("Open fadeUp, 600ms", "Whole group, 5
+  animations"), reachable with Tab and pressed with Enter, and found by role in
+  automation. Pointer clicks work as before.
+- Picking: a thin animated stroke inside the element under the pointer (an
+  underline's `<path>` drawn with `stroke-dashoffset`, fill none, its svg out of
+  hit testing and below the word) is in the ⌘ list, marked with its animation.
+  A few pixels off the stroke it's the pick; over the middle of the word the
+  word stays the pick.
+- Notes say what started each animation: ":hover on a.card", a press
+  (`:active`), a click, a focus, a key, with the moment. One hover that started
+  several effects on the element and its `::before`/`::after` (border color,
+  shadow, glow) is one "Hover state" entry listing each effect, so "feels off
+  here" is about the whole hover, not one property.
+- With nothing running at the note's moment (a press is over before a pause can
+  keep it), the note lists what ran last on the element and inside it, newest
+  first, with what started each: "pressed at 00:14.02 → transform transition
+  150ms". A moment inside the press gets the press's transition.
+- Media: a note on motion that is a `<video>` (a background clip) describes it:
+  source, current time and duration at the moment, loop, playbackRate, and how
+  to make it calmer or faster.
+- While the app is live its keys are its own (space types into a field the app
+  focused). ⌥P always plays and pauses, also with the focus in an app field;
+  the play button works with the app's field focused too.
+
 ## 0.5.2
 
 - Group notes: a container whose children each run their own animation (an

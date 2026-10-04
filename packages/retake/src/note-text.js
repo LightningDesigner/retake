@@ -854,6 +854,52 @@ function instantLine(a) {
   return `Also running: ${animTitle(a)} on ${rel}${n > 1 ? ` ×${n}` : ""} (instant: ${dur < 1 ? "0ms" : "no change"} each, so it jumps straight to its end values; not the motion this note is about)${v}`
 }
 
+// ---- what started it, what ran before, media (F143, F144, F146) ---------------------------------
+
+const STATE_TITLE = { hover: "Hover state", unhover: "Leaving hover", press: "Pressed state (:active)", release: "Release (end of :active)", click: "Click", focus: "Focus state", blur: "Leaving focus", key: "Key press" }
+const TRIGGER_VERB = { hover: "hovered", unhover: "pointer left", press: "pressed", release: "released", click: "clicked", focus: "focused", blur: "blurred", key: "key" }
+const effectText = (e) => `${e.name} ${msText(e.dur)}${e.delay ? ` after ${msText(e.delay)}` : ""} on ${e.pseudo ? `${e.on === "this element" ? "this element's" : e.on} ${e.pseudo}` : e.on}${e.from && e.to ? ` ${valuesText(e.from)} → ${valuesText(e.to)}` : ""}${e.id ? ` (clip ${e.id})` : ""}`
+
+/** One trigger's effects on the element (a hover's border, glow and shadow): one subject. */
+export function stateLines(note, ctx = {}) {
+  const st = note.state
+  // One effect: its "started by" line says it all.
+  if (!st || !st.trigger || !st.effects || st.effects.length < 2) return []
+  const start = ctx.start || 0
+  const tr = st.trigger
+  const shown = new Set((note.anims || []).map((a) => a.id))
+  const above = st.effects.filter((e) => shown.has(e.id))
+  const whole = tr.kind === "hover" ? "hover" : tr.kind === "press" ? "press" : tr.kind === "focus" ? "focus" : "state"
+  const sel = tr.kind === "hover" ? " Their rules share the trigger's selector (:hover)." : tr.kind === "press" ? " Their rules share the trigger's selector (:active)." : tr.kind === "focus" ? " Their rules share the trigger's selector (:focus / :focus-visible)." : ""
+  const lines = [`${STATE_TITLE[tr.kind] || "State"}: started by ${tr.what || tr.kind} at ${clockText(tr.t - start)} (recording); it started ${st.effects.length} effects together on this element${above.length ? ` (${above.length > 1 ? "clips " : "clip "}${above.map((e) => e.id).join(", ")} described here${above.length < st.effects.length ? ", the rest below" : ""})` : ""}. Read the note as about this whole ${whole} (every effect, their shared timing and easing) unless it names one property.${sel}`]
+  for (const e of st.effects) if (!shown.has(e.id)) lines.push(`  - ${effectText(e)}`)
+  return lines
+}
+
+/** Nothing runs at the moment: what ran on it (and inside it) last, newest first, with what started each. */
+export function recentLines(note, ctx = {}) {
+  const list = note.recent || []
+  if (!list.length) return []
+  const start = ctx.start || 0
+  const lines = ["Recent animations on it and inside it (nothing runs at this moment; newest first):"]
+  for (const e of list) lines.push(`  - ${e.trigger ? `${TRIGGER_VERB[e.trigger.kind] || e.trigger.kind} at ${clockText(e.trigger.t - start)}` : `started at ${clockText(e.start - start)}`} → ${effectText(e)}, ran ${clockText(e.start - start)} → ${e.end != null ? clockText(e.end - start) : "still running"}`)
+  if (list.some((e) => e.trigger && (e.trigger.kind === "press" || e.trigger.kind === "release"))) lines.push("  A press (:active) is over before a pause can keep it: a note on how a press feels is about these.")
+  return lines
+}
+
+/** Video and audio that move the picture: their frames, not a CSS or JS animation. */
+export function mediaLines(note) {
+  const list = note.media || []
+  if (!list.length) return []
+  const lines = []
+  for (const m of list) {
+    const at = `${num(m.currentTime, 2)}s${m.duration != null ? ` of ${num(m.duration, 2)}s` : ""}`
+    lines.push(`Media: ${m.label || "media"} (${m.where || "here"})${m.selector ? ` ${m.selector}` : ""}, src ${m.src || "?"}, at ${at}, ${m.loop ? "loop, " : ""}playbackRate ${num(m.playbackRate, 2)}, ${m.paused ? "paused" : "playing"}${m.muted ? ", muted" : ""}${m.autoplay ? ", autoplay" : ""}`)
+  }
+  lines.push("  Its motion is the media's frames, not a CSS or JS animation: for calmer or faster, set playbackRate (e.g. video.playbackRate = 0.6 once it loads; the attribute doesn't exist) or use another clip; for less of it, style the element (opacity, filter, a poster image); to hold a frame, pause it at a currentTime.")
+  return lines
+}
+
 /** The animation block: the primary animation first, then the others, the scope and the How line. */
 export function animationBlock(note, ctx = {}) {
   const anims = collapseAnims(note.anims || [])
@@ -861,10 +907,13 @@ export function animationBlock(note, ctx = {}) {
   const lines = []
   const group = note.group && Array.isArray(note.group.members) && note.group.members.length ? note.group : null
   if (!anims.length) {
-    if (!group) lines.push(note.range ? "Nothing animates on this element in this range." : "Nothing animates on this element at this moment.")
+    if (!group) lines.push(note.media && note.media.length ? "No CSS or JS animation runs on this element at this moment; what moves here is media (below)." : note.range ? "Nothing animates on this element in this range." : "Nothing animates on this element at this moment.")
+    lines.push(...recentLines(note, ctx))
   } else {
     const p = primaryOf({ anims })
     lines.push(...animLines(p, ctx, note))
+    lines.push(...stateLines(note, ctx))
+    lines.push(...recentLines(note, ctx))
     const sc = scopeLine(note, p)
     if (sc) lines.push(sc)
     if (!group) lines.push(...intentLines(note, p, !!(p.from && p.to)))
@@ -872,13 +921,15 @@ export function animationBlock(note, ctx = {}) {
     const plan = editPlan(p.relation === "on" && note.target && note.target.selector ? { ...p, selector: note.target.selector } : p)
     if (plan.length) lines.push(EDIT_USE, ...plan)
     const rest = anims.filter((x) => x !== p).sort((x, y) => (isInstant(x) ? 1 : 0) - (isInstant(y) ? 1 : 0))
-    for (const a of rest) lines.push("", ...(isInstant(a) ? [instantLine(a)] : animLines(a, ctx, note).map((l, i) => (i === 0 ? l.replace(/^Animation:/, "Also running:") : l))))
+    const stated = note.state && note.state.effects && note.state.effects.length > 1 ? new Set(note.state.effects.map((e) => e.id)) : new Set()
+    for (const a of rest) lines.push("", ...(isInstant(a) ? [instantLine(a)] : animLines(a, ctx, note).filter((l) => !(stated.has(a.id) && l.startsWith("  started by "))).map((l, i) => (i === 0 ? l.replace(/^Animation:/, "Also running:") : l))))
   }
   if (group) {
     if (anims.length) lines.push("")
     lines.push(...groupBlock(note, ctx))
     return lines
   }
+  lines.push(...mediaLines(note))
   const inside = note.inside || []
   lines.push(`Also inside the element (not this note's subject): ${inside.length ? inside.slice(0, 6).map((c) => `${c.name || "animation"} on ${c.selector || "?"}${c.id ? ` (clip ${c.id})` : ""}`).join(", ") + (inside.length > 6 ? `, +${inside.length - 6} more` : "") : "none"}`)
   return lines
@@ -957,8 +1008,9 @@ export function atPhrase(note) {
   const g = note.group
   if (g && g.members && g.members.length) return `${note.range ? "a range of " : ""}${g.members.length} animations inside ${g.label || el}: ${groupNames(g)}`
   if (!a) return null
-  if (a.from && a.to) return `${Math.round(a.from.local)}–${Math.round(a.to.local)}ms (${num(a.from.progress * 100, 0)}–${num(a.to.progress * 100, 0)}%) of ${a.name || "its animation"} on ${el}`
-  if (a.at) return a.at.phase === "delay" ? `in the delay of ${a.name || "its animation"} on ${el}` : `at ${Math.round(a.at.local)}ms (${num(a.at.progress * 100, 0)}%) of ${a.name || "its animation"} on ${el}`
+  const st = note.state && note.state.effects && note.state.effects.length > 1 ? ` (${(STATE_TITLE[note.state.trigger.kind] || "state").toLowerCase()}: ${note.state.effects.length} effects)` : ""
+  if (a.from && a.to) return `${Math.round(a.from.local)}–${Math.round(a.to.local)}ms (${num(a.from.progress * 100, 0)}–${num(a.to.progress * 100, 0)}%) of ${a.name || "its animation"}${st} on ${el}`
+  if (a.at) return a.at.phase === "delay" ? `in the delay of ${a.name || "its animation"}${st} on ${el}` : `at ${Math.round(a.at.local)}ms (${num(a.at.progress * 100, 0)}%) of ${a.name || "its animation"}${st} on ${el}`
   return null
 }
 

@@ -289,6 +289,39 @@ function candidates(raw) {
   return list
 }
 
+// Moving svg shapes inside an element at the point, though the point misses
+// them: hit testing only finds a stroke under the pointer exactly (fill none, a
+// 2px line), and an underline's svg often sits below the word it underlines.
+// Near the point (6px): under the pointer, so preferred as the pick; or, inside
+// a short element like a word, across the point's x within that element's line:
+// listed only (`aside`), the word stays the pick (F142).
+const NEAR_PX = 6
+function movingShapesNear(el, x, y, aside) {
+  let r = null
+  try {
+    r = runningClips(el.ownerDocument)
+  } catch {
+    return []
+  }
+  if (!r.shapes) {
+    const pool = new Set([...r.byEl.keys()])
+    for (const c of r.loose) for (const n of c.selector ? findAll(c.selector, el.ownerDocument) : []) pool.add(n)
+    r.shapes = [...pool].filter((n) => isSvg(n) && n.tagName.toLowerCase() !== "svg")
+  }
+  if (!r.shapes.length) return []
+  const box = el.getBoundingClientRect()
+  const line = !isSvg(el) && box.height <= 80 ? box : null
+  return r.shapes.filter((n) => n !== el && el.contains(n) && animOf(n) && near(n, x, y, line, aside))
+}
+function near(n, x, y, line, aside) {
+  const b = n.getBoundingClientRect()
+  if (x < b.left - NEAR_PX || x > b.right + NEAR_PX) return false
+  if (y >= b.top - NEAR_PX && y <= b.bottom + NEAR_PX) return true
+  if (!line || b.top < line.top - NEAR_PX || b.bottom > line.bottom + 2 * NEAR_PX) return false
+  aside.add(n)
+  return true
+}
+
 // 0 content (text, media, a control, or it paints something), 1 an empty box,
 // 2 decorative, 3 invisible.
 function rankOf(el, below) {
@@ -323,8 +356,12 @@ function buildLayers(x, y, fallback, full = true) {
   } catch {}
   const els = []
   const seenEls = new Set()
+  const aside = new Set()
   for (const raw of doc ? hitList(doc, x, y, full) : []) {
-    for (const el of candidates(raw)) {
+    // A moving shape inside it the point misses (a thin stroke, fill none) comes first (F142).
+    const list = candidates(raw)
+    if (!animOf(raw)) list.unshift(...movingShapesNear(raw, x, y, aside))
+    for (const el of list) {
       if (seenEls.has(el)) continue
       // An svg's <g> is only a layer when it moves.
       if (/^(g|defs|symbol|mask|clipPath)$/.test(el.tagName) && isSvg(el) && !animOf(el)) continue
@@ -340,7 +377,7 @@ function buildLayers(x, y, fallback, full = true) {
     const below = els.slice(z + 1).filter((b) => b.tagName !== "IFRAME" && (ownText(b) || b.matches(MEDIA)) && !b.contains(el))
     const { rank, why } = rankOf(el, below)
     const moving = animOf(el)
-    const host = { el, pseudo: null, anim: null, name: null, label: layerLabel(el), rank, why: why || null, z, moving: moving ? animLabel(moving) : null }
+    const host = { el, pseudo: null, anim: null, name: null, label: layerLabel(el), rank, why: why || null, z, moving: moving ? animLabel(moving) : null, aside: aside.has(el) }
     const pseudos = []
     let anims = []
     try {
@@ -360,7 +397,8 @@ function buildLayers(x, y, fallback, full = true) {
   const order = groups.map((g, i) => ({ g, i })).sort((a, b) => a.g[0].rank - b.g[0].rank || a.i - b.i)
   const out = order.flatMap((o) => o.g)
   if (!out.length && fallback) out.push({ el: fallback, pseudo: null, anim: null, name: null, label: layerLabel(fallback), rank: 0, why: null, z: 0, moving: null })
-  const key = out.map((l) => l.label).join("|")
+  // A shape only listed (aside) and the same one under the pointer are different lists: the pick follows.
+  const key = out.map((l) => (l.aside ? `~${l.label}` : l.label)).join("|")
   if (key !== layersKey) {
     layersKey = key
     layerIdx = defaultLayer(out)
@@ -377,12 +415,12 @@ function buildLayers(x, y, fallback, full = true) {
 // then: F126), or, for an image or box with no text of its own, a moving
 // shape, image or text it covers (a drawn underline under a map: F124).
 function defaultLayer(list) {
-  let i = list.findIndex((l) => l.rank === 0)
-  if (i < 0) i = list.findIndex((l) => l.rank < 2)
+  let i = list.findIndex((l) => l.rank === 0 && !l.aside)
+  if (i < 0) i = list.findIndex((l) => l.rank < 2 && !l.aside)
   if (i < 0) return 0
   let l = list[i]
   if (!l.moving && !l.pseudo) {
-    let j = list.findIndex((x) => x.moving && !x.pseudo && x.el !== l.el && l.el.contains(x.el))
+    let j = list.findIndex((x) => x.moving && !x.pseudo && !x.aside && x.el !== l.el && l.el.contains(x.el))
     if (j < 0 && !ownText(l.el) && !l.el.matches(CONTROL)) j = list.findIndex((x) => x.moving && !x.pseudo && x.z > l.z && x.rank < 2 && !x.el.contains(l.el) && (isSvg(x.el) || x.el.matches(MEDIA) || ownText(x.el)))
     if (j >= 0) (i = j), (l = list[j])
   }
@@ -1259,6 +1297,9 @@ function noteForServer(n) {
     inside: n.inside || [],
     asked: n.asked || null,
     group: n.group || null,
+    state: n.state || null,
+    recent: n.recent || null,
+    media: n.media || null,
   }
 }
 
@@ -1273,7 +1314,7 @@ function noteFromServer(n) {
     classes: n.classes || [],
     source: n.source || null,
   }
-  return { id: n.id, branchId: n.branchId, t: n.t, text: n.text || "", el, clip: n.clip || null, status: n.status || "pending", replies: n.replies || [], range: n.range || null, target: n.target || null, anims: n.anims || null, inside: n.inside || [], asked: n.asked || null, group: n.group || null }
+  return { id: n.id, branchId: n.branchId, t: n.t, text: n.text || "", el, clip: n.clip || null, status: n.status || "pending", replies: n.replies || [], range: n.range || null, target: n.target || null, anims: n.anims || null, inside: n.inside || [], asked: n.asked || null, group: n.group || null, state: n.state || null, recent: n.recent || null, media: n.media || null }
 }
 
 // A change from outside (an agent replied, or marked it resolved).
@@ -1457,6 +1498,22 @@ function openComposer(el, point, layer) {
   ta.addEventListener("input", updateAsked)
   // Enter saves and folds the note down to its pin; Shift+Enter is a new line.
   ta.addEventListener("keydown", (e) => {
+    // The element's row by keys while the note is still empty (F140): Enter or
+    // ↓ opens its main clip, ↑/↓ its other clips, ←/→ step it, Shift+←/→ a
+    // range; ⌥G Whole group (G types a g).
+    const k = e.key
+    let row = false
+    if (!ta.value && !e.metaKey && !e.ctrlKey) {
+      if ((k === "ArrowDown" || k === "ArrowUp") && !e.altKey && !e.shiftKey) row = focusClipKey(k === "ArrowDown" ? 1 : -1)
+      else if (k === "ArrowLeft" || k === "ArrowRight") row = focusStep(k === "ArrowRight" ? 1 : -1, { tick: e.altKey, extend: e.shiftKey })
+      else if (k === "Enter" && !e.shiftKey && !e.altKey) row = focusClipKey(1, true)
+    }
+    if (!row && e.altKey && e.code === "KeyG" && !e.metaKey && !e.ctrlKey) row = groupKey()
+    if (row) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       saveDraft()
@@ -1482,7 +1539,7 @@ function saveDraft() {
     const clip = extra.t !== draft.t && !draft.el.pseudo ? clipFor(extra.t, draft.el.selector, D.focus && D.focus.el) : draft.clip
     // A dragged range wins over numbers typed in the note.
     const asked = extra.range && D.focus && D.focus.open ? null : extra.asked
-    D.notes.push({ id: newNoteId(), t: extra.t, branchId: D.activeId, text, el: draft.el, clip, status: "pending", replies: [], range: extra.range, target: extra.target, anims: extra.anims, inside: extra.inside, asked, group: extra.group || null })
+    D.notes.push({ id: newNoteId(), t: extra.t, branchId: D.activeId, text, el: draft.el, clip, status: "pending", replies: [], range: extra.range, target: extra.target, anims: extra.anims, inside: extra.inside, asked, group: extra.group || null, state: extra.state || null, recent: extra.recent || null, media: extra.media || null })
   }
   closeCard()
   // Back to the Hand so the next click is on the prototype, not another note.

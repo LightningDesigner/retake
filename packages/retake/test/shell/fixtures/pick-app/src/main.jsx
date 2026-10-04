@@ -88,7 +88,9 @@ customElements.get("fancy-card") || customElements.define("fancy-card", FancyCar
 // ?story: a marketing story section, as a real one was built: a drawn
 // underline (an svg with pointer-events: none) under a word, with a faint map
 // image laid over it; a quote that floats, with an emphasised word and an
-// underlined word of their own; a word that pops in later (opacity 0 until then).
+// underlined word of their own; a word that pops in later (opacity 0 until then);
+// a heading over a map image with a thin underline drawn under one word (span >
+// svg > g > path, the stroke only, the svg out of hit testing and below the word).
 const MAP = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#3a4a6a"/></svg>')
 function Story() {
   return (
@@ -101,6 +103,12 @@ function Story() {
         <p>Notes that <strong className="em">land</strong> on the <span className="rough-underline">right<svg className="ru-svg" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><path className="ru-path" d="M1 8 C 30 2, 60 11, 99 5" /></svg></span> element.</p>
       </blockquote>
       <p className="lead-in">Plain words, then <em className="pop">pop</em></p>
+      <div className="sherpa-world-map">
+        <img className="sherpa-world-map-image" src={MAP} alt="" />
+        <div className="sherpa-world-map-heading">
+          <h3 className="font-heading">Stories that travel <span className="sherpa-rough-underline">far<svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><g><path d="M1 6 C 30 2, 60 9, 99 4" /></g></svg></span></h3>
+        </div>
+      </div>
     </section>
   )
 }

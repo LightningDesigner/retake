@@ -401,6 +401,38 @@ test("F135: a quick click on a row of the layer list opens the note on that laye
   expect(h.dockErrors).toEqual([])
 })
 
+// F142: a heading over a map image, one word underlined by a thin stroke that
+// draws in (span > svg > g > path, fill none, the svg out of hit testing and
+// below the word). ⌘ on the word listed the span (no animation of its own) and
+// what's around it, not the moving path. Over the word's middle the path is
+// listed and the word stays the pick (as for the hero's underlined word); at
+// the stroke, a few px off it, the path is the pick.
+test("F142: ⌘ on an underlined word lists its drawing path, marked; near the stroke it's the pick", async ({ page }) => {
+  const h = await setup(page, "?story")
+  const mid = await pointIn(h, ".sherpa-rough-underline", 0.5, 0.45)
+  await hoverMeta(h, mid)
+  await expect(page.locator("#wb-layers .layer.anim", { hasText: "path" })).toContainText("sherpa-rough-underline-draw")
+  await expect(page.locator("#wb-layers .layer.on")).toContainText("span.sherpa-rough-underline")
+  await page.keyboard.up("Meta")
+  const path = await h.box(".sherpa-rough-underline path")
+  const p = { x: path.x + path.w / 2, y: path.y + path.h / 2 - 4 }
+  // ⌘ pressed with the pointer already there (moved there with ⌘ held, it heads for the list, which stays).
+  await page.mouse.move(p.x, p.y)
+  await page.keyboard.down("Meta")
+  const row = page.locator("#wb-layers .layer", { hasText: "path" })
+  await expect(row).toHaveCount(1)
+  await expect(row).toHaveClass(/anim/)
+  await expect(row).toContainText("sherpa-rough-underline-draw")
+  await expect(page.locator("#wb-layers .layer.on")).toContainText("path")
+  await expect(page.locator("#wb-layers")).toContainText("span.sherpa-rough-underline")
+  await expect(page.locator("#wb-layers")).toContainText("img.sherpa-world-map-image")
+  await page.keyboard.up("Meta")
+  const n = await noteAt(h, p, "Draw it faster")
+  expect(n.el.label).toMatch(/path/)
+  expect((await noteClip(page)).label).toBe("sherpa-rough-underline-draw")
+  expect(h.dockErrors).toEqual([])
+})
+
 // F128: on Next 15 with Turbopack a motion library's code is bundled into the
 // same chunk as the app's: every frame of the element's own stack maps into the
 // library, and the source stayed the chunk's line ("maps into library code").

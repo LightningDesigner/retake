@@ -6,6 +6,7 @@ import { C, DocArticle, H3, K } from "../../../src/docs/ui.tsx"
 export const metadata: Metadata = docMetadata("changelog")
 
 const toc = [
+  { id: "v0-5-3", label: "0.5.3" },
   { id: "v0-5-2", label: "0.5.2" },
   { id: "v0-5-1", label: "0.5.1" },
   { id: "v0-5-0", label: "0.5.0" },
@@ -24,6 +25,15 @@ function Release({ id, version, tag }: { id: string; version: string; tag: strin
 export default function Changelog() {
   return (
     <DocArticle slug="changelog" toc={toc} lede={<>What changed in each release of <a href={NPM} target="_blank" rel="noreferrer">retake-dev</a>.</>}>
+      <Release id="v0-5-3" version="0.5.3" tag="Keyboard" />
+      <ul>
+        <li><b>Everything by keyboard.</b> After ⌘-click, <K>Enter</K> or <K>↓</K> opens the element&apos;s animation, <K>↑</K>/<K>↓</K> moves between its animations, <K>Shift</K>+<K>←</K>/<K>→</K> makes a range, <K>G</K> turns on Whole group. Every item on the animation row is also a real button for screen readers.</li>
+        <li><b>Hover, press and focus.</b> A note says what started an animation (&quot;started by :hover&quot;) and groups all the effects one hover started. When nothing is moving at the note&apos;s moment, it lists the element&apos;s recent animations, presses included.</li>
+        <li><b>Thin animated shapes.</b> An animated SVG stroke under the pointer is listed and picked.</li>
+        <li><b>Video.</b> A note on a background video gives its time, length, loop and speed.</li>
+        <li><K>⌥P</K> pauses even when the app has a text field focused.</li>
+      </ul>
+
       <Release id="v0-5-2" version="0.5.2" tag="Groups and code" />
       <ul>
         <li><b>One note for a group.</b> Pick a container whose children each animate (an equalizer&apos;s bars) and choose <b>Whole group</b>: one note carries every child&apos;s animation, its point or range on its own clock and its own exact edit.</li>

@@ -178,6 +178,54 @@ function stackFrames(stack) {
   }
   return out
 }
+// What started a clip (F143): the user's input just before it, on the
+// element, inside it, or around it (a :hover rule on a parent styles its
+// children): { kind: hover|unhover|press|release|click|focus|blur|key, t, what, selector }.
+// A pointer move counts only when nothing else is near (moving into an
+// element fires pointerover too).
+const TRIGGER_MS = 150
+const TRIGGERS = { pointerover: "hover", pointerenter: "hover", mouseover: "hover", pointermove: "hover", pointerout: "unhover", pointerleave: "unhover", mouseout: "unhover", pointerdown: "press", mousedown: "press", touchstart: "press", pointerup: "release", mouseup: "release", touchend: "release", click: "click", focusin: "focus", focusout: "blur", keydown: "key" }
+// A click in the same moment as its press: the click (a class toggled on click); a press held: the press (:active).
+const TRIGGER_RANK = ["click", "press", "release", "key", "hover", "unhover", "focus", "blur"]
+function triggerOf(target, t) {
+  const evs = rec && rec.events
+  if (!evs || !target || target.nodeType !== 1 || target === document.body || target === document.documentElement) return null
+  let best = null
+  let move = null
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const ev = evs[i]
+    if (ev.t > t + 1) continue
+    if (ev.t < t - TRIGGER_MS) break
+    const kind = TRIGGERS[ev.type]
+    if (!kind || (ev.type === "pointermove" && move)) continue
+    let el = null
+    try {
+      el = ev.path && resolvePath(ev.path)
+    } catch {}
+    if (!el || el.nodeType !== 1 || !nearInput(el, target)) continue
+    if (ev.type === "pointermove") move = { kind, ev, el }
+    else if (best && ev.t < best.ev.t - 1) break
+    // Several at once (a press focuses the button too): the cause first.
+    else if (!best || TRIGGER_RANK.indexOf(kind) < TRIGGER_RANK.indexOf(best.kind)) best = { kind, ev, el }
+  }
+  const x = best || move
+  if (!x) return null
+  const tag = x.el.tagName.toLowerCase() + ([...x.el.classList].filter((c) => /^[a-z][\w-]*$/i.test(c)).slice(0, 1).map((c) => "." + c).join("") || (x.el.id ? `#${x.el.id}` : ""))
+  const key = x.kind === "key" && x.ev.key ? ` (${x.ev.key})` : ""
+  const what = { hover: `:hover on ${tag}`, unhover: `the pointer leaving ${tag} (end of :hover)`, press: `a press on ${tag} (:active)`, release: `a release on ${tag} (end of :active)`, click: `a click on ${tag}`, focus: `:focus on ${tag}`, blur: `blur on ${tag} (end of :focus)`, key: `a key${key} on ${tag}` }[x.kind]
+  return { kind: x.kind, t: x.ev.t, what, selector: selectorOf(x.el) }
+}
+// The input's element and the clip's: one inside the other, or close
+// relatives (within three levels above the clip's element).
+function nearInput(el, target) {
+  if (el === target || el.contains(target) || target.contains(el)) return true
+  let n = target
+  for (let i = 0; i < 3 && n; i++) {
+    n = n.parentElement
+    if (n && n !== document.body && n.contains(el)) return true
+  }
+  return false
+}
 function recordClip(e) {
   if (!rec || hasFuture() || clock.seeking) return // replaying: rec.clips already has it
   const clips = rec.clips || (rec.clips = [])
@@ -200,6 +248,8 @@ function recordClip(e) {
   }
   if (c.property === undefined) delete c.property
   if (c.component === undefined) delete c.component
+  const trigger = triggerOf(e.target, c.start)
+  if (trigger) c.trigger = trigger
   const stack = madeAt.get(e.anim)
   if (stack) {
     const frames = stackFrames(stack)

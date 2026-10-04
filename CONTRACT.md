@@ -24,7 +24,8 @@ Owners: S1 = src/runtime, src/core.js, src/plugin.js, src/code-versions.js, src/
 timeline() → { now, end, viewport: {w,h},
   markers:  [{ t, end?, kind: "click"|"submit"|"route"|"focus"|"type", label, selector? }],   // user actions only; "type" = one burst (<800ms gaps), label "typed 42 chars"
   clips:    [{ id, start, end|null, kind: "transition"|"css-animation"|"waapi"|"js", label, selector, component?, property?, path, iterations? ("infinite"|n), dur?, delay?, from?, to? (first/last keyframe values), kfs? (how many keyframes, when more than two), pseudoElement?,
-              stack?: [{ url, line, col }], first?, holds?: [[from, to]] }],   // js: inline style written frame after frame (GSAP, Motion's x, react-spring), from/to = first/last inline values, first = the values its first write set, holds = still stretches (≤ 1s) inside it; stack: where element.animate() was called
+              stack?: [{ url, line, col }], first?, holds?: [[from, to]],
+              trigger?: { kind: "hover"|"unhover"|"press"|"release"|"click"|"focus"|"blur"|"key", t, what, selector } }],   // trigger: the user's input just before it (≤150ms), on, inside or around its element   // js: inline style written frame after frame (GSAP, Motion's x, react-spring), from/to = first/last inline values, first = the values its first write set, holds = still stretches (≤ 1s) inside it; stack: where element.animate() was called
   activity: [{ t, v }] }                               // 10 Hz, v 0..1 = share of the viewport that changed, baselined (rolling 5s median); t = window start
 clipsFor(elementOrSelector) → clips                   // on that element and its descendants, incl. looping ones
 clipAt(t, selector?) → { clip, offset } | null      // offset = ms into that clip
@@ -162,7 +163,11 @@ checkout waits 250 ms and fetches the frame's page once) live on `globalThis` fo
            runs?:[{id,start,end}],                                    // the same animation started again on this element (≤ 60), one entry for all
            instant?:true }],                                          // 0ms or between equal values: never primary while anything else runs
   inside:[{id,selector,name}],
-  group?:{ selector, label, members:[{ selector, label, anim: anims[] entry (no samples) | null }] } }   // "Whole group": every animated child, at t / over range on its own clock
+  group?:{ selector, label, members:[{ selector, label, anim: anims[] entry (no samples) | null }] },   // "Whole group": every animated child, at t / over range on its own clock
+  state?:{ trigger, effects:[Effect] }|null,       // the primary's trigger and every clip it started on the element, its pseudo-elements and inside it (a hover state)
+  recent?:[Effect]|null,                            // nothing running at t: the element's and its subtree's clips that started before t, newest first (≤ 6)
+  media?:[{ selector, label, where:"this element"|"inside it"|"under the point", src, currentTime, duration, loop, playbackRate, paused, muted, autoplay }]|null }
+  // Effect = { id, name, on ("this element" | "<tag.class>"), selector, pseudo?, start, end, dur, delay?, from?, to?, trigger? }
   // Point = { T, local, iteration, phase:"delay"|"active"|"after", progress, eased, segment:{index,fromOffset,toOffset,easing,progress}, values, frame:{before,after}, geometry }
 
 ## Fallback

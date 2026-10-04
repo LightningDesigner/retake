@@ -127,6 +127,7 @@ export default function Features() {
       <H2 id="shortcuts">Keyboard shortcuts</H2>
       <p>
         These work in the dock, and in the app while it&apos;s view-only (paused or in the past). While you type in a field of the dock they&apos;re off, except <K>⌥P</K> and <K>⌥T</K>.
+        While the app is live, its keys are its own (<K>Space</K> types into a field it focused): <K>⌥P</K> always plays and pauses, wherever the focus is.
         On Windows and Linux, <K>⌥</K> is <K>Alt</K> and <K>⌘</K> is the Meta key.
       </p>
       <Table
@@ -141,8 +142,12 @@ export default function Features() {
           [<K key="k">⌥T</K>, "Collapse the dock to its corner button, or bring it back"],
           [<>Hold <K>⌘</K></>, "Pick an element to leave a note on (paused)"],
           [<><K>Tab</K> / <K>Shift</K>+<K>Tab</K></>, "While picking: the next or previous layer under the pointer"],
+          [<><K>Enter</K> or <K>↓</K></>, "On a picked element: open its animation on its own clock (in the note while it's empty, or with the focus out of it)"],
+          [<><K>↑</K> <K>↓</K></>, "On an open animation: the element's other animations; the hint names the one open"],
+          [<><K>←</K> <K>→</K> on an open animation</>, "Its frames (⌥: keyframe to keyframe; Shift: grow a range from the point)"],
+          [<><K>G</K> (<K>⌥G</K> in the note)</>, "Whole group on a picked container, or off again"],
           [<K key="k">Enter</K>, "Save the note (Shift+Enter: a new line)"],
-          [<K key="k">Esc</K>, "Close the note, leave the tool"],
+          [<K key="k">Esc</K>, "Close the open animation (or the group), then the note, then leave the tool"],
           [<><K>Ctrl</K>-click the track</>, "New take at that point"],
           [<><K>⌘</K>-scroll the track</>, "Zoom around the pointer (pinch works too)"],
           [<><K>Shift</K>-scroll the track</>, "Pan (or scroll sideways)"],

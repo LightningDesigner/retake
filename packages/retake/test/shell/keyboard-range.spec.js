@@ -2,9 +2,12 @@
 // point, Shift+←/→ grows a range from the point, 10ms of its own clock a press
 // (stopping on keyframes; ⌥ jumps to the next one), and the hint reads it;
 // ⌥+←/→ moves the point keyframe to keyframe; + branches at the playhead.
+// Opening a clip without a mouse (F140): after a ⌘-click, Enter or ↓ opens the
+// element's main clip, ↑/↓ go through its clips, the hint says which. The row's
+// canvas items are buttons too (F141).
 // Port 3338 (the anim-app fixture, served here).
 import { test, expect } from "@playwright/test"
-import { dock } from "./helpers.js"
+import { dock, openDock } from "./helpers.js"
 import { serveAnimApp, recordAnims, metaClick, rowPoint, openCapsule, activeStartOf } from "./anim-fixture.js"
 
 const PORT = 3338
@@ -82,4 +85,107 @@ test("+ branches a new timeline at the playhead", async ({ page }) => {
   const before = await dock(page, (D) => D.branches.length)
   await page.keyboard.press("+")
   await expect.poll(() => dock(page, (D) => D.branches.length)).toBe(before + 1)
+})
+
+// The pill: a transform and an opacity transition started together (#pop).
+async function onPill(page) {
+  const h = await openDock(page, URL)
+  await h.record()
+  await page.waitForTimeout(300)
+  await h.click("#pop")
+  await page.waitForTimeout(800)
+  await h.pause()
+  await page.waitForTimeout(300)
+  const tl = await h.rt(() => __retake.timeline())
+  const tr = tl.clips.filter((c) => c.kind === "transition" && /pill/.test(c.selector))
+  await h.seek(Math.min(...tr.map((c) => c.start)) + 150)
+  await metaClick(h, ".pill")
+  return h
+}
+const openName = (page) => dock(page, (D) => D.focus && D.focus.open && D.focus.open.clip.property)
+
+test("F140: after a ⌘-click, ↓ opens the main clip, ↑/↓ go through the element's clips, the hint says which; a range by keys; Esc closes", async ({ page }) => {
+  const h = await onPill(page)
+  const ta = page.locator("#wb-note textarea")
+  await expect(ta).toBeFocused()
+  await page.keyboard.press("ArrowDown")
+  await expect.poll(() => openName(page)).not.toBeNull()
+  const first = await openName(page)
+  await expect(page.locator(".hint")).toContainText(`Open: ${first} transition`)
+  await expect(page.locator(".hint")).toContainText(/\(\d of 2\)/)
+  await page.keyboard.press("ArrowDown")
+  await expect.poll(() => openName(page)).not.toBe(first)
+  const second = await openName(page)
+  expect([first, second].sort()).toEqual(["opacity", "transform"])
+  await expect(page.locator(".hint")).toContainText(`Open: ${second} transition`)
+  await page.keyboard.press("ArrowUp")
+  await expect.poll(() => openName(page)).toBe(first)
+  // A range from the point, by keys only, still in the empty note.
+  await page.waitForTimeout(500)
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight")
+  await expect.poll(() => dock(page, (D) => !!D.focus.range)).toBe(true)
+  await expect(page.locator(".hint")).toContainText("Range ")
+  // Esc closes the clip, then the note.
+  await page.keyboard.press("Escape")
+  await expect.poll(() => openName(page)).toBeNull()
+  await expect(page.locator("#wb-note")).toBeVisible()
+  // Enter in the empty note opens it too; typed, Enter saves the note with the clip.
+  await page.keyboard.press("Enter")
+  await expect.poll(() => openName(page)).toBe(first)
+  await expect(page.locator("#wb-note")).toBeVisible()
+  await ta.fill("Fade faster")
+  await ta.press("Enter")
+  await expect(page.locator("#wb-note")).toBeHidden()
+  expect(await dock(page, (D) => D.notes.at(-1).anims[0].name)).toBe(`${first} transition`)
+  expect(h.dockErrors).toEqual([])
+})
+
+test("F140: Enter or ↓ with the dock focused (not the note) opens the clip; Enter on a dock button still presses it", async ({ page }) => {
+  await onPill(page)
+  // Out of the note, which stays open.
+  await page.locator("#wb-note textarea").evaluate((el) => el.blur())
+  await expect(page.locator("#wb-note")).toBeVisible()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => openName(page)).not.toBeNull()
+  await page.keyboard.press("Escape")
+  await expect.poll(() => openName(page)).toBeNull()
+  await page.keyboard.press("ArrowDown")
+  await expect.poll(() => openName(page)).not.toBeNull()
+  await page.keyboard.press("Escape")
+  // Enter on Play plays (the row doesn't take it).
+  await page.locator("#wb-dock button.play").focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => dock(page, (D) => !!D.last.playing)).toBe(true)
+})
+
+test("F141: the row's clips are buttons, named and reachable without a pointer; Enter opens one, its Close button closes it", async ({ page }) => {
+  const h = await onPill(page)
+  const open = page.getByRole("button", { name: /^Open (transform|opacity) transition, \d+ms$/ })
+  await expect(open).toHaveCount(2)
+  const opacity = page.getByRole("button", { name: /^Open opacity transition/ })
+  // Over its capsule on the canvas.
+  const [b, cap] = await Promise.all([
+    opacity.boundingBox(),
+    dock(page, (D) => {
+      const r = document.querySelector(".lines").getBoundingClientRect()
+      const c = D.scene.focus.capsules.find((x) => x.clip.property === "opacity")
+      return { x: r.left + (c.x0 + c.x1) / 2, y: r.top + c.y }
+    }),
+  ])
+  expect(Math.abs(b.x + b.width / 2 - cap.x)).toBeLessThan(2)
+  expect(Math.abs(b.y + b.height / 2 - cap.y)).toBeLessThan(2)
+  await opacity.focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => openName(page)).toBe("opacity")
+  await expect(page.locator(".hint")).toContainText("Open: opacity transition")
+  const close = page.getByRole("button", { name: "Close opacity transition" })
+  await expect(close).toHaveAttribute("aria-expanded", "true")
+  await expect(close).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => openName(page)).toBeNull()
+  // A mouse click on the capsule (through the button) opens it once, as before.
+  await page.waitForTimeout(500)
+  await page.mouse.click(cap.x, cap.y)
+  await expect.poll(() => openName(page)).toBe("opacity")
+  expect(h.dockErrors).toEqual([])
 })

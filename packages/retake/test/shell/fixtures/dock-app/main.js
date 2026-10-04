@@ -130,3 +130,12 @@ if (flags.has("fiber")) {
   fake("hero", "Hero title", "Hero", [at("app._.js", "render", 5, 3), at("app._.js", "Hero", 12, 5)])
   fake("blob", "Blob title", "Blob", [at("blob-9f8e7d6c.js", "Blob", 14, 2)])
 }
+// ?autofocus: a hero with an autofocused textarea (focus is in the app from the start).
+if (flags.has("autofocus")) {
+  const ta = document.createElement("textarea")
+  ta.id = "ask"
+  ta.autofocus = true
+  ta.placeholder = "Ask anything"
+  document.body.prepend(ta)
+  ta.focus()
+}

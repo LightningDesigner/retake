@@ -245,3 +245,29 @@ test("a link to another site opens in a new tab; the app's frame and the timelin
   expect(await dock(page, (D) => D.PT.state().now)).toBeGreaterThan(before)
   expect(h.dockErrors).toEqual([])
 })
+
+// F145: an app that autofocuses a field: Space types into it while live (the
+// app has the keys), so the dock's key that always works is ⌥P; and the Play
+// button takes a click with the app's field focused.
+test("F145: with an app field focused, ⌥P pauses and plays, and a click on Play pauses", async ({ page }) => {
+  const h = await openDock(page, DOCK_URL + "?autofocus")
+  const playing = () => dock(page, (D) => !!(D.last && D.last.playing))
+  await expect.poll(playing).toBe(true)
+  const frame = await h.liveFrame()
+  await frame.locator("#ask").click()
+  await page.keyboard.type("hi there")
+  await expect(frame.locator("#ask")).toHaveValue("hi there")
+  await expect.poll(playing).toBe(true)
+  await page.keyboard.press("Alt+KeyP")
+  await expect.poll(playing).toBe(false)
+  await expect(frame.locator("#ask")).toHaveValue("hi there")
+  await page.keyboard.press("Alt+KeyP")
+  await expect.poll(playing).toBe(true)
+  // Focus back in the app's field, then the dock's Play button.
+  await (await h.liveFrame()).locator("#ask").click()
+  await page.locator("#wb-dock button.play").click()
+  await expect.poll(playing).toBe(false)
+  await page.locator("#wb-dock button.play").click()
+  await expect.poll(playing).toBe(true)
+  expect(h.dockErrors).toEqual([])
+})

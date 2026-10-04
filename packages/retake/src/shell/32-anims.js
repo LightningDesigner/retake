@@ -1217,6 +1217,114 @@ function extendRange(dir, tick, m, s) {
   return true
 }
 
+// ---- the element row by keys, and as buttons (F140, F141) ----------------------------------------
+
+// The focused element's clips in the row's order.
+const rowClips = (f) => [...f.entries].sort((a, b) => a.clip.start - b.clip.start || String(a.clip.id).localeCompare(String(b.clip.id)))
+const clipWord = (c) => `${clipName(c)}${c.kind === "transition" ? " transition" : ""}`
+// The hint says which clip is open (it's aria-live), then reads the playhead on it.
+function sayClip(f) {
+  const c = f.open.clip
+  const list = rowClips(f)
+  const i = list.findIndex((x) => x.clip.id === c.id)
+  const more = list.length > 1 ? ` (${i + 1} of ${list.length}) · ↑↓ its other clips` : ""
+  flash(`Open: ${clipWord(c)} · ${msWord(clipEndOf(c) - c.start)}${more} · Shift+←/→ range · Esc closes`, { warn: false })
+}
+// Enter or ↓ opens the focused element's main clip (the one a note would be
+// about); with a clip open, ↑/↓ go to its other clips. Returns true when the key was the row's.
+function focusClipKey(dir, enter = false) {
+  const f = D.focus
+  if (!f || f.group || !D.last) return false
+  if (!f.open) {
+    if (dir < 0) return false
+    if (!f.entries.length) {
+      if (enter) return false
+      flash(`Nothing animates on ${f.label}${f.groupN >= 2 ? ` · G: whole group (${f.groupN})` : ""}`, { warn: false })
+      return true
+    }
+    const p = primaryEntry(f.groups, f.pin != null ? f.pin : shownTime(D.last), f.range) || rowClips(f)[0]
+    openFocusClip(p.clip)
+  } else {
+    if (enter) return false
+    const list = rowClips(f)
+    if (list.length > 1) {
+      const i = list.findIndex((x) => x.clip.id === f.open.clip.id)
+      f.range = null
+      f.pin = null
+      openFocusClip(list[(i + dir + list.length) % list.length].clip)
+    }
+  }
+  sayClip(f)
+  refreshComposer()
+  return true
+}
+// G: Whole group on the focused container, or off again.
+function groupKey() {
+  const f = D.focus
+  if (!f) return false
+  if (!f.group && f.groupN < 2) {
+    flash(`No whole group on ${f.label}: fewer than two of its children animate`, { warn: false })
+    return true
+  }
+  toggleGroup()
+  flash(f.group ? `Whole group on · ${f.group.members.length} animations · G or Esc leaves it` : `Whole group off · ${f.label}`, { warn: false })
+  return true
+}
+
+// Canvas items can't be focused, read out or found by role: each capsule of
+// the closed row, the open clip and the Whole group chip get a transparent
+// button over them. A pointer press on one is the track's as before (its
+// click, detail > 0, is skipped); Enter, Space or a screen reader press it.
+const rowKeys = document.createElement("div")
+rowKeys.className = "row-keys"
+rowKeys.setAttribute("role", "group")
+rowKeys.setAttribute("aria-label", "Animations of the picked element")
+track.appendChild(rowKeys)
+let rowKeysMemo = ""
+function syncRowKeys(sc) {
+  const f = D.focus
+  const items = []
+  if (f && sc) {
+    if (!sc.open && !sc.group)
+      for (const c of sc.capsules) items.push({ key: `c${c.clip.id}`, label: `Open ${clipWord(c.clip)}, ${msWord(clipEndOf(c.clip) - c.clip.start)}`, box: [c.x0, c.y - c.h / 2, c.x1 - c.x0, c.h], act: () => {
+            openFocusClip(c.clip)
+            sayClip(D.focus)
+            refreshComposer()
+          } })
+    if (sc.open && sc.clip) items.push({ key: `o${f.open.clip.id}`, label: `Close ${clipWord(f.open.clip)}`, expanded: true, box: [sc.clip.x0, sc.clip.y - 7, sc.clip.x1 - sc.clip.x0, 14], act: () => closeFocusClip() })
+    const chip = sc.groupChip
+    if (chip) items.push({ key: "g", label: `Whole group, ${chip.count} animations`, pressed: chip.on, box: [chip.x0, chip.y - 7, chip.x1 - chip.x0, 14], act: () => groupKey() })
+  }
+  const memo = items.map((x) => `${x.key}:${x.label}:${x.pressed}:${x.box.map(Math.round).join(",")}`).join("|")
+  if (memo === rowKeysMemo) return
+  rowKeysMemo = memo
+  const had = rowKeys.contains(document.activeElement)
+  /** @type {Map<string, HTMLButtonElement>} */
+  const old = new Map([...rowKeys.querySelectorAll("button")].map((b) => [b.dataset.key, b]))
+  for (const x of items) {
+    let b = old.get(x.key)
+    old.delete(x.key)
+    if (!b) {
+      b = document.createElement("button")
+      b.type = "button"
+      b.dataset.key = x.key
+    }
+    rowKeys.appendChild(b)
+    b.setAttribute("aria-label", x.label)
+    if (x.pressed != null) b.setAttribute("aria-pressed", String(!!x.pressed))
+    if (x.expanded) b.setAttribute("aria-expanded", "true")
+    b.onclick = (e) => {
+      if (e.detail > 0) return
+      x.act()
+    }
+    const [l, t, w, h] = x.box
+    b.style.cssText = `left:${l}px;top:${t}px;width:${Math.max(6, w)}px;height:${Math.max(10, h)}px`
+  }
+  for (const b of old.values()) b.remove()
+  // The button pressed went (a capsule opened): the focus goes on to the row's first one.
+  if (had && !rowKeys.contains(document.activeElement) && rowKeys.firstElementChild) /** @type {HTMLElement} */ (rowKeys.firstElementChild).focus({ preventScroll: true })
+}
+
 const sameRange = (r, a, b) => a != null && b != null && Math.abs(Math.min(a, b) - r.from) < 0.5 && Math.abs(Math.max(a, b) - r.to) < 0.5
 
 // Shift+drag on the track: a range of recording time, before an element is picked.
@@ -1409,7 +1517,7 @@ function notePayload(d, { brief = false } = {}) {
   else if (f && f.pin != null) t = f.pin
   else if (f && f.touched && s) t = shownTime(s)
   const range = f && f.range ? { from: f.range.from, to: f.range.to } : null
-  const out = { t, range, target: null, anims: [], inside: [], asked: d.asked || null, group: null }
+  const out = { t, range, target: null, anims: [], inside: [], asked: d.asked || null, group: null, state: null, recent: null, media: null }
   if (!el || !el.isConnected) return out
   const groups = f.groups
   const chosen = f.open ? f.entries.find((x) => x.clip === f.open.clip) || { clip: f.open.clip, target: f.open.target, relation: f.open.relation } : null
@@ -1441,8 +1549,91 @@ function notePayload(d, { brief = false } = {}) {
     out.inside.push({ id: c.id, selector: c.selector || null, name: clipName(c) })
   }
   if (f.group) out.group = groupPayload(f, ctx)
-  if (!brief) out.target = targetOf(el, d, out.anims)
+  if (!brief) {
+    out.target = targetOf(el, d, out.anims)
+    out.state = stateOf(el, primary)
+    // Nothing runs at the moment (a press is over before you can pause): what ran last, newest first (F144).
+    if (!live.length) out.recent = recentOf(el, groups, range ? range.from : t)
+    out.media = mediaOf(el, d)
+  }
   return out
+}
+
+// The effects one trigger (a hover, a press, a focus) started on the element,
+// its ::before/::after and inside it: the note is about that whole state (F143).
+function stateOf(el, primary) {
+  const tr = primary && primary.clip.trigger
+  if (!tr) return null
+  const effects = []
+  for (const c of timeline().clips) {
+    if (!c.trigger || c.trigger.t !== tr.t || c.trigger.kind !== tr.kind || effects.length >= 12) continue
+    const on = clipElement(c, el.ownerDocument)
+    if (!on || !(on === el || el.contains(on))) continue
+    effects.push(clipBrief(c, on, el))
+  }
+  return effects.length ? { trigger: tr, effects } : null
+}
+function clipElement(c, doc) {
+  try {
+    return findEl(String(c.selector || "").replace(/::?[\w-]+$/, ""), doc)
+  } catch {
+    return null
+  }
+}
+function clipBrief(c, on, el) {
+  const out = { id: c.id, name: clipWord(c), on: on === el ? "this element" : `<${shortLabel(on)}>`, selector: c.selector || null, start: r1(c.start), end: c.end == null ? null : r1(c.end), dur: Math.round(clipEndOf(c) - c.start) }
+  if (c.pseudoElement) out.pseudo = c.pseudoElement
+  if (c.delay) out.delay = c.delay
+  if (c.from) out.from = c.from
+  if (c.to) out.to = c.to
+  if (c.trigger) out.trigger = c.trigger
+  return out
+}
+const RECENT_MAX = 6
+function recentOf(el, groups, t) {
+  const seen = new Set()
+  const clips = [...groups.on.map((x) => x.clip), ...groups.inside]
+    .filter((c) => c.start <= t + 0.5 && !instantClip(c) && !seen.has(c.id) && seen.add(c.id))
+    .sort((a, b) => b.start - a.start)
+    .slice(0, RECENT_MAX)
+  const list = clips.map((c) => clipBrief(c, clipElement(c, el.ownerDocument) || el, el))
+  return list.length ? list : null
+}
+
+// <video>/<audio> that move the picture: the element itself, inside it, or
+// under the note's point (a background video behind text). Their motion is
+// their frames: what plays, where it is, how fast (F146).
+function mediaOf(el, d) {
+  const doc = el.ownerDocument
+  const found = []
+  const add = (m, where) => found.length < 4 && !found.some((x) => x.m === m) && found.push({ m, where })
+  if (el.matches("video, audio")) add(el, "this element")
+  for (const m of el.querySelectorAll("video, audio")) add(m, "inside it")
+  const r = el.getBoundingClientRect()
+  const at = d && d.el && d.el.at
+  if (at && r.width && r.height) for (const n of everythingAt(doc, r.x + r.width * at.dx, r.y + r.height * at.dy)) if (n.matches("video, audio")) add(n, "under the point")
+  const out = found.map(({ m, where }) => {
+    const src = m.currentSrc || m.getAttribute("src") || (m.querySelector("source") && m.querySelector("source").getAttribute("src")) || ""
+    let selector = null
+    try {
+      selector = selectorInfo(m).selector
+    } catch {}
+    return {
+      selector,
+      label: `<${shortLabel(m)}>`,
+      where,
+      src: src.replace(/^[a-z]+:\/\/[^/]+/i, "").slice(0, 200),
+      currentTime: r1(m.currentTime || 0),
+      duration: Number.isFinite(m.duration) ? r1(m.duration) : null,
+      loop: !!m.loop,
+      playbackRate: m.playbackRate,
+      // Paused with the dock: whether the app has it playing (the runtime keeps that).
+      paused: !(m.__ptWants || !m.paused),
+      muted: !!m.muted,
+      autoplay: !!m.autoplay,
+    }
+  })
+  return out.length ? out : null
 }
 
 // One anims[] entry: the animation's model, and the note's point (or range) on its clock.
@@ -1453,6 +1644,7 @@ function animEntry(x, el, { t, range, brief, d }, primary, { samples = true } = 
   delete a.madeBy
   delete a.libChecked
   if (x.relation === "on" && el === x.target) definedByElement(a, d.el)
+  if (x.clip.trigger) a.trigger = x.clip.trigger
   // One @keyframes on several elements: editing it changes them all.
   if (a.kind === "css-animation") {
     const seen = new Set([x.clip.selector])

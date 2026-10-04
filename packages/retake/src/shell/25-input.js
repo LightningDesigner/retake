@@ -522,6 +522,9 @@ async function deleteTimeline(id) {
 
 const typing = (el) => el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
 
+// Enter on a button of the dock presses it.
+const onDockControl = (el) => !!(el && el.ownerDocument === document && el.closest && el.closest("button, a[href], summary, select, [role=button], [role=tab]"))
+
 // Returns true if the key was the dock's. fromApp: handed over by a view-only
 // app (its fields can't be typed in then, so a key in one is still the dock's).
 function dockKey(e, fromApp) {
@@ -538,6 +541,9 @@ function dockKey(e, fromApp) {
     togglePlay()
     return true
   }
+  // The focused element's row (F140): Enter or ↓ opens its main clip, ↑/↓ its other clips.
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey && !e.shiftKey && focusClipKey(e.key === "ArrowDown" ? 1 : -1)) return true
+  if (e.key === "Enter" && !e.altKey && !e.shiftKey && !onDockControl(e.target) && focusClipKey(1, true)) return true
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     // An open clip of the focused element: its own frames, keyframes (⌥), a range (Shift).
     if (focusStep(e.key === "ArrowRight" ? 1 : -1, { tick: e.altKey, extend: e.shiftKey })) return true
@@ -549,6 +555,7 @@ function dockKey(e, fromApp) {
     return true
   }
   if (e.altKey) return false
+  if (e.code === "KeyG" && !e.shiftKey && groupKey()) return true
   if (e.code === "KeyF") {
     fitAll()
     return true

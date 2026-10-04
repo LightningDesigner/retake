@@ -72,7 +72,7 @@ export default retake
 export const config = { runtime: "nodejs" }
 ```
 
-Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.2.tgz`): a
+Install it from the registry (or a tarball, `npm i ../retake-dev-0.5.3.tgz`): a
 `file:` or linked install is a symlink, which Turbopack doesn't follow out of the
 project, and `retake-dev/next` isn't found.
 
@@ -217,6 +217,13 @@ element between keyframes. Notes work the same way.
   child, then click a moment or drag a range. One note covers every child, each
   on its own clock, with its own exact edit; children that share one
   `@keyframes` (or the same keyframes) say so, for a single edit.
+- **Without a mouse**: after the ⌘-click, Enter or ↓ opens the element's
+  animation (in the note while it's still empty, or with the focus out of it),
+  ↑/↓ go through its other animations, and the hint names the one open; then
+  ←/→ and Shift+←/→ as above. G (⌥G in the note) turns Whole group on or off.
+  The row's animations and the Whole group chip are buttons too, named for
+  screen readers ("Open fadeUp, 600ms", "Whole group, 5 animations"), and
+  reachable with Tab.
 - Esc closes the open animation (or the group), then the note.
 
 The note carries, for that animation: its kind and where it's defined, timing,
@@ -234,6 +241,15 @@ values and the library named; Motion keyframes come with every keyframe, their
 `times` and each segment's ease, read off the component's props. A CSS
 transition's exact edit is its timing as `linear()` stops.
 
+The note also says what started each animation (":hover on a.card at
+00:12.30", a press, a click, a focus, a key) and, when one hover started several
+effects on the element and its `::before`/`::after` (border color, shadow,
+glow), lists them together as the hover state. With nothing running at the
+note's moment (a press is over before you can pause), it lists what ran last on
+the element and inside it, newest first: "pressed at 00:14.02 → transform
+transition 150ms". Motion that is a `<video>` (or audio) is described as media:
+its source, time, duration, loop and playbackRate.
+
 The exact edit is for "change it only here" requests. For timing, duration or
 shape ("faster", "start earlier", "hold longer"), the note adds an `Intent:`
 line with what to change instead. The note is about the animation that moves:
@@ -244,7 +260,10 @@ count, and an animation started again (on scroll) is one entry with its runs.
 - **Keys**: space or ⌥P plays and pauses, ←/→ step (on an open animation: its
   frames; ⌥: its keyframes; Shift: a range from the point), F fits everything, + starts a new timeline at
   the playhead, M drops a bookmark, ⌥T folds the dock away, Esc closes an open
-  animation, a selected range, then the note.
+  animation, a selected range, then the note. On a picked element: Enter or ↓
+  opens its animation, ↑/↓ its other ones, G Whole group. While the app is live
+  its keys are its own (space types into a field it focused); ⌥P always plays
+  and pauses, wherever the focus is.
 - **Resize** by dragging the divider at its top. Drag it all the way down and
   the timeline folds into a round button (bottom-right at first): the whole
   window is the app's, and recording carries on. Drag the button anywhere; it

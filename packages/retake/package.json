@@ -1,6 +1,6 @@
 {
   "name": "retake-dev",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Retake: a time machine for your dev server (Vite, Next.js, React Router, Remix, Astro, SvelteKit, Nuxt). Drag back on a timeline and your app is at that moment; branch a new take from there.",
   "homepage": "https://retake-omega.vercel.app",
   "repository": {

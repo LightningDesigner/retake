@@ -1,0 +1,14 @@
+/* Hover, press and media notes (state-notes.spec.js). */
+body { margin: 0; padding: 32px; font: 16px/1.4 system-ui, sans-serif; background: #fff; color: #111; }
+.card { position: relative; display: block; width: 280px; padding: 24px; border-bottom: 3px solid #ddd; color: #111; text-decoration: none;
+  transition: border-bottom-color 300ms ease-out, box-shadow 300ms ease-out; }
+.card::before, .card::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity 300ms ease-out; pointer-events: none; }
+.card::before { box-shadow: 0 0 24px #f5c84c; }
+.card::after { background: rgba(245, 200, 76, 0.1); }
+.card:hover { border-bottom-color: #f5c84c; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); }
+.card:hover::before, .card:hover::after { opacity: 1; }
+.press { padding: 12px 20px; font-size: 16px; transition: transform 150ms ease-out; }
+.press:active { transform: scale(0.94); }
+.foot { position: relative; height: 120px; margin-top: 32px; overflow: hidden; }
+.clouds { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.foot-text { position: relative; margin: 0; padding: 40px 24px; color: #fff; font-weight: 700; }

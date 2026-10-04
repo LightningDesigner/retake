@@ -219,3 +219,37 @@ test("F137: bars whose loops end where they start are motion: in the group, and 
   expect(text).toContain("Animation: @keyframes up-a on this element")
   expect(h.dockErrors).toEqual([])
 })
+
+// F141: the Whole group chip was drawn on the canvas only: no key, no button.
+// G (⌥G while typing the note) toggles it, the hint says so, and the chip is a
+// button named with its count, pressed while on.
+test("F141: G toggles Whole group on a focused container, announced; the chip is a button", async ({ page }) => {
+  const { h, tl } = await record(page, [["#go", 1800]])
+  const bars = tl.clips.filter((c) => /^#eq > .*\.bar/.test(c.selector || ""))
+  await h.seek(Math.min(...bars.map((c) => c.start)) + 1000)
+  await metaClick(h, "#eq", { x: 0.93, y: 0.2 })
+  const ta = page.locator("#wb-note textarea")
+  await expect(ta).toBeFocused()
+  const lanes = () => dock(page, (D) => (D.focus.group ? D.focus.group.members.length : 0))
+  await page.keyboard.press("Alt+KeyG")
+  await expect.poll(lanes).toBe(5)
+  await expect(page.locator(".hint")).toContainText("Whole group on · 5 animations")
+  await expect(ta).toHaveValue("")
+  const chip = page.getByRole("button", { name: "Whole group, 5 animations" })
+  await expect(chip).toHaveAttribute("aria-pressed", "true")
+  await page.keyboard.press("Alt+KeyG")
+  await expect.poll(lanes).toBe(0)
+  await expect(chip).toHaveAttribute("aria-pressed", "false")
+  // Out of the note: plain G; Esc leaves the group, the note stays.
+  await ta.evaluate((el) => el.blur())
+  await page.keyboard.press("g")
+  await expect.poll(lanes).toBe(5)
+  await page.keyboard.press("Escape")
+  await expect.poll(lanes).toBe(0)
+  await expect(page.locator("#wb-note")).toBeVisible()
+  // The button: Enter presses it.
+  await chip.focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(lanes).toBe(5)
+  expect(h.dockErrors).toEqual([])
+})

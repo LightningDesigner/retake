@@ -628,6 +628,7 @@ function renderTimeline(s, shownT) {
   })
   scene.drawMs = performance.now() - t0
   D.scene = scene
+  syncRowKeys(scene.focus)
   D.draws = (D.draws || 0) + 1
 }
 
